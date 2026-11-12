@@ -146,8 +146,8 @@ pub async fn illumination(db: &DbHandle, user_id: i32, capture_id: i32) -> i32 {
 ///
 /// The shape projection and discard both operate on: a row whose columns are derived from its
 /// members, and one member to derive them from.
-/// A claim, the shape the resolver or a capture writes: the identity, then the edge to it.
-pub async fn claim(
+/// One identity annotation, the shape a resolver or a capture writes.
+pub async fn identity(
     db: &DbHandle,
     knowledge_entity_id: i32,
     scheme: &str,
@@ -156,29 +156,24 @@ pub async fn claim(
     method: Option<&str>,
     confidence: Option<f32>,
 ) {
-    let identity = crate::knowledge::evidence::Evidence::from_handle(db)
-        .upsert_identity(&crate::knowledge::evidence::IdentityDraft {
-            scheme: scheme.to_string(),
-            external_id: external_id.to_string(),
-            provider: provider.to_string(),
-            method: method.map(str::to_string),
-            confidence,
-            label: None,
-            description: None,
-            classes: Vec::new(),
-        })
+    crate::knowledge::evidence::Evidence::from_handle(db)
+        .add_identity(
+            knowledge_entity_id,
+            provider,
+            &crate::knowledge::evidence::Identity {
+                scheme: scheme.to_string(),
+                external_id: external_id.to_string(),
+                method: method.map(str::to_string),
+                confidence,
+                label: None,
+                description: None,
+                classes: Vec::new(),
+                observation_id: None,
+            },
+            &Default::default(),
+        )
         .await
         .unwrap();
-    model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
-        knowledge_entity_id: sea_orm::Set(knowledge_entity_id),
-        knowledge_identity_id: sea_orm::Set(identity),
-        provider: sea_orm::Set(provider.to_string()),
-        method: sea_orm::Set(method.map(str::to_string)),
-        ..Default::default()
-    })
-    .exec(&db.conn)
-    .await
-    .unwrap();
 }
 
 pub async fn knowledge_entity_with_member(db: &DbHandle, name: &str) -> i32 {

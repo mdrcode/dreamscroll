@@ -15,12 +15,12 @@ mod shape;
 mod transport;
 mod types;
 
-pub(crate) use answer::AuthorityClaim;
+pub(crate) use answer::AuthorityIdentity;
 pub use candidate::Candidate;
 pub use kind::Kind;
 pub use resolver::Wikidata;
 
-/// This authority's id: the `provider` on every request, the `scheme` on every claim, and what
+/// This authority's id: the `provider` on every request, the `scheme` on every identity, and what
 /// `Resolver::id` returns. One spelling, because all three are compared.
 pub(crate) const ID: &str = "wikidata";
 

@@ -8,12 +8,12 @@ use crate::model::knowledge_verdicts::Kind;
 use super::Cause;
 use super::store::VerdictStore;
 
-/// What one veto did: the register row, and the claim it withdrew.
+/// What one veto did: the register row, and the annotation it withdrew.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct VetoReport {
     /// A new row was written; `false` when the same pairing was already recorded.
     pub recorded: bool,
-    /// Live claims retracted. Zero is settled: the pairing already held, or no row cites it.
+    /// Identity annotations deleted. Zero is settled: the pairing already held, or no row carries it.
     pub withdrawn: usize,
 }
 
@@ -38,7 +38,9 @@ impl VerdictStore {
             anyhow::bail!("no knowledge entity {entity_id}");
         };
         let Some(subject) = entity.origin_observation_id else {
-            anyhow::bail!("entity {entity_id} has no origin observation, so no verdict can name it");
+            anyhow::bail!(
+                "entity {entity_id} has no origin observation, so no verdict can name it"
+            );
         };
         let existing = model::knowledge_verdicts::Entity::find()
             .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
@@ -66,8 +68,8 @@ impl VerdictStore {
         Ok(true)
     }
 
-    /// Lift a veto. Nothing is un-retracted: lifting stops suppressing a decision, and the next
-    /// resolve re-derives the claim as a new row, because claims are append-only.
+    /// Lift a veto. Nothing is undeleted: lifting stops suppressing a decision, and the next resolve
+    /// recreates the identity annotation.
     pub async fn unveto(&self, verdict_id: i32) -> anyhow::Result<bool> {
         let deleted = model::knowledge_verdicts::Entity::delete_many()
             .filter(model::knowledge_verdicts::Column::Id.eq(verdict_id))
@@ -80,12 +82,10 @@ impl VerdictStore {
 
     /// The `(entity, scheme, external_id)` triples a live veto forbids.
     ///
-    /// Admission asks this before a claim is written: a claim that is never written cannot leave a
+    /// Admission asks this before an annotation is written: one that is never written cannot leave a
     /// window where the graph asserts something an editor has rejected, and does not need a replay to
     /// undo.
-    pub async fn vetoed(
-        &self,
-    ) -> anyhow::Result<std::collections::HashSet<(i32, String, String)>> {
+    pub async fn vetoed(&self) -> anyhow::Result<std::collections::HashSet<(i32, String, String)>> {
         let mut out = std::collections::HashSet::new();
         for verdict in self.vetoes().await? {
             let (Some(subject), Some(scheme), Some(external)) = (

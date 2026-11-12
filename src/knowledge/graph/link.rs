@@ -1,6 +1,6 @@
 //! The linking executor: a linker's decisions applied to a collection of observations.
 //!
-//! No network, no identities, no claims. The [`Linker`] decides, the executor attaches, and each
+//! No network, no identities. The [`Linker`] decides, the executor attaches, and each
 //! entity is projected so it exists with its surfaces. Asserting what a capture showed is the
 //! caller's job — see [`crate::knowledge::helper`], which knows that the batch is one illumination.
 
@@ -21,7 +21,7 @@ pub struct LinkReport {
     pub created: usize,
     /// Pending observations the Linker returned no decision for.
     pub left_pending: usize,
-    /// Claims a veto "verdict" refused — `vetoed` in the verdict store.
+    /// Identity annotations a veto "verdict" refused — `vetoed` in the verdict store.
     pub vetoed: usize,
 }
 
@@ -280,9 +280,8 @@ mod unit {
             Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker::new()),
         )
         .await;
-        let live_claims = || async {
-            crate::model::knowledge_claims::Entity::find()
-                .filter(crate::model::knowledge_claims::Column::RetractedAt.is_null())
+        let live_identities = || async {
+            crate::model::knowledge_identity::Entity::find()
                 .count(&db.conn)
                 .await
                 .unwrap()
@@ -302,7 +301,7 @@ mod unit {
         .await;
         let loaded = load_illumination(&db, first.illumination_id).await;
         link_illumination(&store, &loaded).await.unwrap();
-        assert_eq!(live_claims().await, 1);
+        assert_eq!(live_identities().await, 1);
 
         let entity_id = entity::Entity::find()
             .one(&db.conn)
@@ -314,13 +313,11 @@ mod unit {
             .veto(entity_id, "x_twitter", "tsoding", None)
             .await
             .unwrap();
-        store.replay_verdicts()
-            .await
-            .unwrap();
+        store.replay_verdicts().await.unwrap();
         assert_eq!(
-            live_claims().await,
+            live_identities().await,
             0,
-            "the veto retracted the capture's own claim"
+            "the veto deleted the capture's own identity"
         );
 
         let second = fixtures::Capture::new(&db, "link_veto_second").await;
@@ -341,7 +338,11 @@ mod unit {
             stats.vetoed, 1,
             "the capture writer asked the veto: {stats:?}"
         );
-        assert_eq!(live_claims().await, 0, "and did not write the edge");
+        assert_eq!(
+            live_identities().await,
+            0,
+            "and did not write the annotation"
+        );
         assert_eq!(
             entity::Entity::find().count(&db.conn).await.unwrap(),
             1,
@@ -357,7 +358,7 @@ mod corpus {
     use crate::model::knowledge_entity::Status;
     use crate::model::{knowledge_entity as entity, user_observed_entity as observation};
     use crate::test_support::db_or_skip;
-    use crate::test_support::fixtures::{self, entity_count, observe, Capture};
+    use crate::test_support::fixtures::{self, Capture, entity_count, observe};
 
     /// Nothing exists for either name yet, and every decision is made before any of them is written,
     /// so neither observation can find the other's entity: the batch is what keeps them apart, with
@@ -508,10 +509,10 @@ mod corpus {
         assert_eq!(
             entity_count(&db).await,
             1,
-            "the claim joined the existing entity instead of duplicating it"
+            "the identity joined the existing entity instead of duplicating it"
         );
         assert_eq!(
-            crate::model::knowledge_claims::Entity::find()
+            crate::model::knowledge_identity::Entity::find()
                 .count(&db.conn)
                 .await
                 .unwrap(),
@@ -519,8 +520,8 @@ mod corpus {
         );
     }
 
-    /// A handle arriving for an entity known only by its name. The claim is asserted on that entity;
-    /// no second one is minted for the handle alone.
+    /// A handle arriving for an entity known only by its name. The identity is annotated on that
+    /// entity; no second one is minted for the handle alone.
     ///
     /// This is the case an `Attach` carrying an identity exists for. Without the fall-through to
     /// similarity — "a handle means look it up, else create" — this capture would mint a second
@@ -567,12 +568,12 @@ mod corpus {
             "the handle joins the entity its name names"
         );
         assert_eq!(
-            crate::model::knowledge_claims::Entity::find()
+            crate::model::knowledge_identity::Entity::find()
                 .count(&db.conn)
                 .await
                 .unwrap(),
             1,
-            "and the claim is asserted on that entity"
+            "and the identity is annotated on that entity"
         );
     }
 

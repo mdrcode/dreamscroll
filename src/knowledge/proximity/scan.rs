@@ -2,11 +2,7 @@
 
 use std::collections::HashSet;
 
-use sea_orm::sea_query::{Expr, ExprTrait};
-use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, JoinType, QueryFilter,
-    QueryOrder, QuerySelect, RelationTrait, Set, TransactionTrait,
-};
+use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait};
 
 use crate::knowledge::evidence::Evidence;
 use crate::knowledge::scoring::Scoring;
@@ -20,16 +16,16 @@ use super::Basis;
 /// read through it. `scoring` is the store's policy, passed in rather than read from a facade.
 pub async fn scan(conn: &DatabaseConnection, scoring: &Scoring) -> anyhow::Result<usize> {
     let evidence = Evidence::from_connection(conn.clone());
-    let identities = identities_with_several_holders(conn).await?;
+    let keys = evidence.shared_identity_keys().await?;
 
     // Derive off the pool: Postgres is READ COMMITTED, so a read inside the transaction would see the
-    // same thing. One question per pair, even when two identities connect the same two entities.
+    // same thing. One question per pair, even when two keys connect the same two entities.
     // Unordered, so a change in which side is the holder cannot reopen it.
     let mut rows = Vec::new();
     let mut seen: HashSet<(i32, i32)> = HashSet::new();
-    for identity_id in identities {
+    for key in keys {
         // Most substantiated first: the survivor, and the reading order.
-        let holders = evidence.holders_of_identity(identity_id).await?;
+        let holders = evidence.query_entities_for_identity(&key).await?;
         let Some(holder) = holders.first() else {
             continue;
         };
@@ -43,7 +39,8 @@ pub async fn scan(conn: &DatabaseConnection, scoring: &Scoring) -> anyhow::Resul
             rows.push(Row {
                 holder_id: holder.id,
                 counterpart_id: other.id,
-                knowledge_identity_id: Some(identity_id),
+                scheme: Some(key.scheme.clone()),
+                external_id: Some(key.external_id.clone()),
                 score: Some(scoring.pair.score(other, holder)),
             });
         }
@@ -61,7 +58,8 @@ pub async fn scan(conn: &DatabaseConnection, scoring: &Scoring) -> anyhow::Resul
 struct Row {
     holder_id: i32,
     counterpart_id: i32,
-    knowledge_identity_id: Option<i32>,
+    scheme: Option<String>,
+    external_id: Option<String>,
     score: Option<f32>,
 }
 
@@ -83,7 +81,8 @@ async fn insert<C: ConnectionTrait>(conn: &C, row: &Row) -> anyhow::Result<usize
     model::knowledge_proximities::Entity::insert(model::knowledge_proximities::ActiveModel {
         holder_id: Set(row.holder_id),
         counterpart_id: Set(row.counterpart_id),
-        knowledge_identity_id: Set(row.knowledge_identity_id),
+        scheme: Set(row.scheme.clone()),
+        external_id: Set(row.external_id.clone()),
         basis: Set(Basis::SharedId.as_str().to_string()),
         score: Set(row.score),
         ..Default::default()
@@ -91,31 +90,4 @@ async fn insert<C: ConnectionTrait>(conn: &C, row: &Row) -> anyhow::Result<usize
     .exec_without_returning(conn)
     .await?;
     Ok(1)
-}
-
-/// Identities held by two or more live entities: the only source of candidates today.
-async fn identities_with_several_holders(conn: &DatabaseConnection) -> anyhow::Result<Vec<i32>> {
-    let rows = model::knowledge_claims::Entity::find()
-        .select_only()
-        .column(model::knowledge_claims::Column::KnowledgeIdentityId)
-        .filter(model::knowledge_claims::Column::RetractedAt.is_null())
-        .join(
-            JoinType::InnerJoin,
-            model::knowledge_claims::Relation::KnowledgeEntity.def(),
-        )
-        .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
-        .group_by(model::knowledge_claims::Column::KnowledgeIdentityId)
-        .having(
-            Expr::col((
-                model::knowledge_claims::Entity,
-                model::knowledge_claims::Column::KnowledgeIdentityId,
-            ))
-            .count()
-            .gt(1),
-        )
-        .order_by_asc(model::knowledge_claims::Column::KnowledgeIdentityId)
-        .into_tuple::<i32>()
-        .all(conn)
-        .await?;
-    Ok(rows)
 }

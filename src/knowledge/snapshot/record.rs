@@ -6,14 +6,13 @@
 //! Snapshotting **copies** rather than renames. Renaming the live tables would drag the foreign key
 //! from `user_observed_entities.knowledge_entity_id` along with them — Postgres keeps a constraint
 //! pointing at the same table — so the new empty entity table would have nothing referencing it while
-//! the archive did, and the fixed index name on the evidence table would then collide when it was
+//! the archive did, and the fixed index name on `knowledge_identities` would then collide when it was
 //! recreated. `CREATE TABLE AS SELECT` sidesteps all of it: a frozen artifact needs no constraints,
 //! and the live schema is left exactly as it was.
 
 use chrono::Utc;
 
 pub(super) const CORE_TABLE: &str = "knowledge_entities";
-pub(super) const CLAIMS_TABLE: &str = "knowledge_claims";
 pub(super) const IDENTITIES_TABLE: &str = "knowledge_identities";
 pub(super) const PROXIMITIES_TABLE: &str = "knowledge_proximities";
 
@@ -32,10 +31,6 @@ impl Snapshot {
 
     pub fn entities(&self) -> String {
         format!("{CORE_TABLE}__{}", self.suffix)
-    }
-
-    pub fn claims(&self) -> String {
-        format!("{CLAIMS_TABLE}__{}", self.suffix)
     }
 
     pub fn identities(&self) -> String {

@@ -27,33 +27,30 @@ END;
 $sync$;
 "#;
 
-/// One row per identity, ever. `(scheme, external_id)` is what an identity is.
+/// One provider annotates one entity with one key once. The provider is part of the key so two
+/// authorities may corroborate one identity without overwriting each other.
 const IDENTITIES_UNIQUE: &str = r#"
-CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_identities_identity"
+CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_identities_entity_provider_identity"
+    ON knowledge_identities (knowledge_entity_id, provider, scheme, external_id)
+"#;
+
+/// The durable key is looked up across entities: `query_entities_for_identity`, the proximity scan,
+/// and a veto from the identity side.
+const IDENTITIES_KEY: &str = r#"
+CREATE INDEX IF NOT EXISTS "idx-knowledge_identities_identity"
     ON knowledge_identities (scheme, external_id)
 "#;
 
-/// One provider asserts an identity for an entity once. Retracting frees the slot, so the claim is a
-/// fact with a timestamp rather than a status. Two providers may assert the same identity.
-const CLAIMS_UNIQUE: &str = r#"
-CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_entity_identity_provider"
-    ON knowledge_claims (knowledge_entity_id, knowledge_identity_id, provider)
-    WHERE retracted_at IS NULL
+/// Selection asks whether one provider has annotated a set of entities.
+const IDENTITIES_PROVIDER: &str = r#"
+CREATE INDEX IF NOT EXISTS "idx-knowledge_identities_provider_entity"
+    ON knowledge_identities (provider, knowledge_entity_id)
 "#;
 
-/// Selection reads one provider's claims for a set of entities; the unique index is entity-first.
-const CLAIMS_PROVIDER: &str = r#"
-CREATE INDEX IF NOT EXISTS "idx-knowledge_claims_provider_entity"
-    ON knowledge_claims (provider, knowledge_entity_id)
-    WHERE retracted_at IS NULL
-"#;
-
-/// Identity-first reads: proximity scans group by identity, and the resolver checks collisions from
-/// the identity side. The unique index above is entity-first and cannot serve them.
-const CLAIMS_IDENTITY: &str = r#"
-CREATE INDEX IF NOT EXISTS "idx-knowledge_claims_identity"
-    ON knowledge_claims (knowledge_identity_id)
-    WHERE retracted_at IS NULL
+/// Stats count observations against the annotation that carried them.
+const IDENTITIES_OBSERVATION: &str = r#"
+CREATE INDEX IF NOT EXISTS "idx-knowledge_identities_observation"
+    ON knowledge_identities (user_observed_entity_id)
 "#;
 
 /// Projection reads one entity's members; without this it scans every observation.
@@ -119,11 +116,10 @@ $sync$;
 const DROP_BEFORE_SYNC: &str = r#"
 DO $sync$
 BEGIN
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_identities_entity_provider_identity');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_identities_identity');
-    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_entity_identity');
-    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_entity_identity_provider');
-    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_provider_entity');
-    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_identity');
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_identities_provider_entity');
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_identities_observation');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-user_observed_entities-knowledge_entity');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_proximities_pair');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_blocking_index-surfaces');
@@ -132,35 +128,17 @@ END;
 $sync$;
 "#;
 
-/// Schema 24 renamed the proximity basis from `shared_identity` to `shared_id`. Runs *after* the
-/// unique index is dropped: two rows that differed only by basis collide once renamed, which is how a
-/// stale writer's rows showed up as duplicates. The dedupe keeps the oldest of an identical pair.
-const MIGRATE_PROXIMITY_BASIS: &str = r#"
-DO $sync$
-BEGIN
-    IF to_regclass('knowledge_proximities') IS NOT NULL THEN
-        UPDATE knowledge_proximities SET basis = 'shared_id' WHERE basis = 'shared_identity';
-        DELETE FROM knowledge_proximities a USING knowledge_proximities b
-         WHERE a.id > b.id AND a.holder_id = b.holder_id AND a.counterpart_id = b.counterpart_id
-           AND a.basis = b.basis
-           AND coalesce(a.knowledge_identity_id, 0) = coalesce(b.knowledge_identity_id, 0);
-    END IF;
-END;
-$sync$;
-"#;
-
 pub async fn before_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(BACKFILL_ALT_SEARCH_QUERIES).await?;
     conn.execute_unprepared(DROP_BEFORE_SYNC).await?;
-    conn.execute_unprepared(MIGRATE_PROXIMITY_BASIS).await?;
     Ok(())
 }
 
 pub async fn after_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(IDENTITIES_UNIQUE).await?;
-    conn.execute_unprepared(CLAIMS_UNIQUE).await?;
-    conn.execute_unprepared(CLAIMS_PROVIDER).await?;
-    conn.execute_unprepared(CLAIMS_IDENTITY).await?;
+    conn.execute_unprepared(IDENTITIES_KEY).await?;
+    conn.execute_unprepared(IDENTITIES_PROVIDER).await?;
+    conn.execute_unprepared(IDENTITIES_OBSERVATION).await?;
     conn.execute_unprepared(OBSERVATIONS_ENTITY).await?;
     conn.execute_unprepared(PROXIMITIES_PAIR).await?;
     conn.execute_unprepared("DROP INDEX IF EXISTS \"idx-knowledge_proximities_open\"")

@@ -2,12 +2,12 @@
 //!
 //! Everything here is pure. Candidates and what the entity already says go in; either one claim or
 //! a refusal with a reason comes out. The order matters and is the design: the description decides
-//! first, the hint is only a fallback, and a refusal records *which* gate closed, so `eval inspect`
+//! first, the hint is only a fallback, and a refusal records *which* gate closed, so `identity inspect`
 //! reports it rather than guessing.
 //!
 //! Numbers live in `ranking.rs`; this file owns only the order and the admission rules.
 
-use super::AuthorityClaim as Claim;
+use super::AuthorityIdentity as Identity;
 use super::answer;
 use super::ranking::{
     CLAIM_BAR, CLAIM_MARGIN, FIT_MARGIN, HINT_CEILING, HINT_MIN_SUPPORT, LONE_LABEL_CONFIDENCE,
@@ -29,7 +29,7 @@ pub(super) fn by_hint(
     entity: &model::knowledge_entity::Model,
     candidates: &[Candidate],
     reason: &mut &'static str,
-) -> Vec<Claim> {
+) -> Vec<Identity> {
     if candidates.is_empty() {
         *reason = "the answer carried no candidate";
         return Vec::new();
@@ -64,7 +64,7 @@ pub(super) fn by_hint(
         *reason = "the hint did not clear its bar";
         return Vec::new();
     }
-    vec![answer::claim(
+    vec![answer::identity(
         best,
         "search_hint",
         answer_confidence(best_score).min(HINT_CEILING),
@@ -89,7 +89,7 @@ pub(super) fn decide(
     candidates: &[Candidate],
     request: &Request<Kind>,
     reason: &mut &'static str,
-) -> Vec<Claim> {
+) -> Vec<Identity> {
     // A lone exact label is evidence *only on the label rung*, because that query enumerates every
     // item with the string: one result means the name is unique on Wikidata. A title answer always
     // carries exactly one candidate — a page maps to an item by construction — so counting it there
@@ -101,7 +101,7 @@ pub(super) fn decide(
     // label rung already reports it as more than one candidate. This runs before `Rank`, whose job
     // is the corroborated candidates; a lone label needs no corroboration.
     if request.kind == Kind::Label && candidates.len() == 1 && exact_label(entity, &candidates[0]) {
-        return vec![answer::claim(
+        return vec![answer::identity(
             &candidates[0],
             method_for(&request.kind, true),
             LONE_LABEL_CONFIDENCE,
@@ -130,7 +130,7 @@ pub(super) fn decide(
     }
 
     let best = &candidates[best];
-    vec![answer::claim(
+    vec![answer::identity(
         best,
         method_for(&request.kind, exact_label(entity, best)),
         answer_confidence(blend_within(entity, best, candidates)),
@@ -145,7 +145,7 @@ pub(super) fn surface_only(
     entity: &model::knowledge_entity::Model,
     candidates: &[Candidate],
     request: &Request<Kind>,
-) -> Option<Claim> {
+) -> Option<Identity> {
     if request.kind != Kind::Title || candidates.len() != 1 {
         return None;
     }
@@ -157,7 +157,7 @@ pub(super) fn surface_only(
             return None;
         }
     }
-    Some(answer::claim(
+    Some(answer::identity(
         candidate,
         "wikipedia_title",
         LONE_LABEL_CONFIDENCE,
@@ -171,7 +171,7 @@ pub(super) fn parse_title(
     candidates: &[Candidate],
     request: &Request<Kind>,
     reason: &mut &'static str,
-) -> Vec<Claim> {
+) -> Vec<Identity> {
     // A title is a *name* lookup, so the answer has to be about that name. Wikipedia redirects
     // otherwise: asking for `The Bounty Hunter Wars` lands on the article for `Boba Fett`, and
     // "one title, one article" then reads as identity. Sharing no word with our name is not an
@@ -209,7 +209,7 @@ pub(super) fn parse_search(
     candidates: Vec<Candidate>,
     request: &Request<Kind>,
     reason: &mut &'static str,
-) -> Vec<Claim> {
+) -> Vec<Identity> {
     let ours = normalize::comparable(&entity.name);
     let same: Vec<&Candidate> = candidates
         .iter()
@@ -230,7 +230,11 @@ pub(super) fn parse_search(
     if let [candidate] = same.as_slice()
         && fit_within(entity, candidate, &candidates) > 0.0
     {
-        return vec![answer::claim(candidate, "search_lookup", LOOKUP_CONFIDENCE)];
+        return vec![answer::identity(
+            candidate,
+            "search_lookup",
+            LOOKUP_CONFIDENCE,
+        )];
     }
     // A candidate is admissible when it *is* our name, a trivial respelling of it, or one of the
     // two is a superset of the other's content words: `Tomb of Napoleon Bonaparte` vs `Tomb of

@@ -1,5 +1,5 @@
 //! The identity vocabulary: an identity's durable name, a platform link an observation showed, and
-//! the draft a provider's answer becomes.
+//! the annotation a provider or a capture writes.
 //!
 //! The row itself lives in `model::knowledge_identity`; these are the shapes `Evidence` writes it
 //! from, and the pair every durable reference uses.
@@ -7,8 +7,6 @@
 use crate::illumination::v2::PlatformLink;
 use crate::knowledge::normalize;
 use crate::model;
-
-use super::PLATFORM_LINK_PROVIDER_ID;
 
 /// The platform link an observation's flattened columns describe, if it has a platform.
 ///
@@ -45,26 +43,26 @@ impl TryFrom<&PlatformLink> for IdentityKey {
     }
 }
 
-/// An identity and the answer whoever gave it.
+/// One provider's annotation of one entity with one identity.
 ///
-/// The authority's label, description and classes are properties of the identity, not of any one
-/// claim: an album's article describes the album whether one entity claims it or five do.
+/// The entity and the provider are supplied by the writer, not carried here: a resolver cannot
+/// attribute its answer to another authority, and a capture always writes
+/// [`super::PLATFORM_LINK_PROVIDER_ID`].
 #[derive(Debug, Clone, PartialEq)]
-pub struct IdentityDraft {
+pub struct Identity {
     pub scheme: String,
     pub external_id: String,
-    /// Who supplied it: [`PLATFORM_LINK_PROVIDER_ID`] for an observed handle, else the resolver's id.
-    pub provider: String,
-    /// How it was answered, on the first answer only: `observation`, a Wikidata property (`P2002`,
-    /// …) for a handle join, or the ladder step (`exact_label`, `search_ranked`, …).
+    /// How the annotation was reached: the ladder step, or `observation`.
     pub method: Option<String>,
     pub confidence: Option<f32>,
     pub label: Option<String>,
     pub description: Option<String>,
     pub classes: Vec<String>,
+    /// The observation that carried it; `None` for a provider answer.
+    pub observation_id: Option<i32>,
 }
 
-impl TryFrom<&PlatformLink> for IdentityDraft {
+impl TryFrom<&PlatformLink> for Identity {
     type Error = MissingHandle;
 
     /// An identity known only from a platform link: the key, and nothing about the thing.
@@ -73,23 +71,13 @@ impl TryFrom<&PlatformLink> for IdentityDraft {
         Ok(Self {
             scheme: key.scheme,
             external_id: key.external_id,
-            provider: PLATFORM_LINK_PROVIDER_ID.to_string(),
             method: Some("observation".to_string()),
             confidence: None,
             label: None,
             description: None,
             classes: Vec::new(),
+            observation_id: None,
         })
-    }
-}
-
-impl IdentityDraft {
-    /// The durable name of the identity this draft describes.
-    pub fn key(&self) -> IdentityKey {
-        IdentityKey {
-            scheme: self.scheme.clone(),
-            external_id: self.external_id.clone(),
-        }
     }
 }
 

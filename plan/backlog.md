@@ -30,19 +30,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   admission without a second table. Needs design; see the merge item below, which is the same defect
   caught one layer later.
 
-- [ ] **Review the graph-model workstream before pushing.** `3f23fec..HEAD` is 36 commits (16 pushed, the
-  rest local); read the file count and diffstat from `git diff --stat 3f23fec..HEAD` — they move with
-  every commit here. Four things happened, in order: `knowledge_evidence` — one table
-  with a `kind` discriminator and three payload shapes — became `knowledge_identities`,
-  `knowledge_claims` (an edge), `knowledge_merges` and `knowledge_proximities`; a claim became
-  many-to-one, so sharing an identity is a candidate rather than a verdict; `proximity.rs` split into a
-  scan that records and a merge pass that decides; and the `contested` status went, because it was a
-  derived boolean stored beside substantiation.
-  Read in this order: the four model files, `evidence.rs` (`Claim`, `IdentityDraft`, `holders`),
-  `proximity.rs` (`raise`, `settle`, scan + merge), `merge.rs` (which now *settles* a proximity instead of
-  deleting it), `project`'s status (two values), then `database/indexes/knowledge.rs` and the migration
-  in `sync_schema.rs` — both contain workarounds worth knowing about.
-  The old vocabulary is gone: `contested`, `collisions`, `shared_identity`, `ClaimOutcome::HeldBy`.
 - [ ] **Refuse a merge between incompatible types.** `merge` is driven by identity equality alone:
   `resolve` finds two entities holding the same `(scheme, id)` and folds them, with no check that they
   agree about what kind of thing they are. Six of the eight live collisions are exactly that — a
@@ -52,22 +39,21 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   tombstone guard) or upstream in resolution (a character should not resolve to a work's item). The
   answer decides whether the collision record's `reason` needs a `type_incompatible` value.
 - [ ] **Make `link_illumination` transactional.** Linking one reading writes several times per
-  decision: create or load the entity, attach the observation, record the claim (or fold and
-  discard the row it just made), then project. A crash between any two leaves an entity with
-  members and no claim, or a claim on an entity the projection never recomputed — and nothing
-  repairs either. `merge` already shows the shape: `merge_in_transaction<C>` takes the connection
-  and its five writes share one transaction. Two things block doing the same here. The executor
-  has to take the connection as a parameter rather than reach for `&self.db.conn`, and `Evidence`
-  has to borrow that connection instead of owning one: a claim written outside the transaction
-  would reference a `knowledge_entity_id` the transaction has not committed, which is a
+  decision: create or load the entity, attach the observation, add the capture's identity (or fold
+  and discard the row it just made), then project. A crash between any two leaves an entity with
+  members and no identity, or an identity on an entity the projection never recomputed — and
+  nothing repairs either. `merge` already shows the shape: `merge_in_transaction<C>` takes the
+  connection and its five writes share one transaction. Two things block doing the same here. The
+  executor has to take the connection as a parameter rather than reach for `&self.db.conn`, and
+  `Evidence` has to borrow that connection instead of owning one: an identity written outside the
+  transaction would reference a `knowledge_entity_id` the transaction has not committed, which is a
   foreign-key violation rather than a torn read. `Evidence` holds a `DatabaseConnection` today and
-  seven call sites build one, so this and "Give evidence claims a repository" below are the same
-  change approached from opposite ends — do them together.
-  **Observed consequence, from the 2026-11 audit:** the claims are written by
-  `write_observation_claims`, and only for the observations the linker decided *in that call*
-  (`linked`, `helper.rs:216`). A failure after the links land leaves the observations attached and
-  the claims unwritten; the retry finds nothing pending, so `linked` is empty and the handle claim
-  is never written. A torn read heals on the next projection — a lost claim does not: the entity
+  seven call sites build one.
+  **Observed consequence, from the 2026-11 audit:** the identities are written by
+  `write_observation_identities`, and only for the observations the linker decided *in that call*
+  (`linked`, `helper.rs`). A failure after the links land leaves the observations attached and the
+  identity unwritten; the retry finds nothing pending, so `linked` is empty and the handle identity
+  is never written. A torn read heals on the next projection — a lost identity does not: the entity
   stays unfindable by the handle that named it until someone re-links it by hand.
 - [ ] **Assert the projection invariant.** `knowledge_stats` prints `platform_from_members` beside
   `with_platform`, and the field is documented as always equal: a divergence means `project` lost a
@@ -102,27 +88,19 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   Either adopt the formatter repo-wide in a single commit and gate it in CI, or pin a `rustfmt.toml`
   whose style matches what is there closely enough that the first run is small. Formatting only the
   files you touched is the current workaround: it keeps diffs honest and leaves the drift in place.
-- [ ] **Decide whether a claim match can be refused.** A platform link proves the link is the same;
-  it says nothing about the thing behind it. Two captures claiming `X/@elonmusk` as
+- [ ] **Decide whether a handle match can be refused.** A platform link proves the link is the same;
+  it says nothing about the thing behind it. Two captures naming `X/@elonmusk` as
   "technologist and inventor" and as "random bullshitter" are today merged silently — the second is
   absorbed as corroboration, `project` picks one description, and nothing records the disagreement.
-  The proximity record is the machinery; what is
-  missing is a corroboration bar inside the linker for claim matches, and a decision about what the
-  executor does with a refused match (link and note a proximity, or leave unlinked and re-evaluate
-  next run). Needs a real case before designing thresholds — a report-only count of claim matches
-  that would fail a corroboration test is the first step. Shape is settled: a refused match needs no
-  new decision variant — it is `Create` with the claim withheld and `best` naming the entity
-  declined, which `project` then leaves `provisional` for free. Deferred with it: whether a refusal
-  also writes a proximity (which would flag the established entity for a look); today
-  "shares an identity" is a proximity, and diluting it is a separatee decision.
-- [ ] **Make `Evidence` transaction-scoped.** The two-phase write is now
-  `Evidence::claim_identity` returning `ClaimOutcome` with the ids, and candidate
-  selection lives in `ClaimSelection`; callers no longer hand-roll the identity write and claim
-  write.
-  What remains is the connection: `Evidence` owns a `DatabaseConnection`, while `move_claims`
-  already takes a `ConnectionTrait`. To wrap `link_illumination`'s identity + claim + attach +
-  projection in one transaction, make `Evidence` borrow the connection (or take `&C` per
-  operation), so `claim_identity` and `move_claims` share the same path.
+  The proximity record is the machinery; what is missing is a corroboration bar inside the linker
+  for handle matches, and a decision about what the executor does with a refused match (link and
+  note a proximity, or leave unlinked and re-evaluate next run). Needs a real case before designing
+  thresholds — a report-only count of handle matches that would fail a corroboration test is the
+  first step. Shape is settled: a refused match needs no new decision variant — it is `Create` with
+  the identity withheld and `best` naming the entity declined, which `project` then leaves
+  `provisional` for free. Deferred with it: whether a refusal also writes a proximity (which would
+  flag the established entity for a look); today "shares an identity" is a proximity, and diluting
+  it is a separate decision.
 - [ ] **Score the entity-resolution precision sheet.** 100 labelled rows sit in
   `localdev/analysis/entity-promotion/evidence/review/precision_sheet.csv`
   (45 identified / 25 ranked / 15 ambiguous / 15 unidentified). Precision ≥ 0.90
@@ -248,9 +226,9 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 - [ ] **Decide whether a person and their social account are one entity.** `social_media_account` is
   a type of its own (148 live entities), distinct from `real_person`, so a capture that names the
   person and one that names the account become two entities. Live case: `Andra` (`real_person`,
-  claim `x_twitter:bioavailablend`) and `@bioavailablend` (`social_media_account`, claim
+  identity `x_twitter:bioavailablend`) and `@bioavailablend` (`social_media_account`, identity
   `instagram:bioavailablend`) — same handle, same subject, two entities, and `proximity` cannot pair
-  them because the claims are in different platform namespaces. Blocking now offers each to the other
+  them because the identities are in different platform namespaces. Blocking now offers each to the other
   and the link decider declines **on type**, which is consistent rather than buggy.
   Settle the vocabulary before any mechanism. If they are one thing, the type signal is wrong for a
   whole class, and the typing rule (not the decider) is what has to change. If they are two, the split

@@ -20,10 +20,10 @@ pub struct ReplayReport {
     pub gone: usize,
     /// Pairs a rule refused: the shared-illumination rule, or a standing `distinct` verdict.
     pub refused: usize,
-    /// Live claims withdrawn because an entity was vetoed out of an identity.
+    /// Identity annotations deleted because an entity was vetoed out of an identity.
     pub withdrawn: usize,
-    /// Vetoes already in force: the pairing has no live claim to retract — never written, or
-    /// retracted by an earlier replay. A settled decision is not a failure.
+    /// Vetoes already in force: the pairing has no annotation to delete — never written, or deleted
+    /// by an earlier replay. A settled decision is not a failure.
     pub settled: usize,
 }
 
@@ -91,14 +91,14 @@ pub(crate) async fn replay(graph: &KnowledgeGraph) -> anyhow::Result<ReplayRepor
     Ok(report)
 }
 
-/// Retract the live claim holding a vetoed identity for its entity, then reproject it.
+/// Delete the vetoed identity annotation for its entity, then reproject it.
 ///
-/// The veto names a **pairing**, so the retraction does too: there is at most one live claim for
-/// `(entity, identity)`, whatever route produced it. `None` when the subject origin no longer names
-/// a live entity; `Some(0)` when the decision already holds and there is nothing to retract.
+/// The veto names a **pairing**, so the deletion does too: every provider's row for
+/// `(entity, identity)` goes. `None` when the subject origin no longer names a live entity; `Some(0)`
+/// when the decision already holds and there is nothing to delete.
 ///
-/// The retraction and the projection are one act: `status` and `confidence` are functions of the
-/// live claims, so withdrawing a claim without reprojecting leaves the entity `identified` on
+/// The deletion and the projection are one act: `status` and `confidence` are functions of the
+/// identity annotations, so withdrawing one without reprojecting leaves the entity `identified` on
 /// nothing — and that is the row the API serves and `proximity auto_merge` ranks.
 async fn withdraw(
     graph: &KnowledgeGraph,
@@ -122,10 +122,11 @@ async fn withdraw(
     ))
 }
 
-/// Retract the live claim for `(entity, identity)` and reproject the entity, if either exists.
+/// Delete the identity annotation for `(entity, identity)` and reproject the entity, if either
+/// exists.
 ///
 /// The entity is followed through tombstones first: a veto may name a row that a merge has already
-/// folded, and the claim now hangs off the survivor.
+/// folded, and the annotation now hangs off the survivor.
 pub(super) async fn withdraw_entity(
     graph: &KnowledgeGraph,
     entity_id: i32,
@@ -139,12 +140,9 @@ pub(super) async fn withdraw_entity(
         scheme: scheme.to_string(),
         external_id: external.to_string(),
     };
-    let Some(identity_id) = graph.evidence.find_identity_id(&key).await? else {
-        return Ok(0);
-    };
-    let retracted = graph.evidence.retract(entity_id, identity_id).await?;
-    if retracted > 0 {
+    let withdrawn = graph.evidence.delete_identity(entity_id, &key).await?;
+    if withdrawn > 0 {
         graph.update_projection(entity_id).await?;
     }
-    Ok(retracted)
+    Ok(withdrawn)
 }

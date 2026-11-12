@@ -21,9 +21,12 @@ pub struct Model {
     /// The other one.
     pub counterpart_id: i32,
 
-    /// The identity they share. Null for a candidate raised by something other than an identity.
+    /// The key they share. Null for a candidate raised by something other than an identity. The key,
+    /// not an identity row: the same key is annotated once per holder and per provider.
     #[sea_orm(nullable)]
-    pub knowledge_identity_id: Option<i32>,
+    pub scheme: Option<String>,
+    #[sea_orm(nullable)]
+    pub external_id: Option<String>,
 
     /// Why the pair was raised: `shared_id` today.
     pub basis: String,
@@ -45,13 +48,6 @@ pub struct Model {
         to = "id"
     )]
     pub counterpart: HasOne<knowledge_entity::Entity>,
-    #[sea_orm(
-        belongs_to,
-        relation_enum = "Identity",
-        from = "knowledge_identity_id",
-        to = "id"
-    )]
-    pub identity: HasOne<knowledge_identity::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

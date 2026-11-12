@@ -1,7 +1,7 @@
 //! Which entities a provider should be asked about.
 //!
-//! Selection is a read over claims, not a write to them. Keeping it beside the stores that write
-//! evidence made `Evidence` look like it owned policy; this type owns only the questions.
+//! Selection is a read over annotations, not a write to them. Keeping it beside the store that
+//! writes evidence made `Evidence` look like it owned policy; this type owns only the questions.
 
 use sea_orm::sea_query::{Expr, ExprTrait, Query};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
@@ -10,11 +10,11 @@ use crate::database::DbHandle;
 use crate::model;
 
 /// The candidate questions a provider still owes.
-pub struct ClaimSelection<'a> {
+pub struct IdentitySelection<'a> {
     conn: &'a sea_orm::DatabaseConnection,
 }
 
-impl<'a> ClaimSelection<'a> {
+impl<'a> IdentitySelection<'a> {
     pub fn from_connection(conn: &'a sea_orm::DatabaseConnection) -> Self {
         Self { conn }
     }
@@ -23,7 +23,7 @@ impl<'a> ClaimSelection<'a> {
         Self::from_connection(&db.conn)
     }
 
-    /// Entities no configured authority has claimed yet, in the order a run should ask them.
+    /// Entities no configured authority has annotated yet, in the order a run should ask them.
     ///
     /// The filter is *authority*, not *any evidence* — an entity identified only by a platform
     /// handle is still a candidate, because a QID is what corroboration needs.
@@ -38,25 +38,19 @@ impl<'a> ClaimSelection<'a> {
     ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
         use model::knowledge_entity as entity;
 
-        // Asked already: holds a claim an authority made, rather than only the observation's handle.
-        let claimed = Query::select()
+        // Asked already: holds an annotation a configured authority made, rather than only the
+        // observation's handle.
+        let annotated = Query::select()
             .distinct()
             .column((
-                model::knowledge_claims::Entity,
-                model::knowledge_claims::Column::KnowledgeEntityId,
+                model::knowledge_identity::Entity,
+                model::knowledge_identity::Column::KnowledgeEntityId,
             ))
-            .from(model::knowledge_claims::Entity)
+            .from(model::knowledge_identity::Entity)
             .and_where(
                 Expr::col((
-                    model::knowledge_claims::Entity,
-                    model::knowledge_claims::Column::RetractedAt,
-                ))
-                .is_null(),
-            )
-            .and_where(
-                Expr::col((
-                    model::knowledge_claims::Entity,
-                    model::knowledge_claims::Column::Provider,
+                    model::knowledge_identity::Entity,
+                    model::knowledge_identity::Column::Provider,
                 ))
                 .is_in(
                     sources
@@ -69,7 +63,7 @@ impl<'a> ClaimSelection<'a> {
 
         let mut query = entity::Entity::find()
             .filter(entity::Column::MergedIntoId.is_null())
-            .filter(Expr::col(entity::Column::Id).not_in_subquery(claimed))
+            .filter(Expr::col(entity::Column::Id).not_in_subquery(annotated))
             .order_by(
                 entity::Column::Id,
                 if newest_first {
@@ -84,11 +78,11 @@ impl<'a> ClaimSelection<'a> {
         Ok(query.all(self.conn).await?)
     }
 
-    /// The entities in `entity_ids` this provider already holds a live claim on.
+    /// The entities in `entity_ids` this provider already annotated.
     ///
     /// A resolver may still be asked about an entity another authority answered; only its own prior
-    /// claim removes it.
-    pub async fn claimed_by(
+    /// annotation removes it.
+    pub async fn annotated_by(
         &self,
         provider: &str,
         entity_ids: &[i32],
@@ -96,12 +90,11 @@ impl<'a> ClaimSelection<'a> {
         if entity_ids.is_empty() {
             return Ok(std::collections::HashSet::new());
         }
-        let rows = model::knowledge_claims::Entity::find()
+        let rows = model::knowledge_identity::Entity::find()
             .select_only()
-            .column(model::knowledge_claims::Column::KnowledgeEntityId)
-            .filter(model::knowledge_claims::Column::Provider.eq(provider))
-            .filter(model::knowledge_claims::Column::RetractedAt.is_null())
-            .filter(model::knowledge_claims::Column::KnowledgeEntityId.is_in(entity_ids.to_vec()))
+            .column(model::knowledge_identity::Column::KnowledgeEntityId)
+            .filter(model::knowledge_identity::Column::Provider.eq(provider))
+            .filter(model::knowledge_identity::Column::KnowledgeEntityId.is_in(entity_ids.to_vec()))
             .into_tuple::<i32>()
             .all(self.conn)
             .await?;

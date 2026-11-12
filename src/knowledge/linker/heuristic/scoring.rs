@@ -11,7 +11,7 @@
 //! stays visible on the proximity list even though it will never be folded.
 //!
 //! Not here: the confidence scale for authority answers (that is the authority's own calibration,
-//! in `resolve/wikidata/ranking.rs`), the best claim over a set (`best_confidence`), and the order
+//! in `identity/wikidata/ranking.rs`), the best identity over a set (`best_confidence`), and the order
 //! of two confidences (`scoring::TotalCmp`).
 
 use crate::model;
@@ -118,11 +118,14 @@ fn worth_merging(features: &Features) -> bool {
         && (features.type_match >= AGREEMENT_FLOOR || features.description >= AGREEMENT_FLOOR)
 }
 
-/// How substantiated an entity is: its best claim's score.
+/// How substantiated an entity is: its best identity's score.
 ///
-/// A claim without a confidence cannot substantiate anything; the best known confidence wins.
-pub(in crate::knowledge) fn best_confidence(claims: &[Option<f32>]) -> Option<f32> {
-    claims.iter().filter_map(|claim| *claim).max_by(f32::total_cmp)
+/// An identity without a confidence cannot substantiate anything; the best known confidence wins.
+pub(in crate::knowledge) fn best_confidence(identities: &[Option<f32>]) -> Option<f32> {
+    identities
+        .iter()
+        .filter_map(|identity| *identity)
+        .max_by(f32::total_cmp)
 }
 
 /// The observation being compared, with its normalized forms precomputed.

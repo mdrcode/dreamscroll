@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 38;
+const REQUIRED_SCHEMA_VERSION: i32 = 39;
 
 /// Schema 23 reshapes claims into an edge — entity plus identity — and keys collisions by identity.
 ///
@@ -310,6 +310,36 @@ async fn retire_claim_basis<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     Ok(())
 }
 
+/// Schema 39 deletes the claim edge: an identity is now an annotation on one entity, so
+/// `knowledge_identities` gains `knowledge_entity_id` and `knowledge_claims` disappears.
+///
+/// All three affected tables are derived from observations plus `fetch_cache`, so they are dropped
+/// rather than reshaped: identity rows were keyed globally, claims brokered them, and proximities
+/// cited identity ids. `link` and `resolve --offline` rebuild the graph. The generation register's
+/// `claims` count goes with the table.
+async fn retire_claim_edge<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $sync$ BEGIN \
+           IF to_regclass('knowledge_identities') IS NOT NULL \
+              AND NOT EXISTS ( \
+                SELECT 1 FROM information_schema.columns \
+                 WHERE table_schema = current_schema() \
+                   AND table_name = 'knowledge_identities' \
+                   AND column_name = 'knowledge_entity_id' \
+              ) THEN \
+             DROP TABLE IF EXISTS knowledge_proximities; \
+             DROP TABLE IF EXISTS knowledge_claims; \
+             DROP TABLE IF EXISTS knowledge_identities; \
+             IF to_regclass('knowledge_generations') IS NOT NULL THEN \
+               ALTER TABLE knowledge_generations DROP COLUMN IF EXISTS claims; \
+             END IF; \
+           END IF; \
+         END $sync$;",
+    )
+    .await?;
+    Ok(())
+}
+
 /// Schema 33 finishes the object renames left behind by schemas 30–32, and drops the two legacy
 /// tables that no model or command reads.
 ///
@@ -475,6 +505,7 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
             retire_claim_surface(transaction).await?;
             retire_claim_source_user(transaction).await?;
             retire_claim_basis(transaction).await?;
+            retire_claim_edge(transaction).await?;
             drop_legacy_tables(transaction).await?;
             indexes::task_run::before_schema_sync(transaction).await?;
             indexes::knowledge::before_schema_sync(transaction).await?;
@@ -554,9 +585,12 @@ pub async fn check_schema_version(conn: &DatabaseConnection) -> anyhow::Result<(
 }
 #[cfg(test)]
 mod tests {
-    use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, RuntimeErr, Statement};
+    use sea_orm::{
+        ConnectionTrait, DatabaseBackend, DbErr, EntityTrait, PaginatorTrait, RuntimeErr,
+        Statement,
+    };
 
-    use crate::test_support::db_or_skip;
+    use crate::test_support::{db_or_skip, fixtures};
 
     use super::{check_schema_version, sync_schema};
 
@@ -812,5 +846,96 @@ mod tests {
         ))
         .await?;
         Ok(())
+    }
+
+    /// Schema 39 replaces the claim edge with an annotation on the identity. The migration drops
+    /// the three derived tables and lets the registry rebuild the identity table in the new shape.
+    #[tokio::test]
+    async fn schema_39_rebuilds_the_claim_edge_tables() {
+        db_or_skip!(db);
+        let conn = &db.conn;
+
+        conn.execute_unprepared(
+            "DROP TABLE IF EXISTS knowledge_proximities CASCADE; \
+             DROP TABLE IF EXISTS knowledge_identities CASCADE; \
+             CREATE TABLE knowledge_claims ( \
+               id serial primary key, knowledge_entity_id int, knowledge_identity_id int, \
+               provider text, method text, user_observed_entity_id int, \
+               observed_at timestamptz default now()); \
+             CREATE TABLE knowledge_identities ( \
+               id serial primary key, scheme text, external_id text, label text, \
+               description text, classes text[] default '{}', provider text, method text, \
+               confidence real, first_seen timestamptz default now()); \
+             CREATE TABLE knowledge_proximities \
+               (id serial primary key, knowledge_identity_id int); \
+             ALTER TABLE knowledge_generations ADD COLUMN IF NOT EXISTS claims int; \
+             UPDATE dreamscroll_schema_version SET version = 38 WHERE id = 1;",
+        )
+        .await
+        .expect("the schema-38 stand-in should build");
+
+        sync_schema(conn)
+            .await
+            .expect("schema 39 should migrate the stand-in");
+
+        let row = conn
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT to_regclass('knowledge_claims') IS NULL, \
+                        EXISTS (SELECT 1 FROM information_schema.columns \
+                                 WHERE table_schema = current_schema() \
+                                   AND table_name = 'knowledge_identities' \
+                                   AND column_name = 'knowledge_entity_id'), \
+                        EXISTS (SELECT 1 FROM information_schema.columns \
+                                 WHERE table_schema = current_schema() \
+                                   AND table_name = 'knowledge_generations' \
+                                   AND column_name = 'claims'), \
+                        EXISTS (SELECT 1 FROM pg_indexes \
+                                 WHERE schemaname = current_schema() \
+                                   AND tablename = 'knowledge_identities' \
+                                   AND indexname = 'idx-knowledge_identities_entity_provider_identity')",
+            ))
+            .await
+            .expect("reading the migrated shape should succeed")
+            .expect("the shape query returns one row");
+
+        assert!(
+            row.try_get_by_index::<bool>(0).unwrap(),
+            "the claim table is gone"
+        );
+        assert!(
+            row.try_get_by_index::<bool>(1).unwrap(),
+            "the identity carries its entity"
+        );
+        assert!(
+            !row.try_get_by_index::<bool>(2).unwrap(),
+            "the generation no longer counts claims"
+        );
+        assert!(
+            row.try_get_by_index::<bool>(3).unwrap(),
+            "the per-provider uniqueness exists"
+        );
+    }
+
+    /// A repeat sync must not rerun the schema-39 teardown: identity rows are live data between
+    /// rebuilds, and the migration is guarded on the old (no `knowledge_entity_id`) shape.
+    #[tokio::test]
+    async fn repeated_sync_keeps_identity_annotations() {
+        db_or_skip!(db);
+        let entity = fixtures::knowledge_entity_with_member(&db, "Keep My Identity").await;
+        fixtures::identity(&db, entity, "wikidata", "Q1", "wikidata", None, None).await;
+
+        sync_schema(&db.conn)
+            .await
+            .expect("a repeat sync should succeed");
+
+        assert_eq!(
+            crate::model::knowledge_identity::Entity::find()
+                .count(&db.conn)
+                .await
+                .unwrap(),
+            1,
+            "a synced graph keeps its annotations"
+        );
     }
 }

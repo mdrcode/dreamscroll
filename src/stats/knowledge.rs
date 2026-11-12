@@ -14,15 +14,13 @@ use crate::{database, model};
 
 /// One `(provider, scheme)` group.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ClaimGroup {
+pub struct IdentityGroup {
     pub provider: String,
     pub scheme: String,
-    /// Identity rows in this group, including ones no live claim cites.
+    /// Identity annotations in this group.
     pub identities: u64,
-    pub live_claims: u64,
-    /// Distinct live entities holding at least one live claim in the group.
+    /// Distinct live entities carrying at least one annotation in the group.
     pub entities: u64,
-    pub retracted: u64,
 }
 
 /// One platform's observation-level link counts.
@@ -38,9 +36,9 @@ pub struct PlatformGroup {
     pub captures: u64,
 }
 
-/// Live entities by how many live claims they hold.
+/// Live entities by how many identity annotations they hold.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ClaimCounts {
+pub struct IdentityCounts {
     pub entities: u64,
     pub zero: u64,
     pub one: u64,
@@ -72,17 +70,17 @@ pub struct KnowledgeStats {
     /// provider/scheme breakdown: what the illuminator actually saw, before linking collapses
     /// repeated handles into identities.
     pub platforms: Vec<PlatformGroup>,
-    /// How many live claims a live entity holds. The shape a second authority changes.
-    pub claim_counts: ClaimCounts,
+    /// How many identity annotations a live entity holds. The shape a second authority changes.
+    pub identity_counts: IdentityCounts,
     /// The projected confidence over live entities, and how many have none.
     pub confidence: ConfidenceSpread,
-    /// Entities with a live authority claim — the number `resolve` moves.
-    pub with_claim: u64,
-    /// Identities and claims grouped by who supplied them and in which scheme. `provider` is the
+    /// Entities with an authority identity annotation — the number `resolve` moves.
+    pub with_identity: u64,
+    /// Identity annotations grouped by who supplied them and in which scheme. `provider` is the
     /// source (a resolver id, `illuminator`, `model`); `scheme` is the namespace the identifier
     /// lives in. Both halves are needed: one authority may answer in several schemes, and one
     /// scheme may be supplied by more than one authority.
-    pub claims_by: Vec<ClaimGroup>,
+    pub identities_by: Vec<IdentityGroup>,
     /// Entities whose projected platform presence is set. A member had one and `project` kept it.
     pub with_platform: u64,
     /// Distinct entities that *should* have one, counted from the observations. Always equal to
@@ -155,19 +153,18 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
         }
     }
 
-    // Platform links are observations; the claim on that observation names the identity and the
-    // entity it landed on. `count(DISTINCT o.id)` keeps an observation with a moved claim from
-    // counting twice, and the claim filters keep retracted and tombstoned rows out of the totals.
+    // Platform links are observations; the annotation that carried the handle names the entity it
+    // landed on. `count(DISTINCT o.id)` keeps an observation with a moved annotation from counting
+    // twice, and the entity filter keeps tombstones out of the totals.
     let rows = sea_orm::ConnectionTrait::query_all_raw(
         &db.conn,
         Statement::from_string(
             DatabaseBackend::Postgres,
             "SELECT o.platform, \
                     count(DISTINCT o.id) AS observations, \
-                    count(DISTINCT c.knowledge_identity_id) \
-                        FILTER (WHERE c.retracted_at IS NULL) AS identities, \
-                    count(DISTINCT c.knowledge_entity_id) FILTER ( \
-                        WHERE c.retracted_at IS NULL AND e.merged_into_id IS NULL \
+                    count(DISTINCT i.scheme || ':' || i.external_id) AS identities, \
+                    count(DISTINCT i.knowledge_entity_id) FILTER ( \
+                        WHERE e.merged_into_id IS NULL \
                     ) AS entities, \
                     count(DISTINCT o.id) FILTER ( \
                         WHERE o.platform_display_name IS NOT NULL \
@@ -175,8 +172,8 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
                     ) AS display_names, \
                     count(DISTINCT o.capture_id) AS captures \
                FROM user_observed_entities o \
-               LEFT JOIN knowledge_claims c ON c.user_observed_entity_id = o.id \
-               LEFT JOIN knowledge_entities e ON e.id = c.knowledge_entity_id \
+               LEFT JOIN knowledge_identities i ON i.user_observed_entity_id = o.id \
+               LEFT JOIN knowledge_entities e ON e.id = i.knowledge_entity_id \
               WHERE o.platform IS NOT NULL AND o.platform <> '' \
               GROUP BY o.platform \
               ORDER BY observations DESC, o.platform",
@@ -202,21 +199,21 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
         .query_one_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             "SELECT count(*) AS entities, \
-                    count(*) FILTER (WHERE claims = 0) AS zero, \
-                    count(*) FILTER (WHERE claims = 1) AS one, \
-                    count(*) FILTER (WHERE claims = 2) AS two, \
-                    count(*) FILTER (WHERE claims >= 3) AS three_plus \
+                    count(*) FILTER (WHERE identities = 0) AS zero, \
+                    count(*) FILTER (WHERE identities = 1) AS one, \
+                    count(*) FILTER (WHERE identities = 2) AS two, \
+                    count(*) FILTER (WHERE identities >= 3) AS three_plus \
                FROM ( \
-                 SELECT e.id, count(c.id) FILTER (WHERE c.retracted_at IS NULL) AS claims \
+                 SELECT e.id, count(i.id) AS identities \
                    FROM knowledge_entities e \
-                   LEFT JOIN knowledge_claims c ON c.knowledge_entity_id = e.id \
+                   LEFT JOIN knowledge_identities i ON i.knowledge_entity_id = e.id \
                   WHERE e.merged_into_id IS NULL \
                   GROUP BY e.id \
                ) counts",
         ))
         .await?
         .expect("count always returns one row");
-    stats.claim_counts = ClaimCounts {
+    stats.identity_counts = IdentityCounts {
         entities: row.try_get_by_index::<i64>(0)? as u64,
         zero: row.try_get_by_index::<i64>(1)? as u64,
         one: row.try_get_by_index::<i64>(2)? as u64,
@@ -244,56 +241,48 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
         max: row.try_get_by_index::<Option<f64>>(3)?,
     };
 
-    // An authority claim is an edge to an identity an authority answered for — not the illuminator
-    // that produced the observation, and not a model guess.
-    let with_claim: Vec<(i32,)> = sea_orm::ConnectionTrait::query_all_raw(
+    // An authority annotation is one an authority answered for — not the illuminator that produced
+    // the observation, and not a model guess.
+    let with_identity: Vec<(i32,)> = sea_orm::ConnectionTrait::query_all_raw(
         &db.conn,
         sea_orm::Statement::from_string(
             sea_orm::DatabaseBackend::Postgres,
-            "SELECT DISTINCT c.knowledge_entity_id \
-               FROM knowledge_claims c \
-              WHERE c.retracted_at IS NULL \
-                AND c.provider NOT IN ('illuminator', 'platform', 'model', 'operator', 'user')",
+            "SELECT DISTINCT knowledge_entity_id \
+               FROM knowledge_identities \
+              WHERE provider NOT IN ('illuminator', 'platform', 'model', 'operator', 'user')",
         ),
     )
     .await?
     .into_iter()
     .map(|row| row.try_get_by_index::<i32>(0).map(|id| (id,)))
     .collect::<Result<_, _>>()?;
-    stats.with_claim = with_claim.len() as u64;
+    stats.with_identity = with_identity.len() as u64;
 
-    // One row per `(provider, scheme)`. `count(DISTINCT i.id)` is the identity count: the left
-    // join would otherwise count one row per claim. An identity with no claim still appears, with
-    // `live_claims = 0` — that is a row a rebuild or a retraction left behind, worth seeing.
+    // One row per `(provider, scheme)`.
     let rows = sea_orm::ConnectionTrait::query_all_raw(
         &db.conn,
         Statement::from_string(
             DatabaseBackend::Postgres,
             "SELECT i.provider, i.scheme, \
-                    count(DISTINCT i.id) AS identities, \
-                    count(c.id) FILTER (WHERE c.retracted_at IS NULL) AS live_claims, \
-                    count(DISTINCT c.knowledge_entity_id) FILTER ( \
-                        WHERE c.retracted_at IS NULL AND e.merged_into_id IS NULL \
-                    ) AS entities, \
-                    count(c.id) FILTER (WHERE c.retracted_at IS NOT NULL) AS retracted \
+                    count(*) AS identities, \
+                    count(DISTINCT i.knowledge_entity_id) FILTER ( \
+                        WHERE e.merged_into_id IS NULL \
+                    ) AS entities \
                FROM knowledge_identities i \
-               LEFT JOIN knowledge_claims c ON c.knowledge_identity_id = i.id \
-               LEFT JOIN knowledge_entities e ON e.id = c.knowledge_entity_id \
+               LEFT JOIN knowledge_entities e ON e.id = i.knowledge_entity_id \
               GROUP BY i.provider, i.scheme \
-              ORDER BY live_claims DESC, identities DESC, i.provider, i.scheme",
+              ORDER BY identities DESC, i.provider, i.scheme",
         ),
     )
     .await?;
-    stats.claims_by = rows
+    stats.identities_by = rows
         .into_iter()
         .map(|row| {
-            Ok(ClaimGroup {
+            Ok(IdentityGroup {
                 provider: row.try_get_by_index(0)?,
                 scheme: row.try_get_by_index(1)?,
                 identities: row.try_get_by_index::<i64>(2)? as u64,
-                live_claims: row.try_get_by_index::<i64>(3)? as u64,
-                entities: row.try_get_by_index::<i64>(4)? as u64,
-                retracted: row.try_get_by_index::<i64>(5)? as u64,
+                entities: row.try_get_by_index::<i64>(3)? as u64,
             })
         })
         .collect::<Result<Vec<_>, sea_orm::DbErr>>()?;
@@ -377,16 +366,15 @@ mod tests {
         assert_eq!(super::KnowledgeStats::default().duplicate_rate(), 0.0);
     }
 
-    /// The two axes are independent: `provider` is who answered, `scheme` is the namespace. And
-    /// an identity shared by two holders is still one identity — the left join must not count it
-    /// once per claim.
+    /// The two axes are independent: `provider` is who answered, `scheme` is the namespace. A key
+    /// shared by two holders is two annotations, one per entity.
     #[tokio::test]
-    async fn reports_claims_grouped_by_provider_and_scheme() {
+    async fn reports_identities_grouped_by_provider_and_scheme() {
         db_or_skip!(db);
-        let first = fixtures::knowledge_entity_with_member(&db, "Grouped Claim").await;
+        let first = fixtures::knowledge_entity_with_member(&db, "Grouped Identity").await;
         let second = fixtures::knowledge_entity_with_member(&db, "Another Holder").await;
         for entity in [first, second] {
-            fixtures::claim(
+            fixtures::identity(
                 &db,
                 entity,
                 "wikidata",
@@ -400,17 +388,15 @@ mod tests {
 
         let stats = super::knowledge_stats(&db).await.expect("stats");
         let group = stats
-            .claims_by
+            .identities_by
             .iter()
             .find(|group| group.provider == "wikidata" && group.scheme == "wikidata")
             .expect("the fixture's group");
-        assert_eq!(group.identities, 1, "one identity, not one per claim");
-        assert_eq!(group.live_claims, 2);
+        assert_eq!(group.identities, 2, "one annotation per holder");
         assert_eq!(group.entities, 2);
-        assert_eq!(group.retracted, 0);
-        assert_eq!(stats.claim_counts.entities, 2);
-        assert_eq!(stats.claim_counts.one, 2);
-        assert_eq!(stats.claim_counts.two, 0);
+        assert_eq!(stats.identity_counts.entities, 2);
+        assert_eq!(stats.identity_counts.one, 2);
+        assert_eq!(stats.identity_counts.two, 0);
         assert_eq!(stats.confidence.unknown, 2);
     }
 

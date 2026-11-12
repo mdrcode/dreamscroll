@@ -52,7 +52,7 @@ struct IndexCheckArgs {}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "eval")]
-#[argh(description = "diagnose one entity's path, or measure blocking recall")]
+#[argh(description = "measure blocking recall")]
 struct EvalArgs {
     #[argh(subcommand)]
     command: EvalCommand,
@@ -61,14 +61,36 @@ struct EvalArgs {
 #[derive(FromArgs)]
 #[argh(subcommand)]
 enum EvalCommand {
-    Inspect(EvalInspectArgs),
     Blocker(EvalBlockerArgs),
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "blocker")]
+#[argh(description = "did the blocker offer the entity each observation ended up in?")]
+struct EvalBlockerArgs {}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "identity")]
+#[argh(description = "what the world says a thing is: identities, and who asserts them")]
+struct IdentityArgs {
+    #[argh(subcommand)]
+    command: IdentityCommand,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand)]
+enum IdentityCommand {
+    Resolve(ResolveArgs),
+    Inspect(IdentityInspectArgs),
+    Reproject(ReprojectArgs),
+    Veto(VetoArgs),
+    Unveto(UnvetoArgs),
 }
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "inspect")]
 #[argh(description = "walk one entity through blocking, ranking and the resolver ladder")]
-struct EvalInspectArgs {
+struct IdentityInspectArgs {
     #[argh(
         positional,
         description = "entity id, or a name that folds to the same surface"
@@ -79,30 +101,8 @@ struct EvalInspectArgs {
 }
 
 #[derive(FromArgs)]
-#[argh(subcommand, name = "blocker")]
-#[argh(description = "did the blocker offer the entity each observation ended up in?")]
-struct EvalBlockerArgs {}
-
-#[derive(FromArgs)]
-#[argh(subcommand, name = "identity")]
-#[argh(description = "what the world says a thing is: identities, and the claims behind them")]
-struct IdentityArgs {
-    #[argh(subcommand)]
-    command: IdentityCommand,
-}
-
-#[derive(FromArgs)]
-#[argh(subcommand)]
-enum IdentityCommand {
-    Resolve(ResolveArgs),
-    Reproject(ReprojectArgs),
-    Veto(VetoArgs),
-    Unveto(UnvetoArgs),
-}
-
-#[derive(FromArgs)]
 #[argh(subcommand, name = "veto")]
-#[argh(description = "an entity is not an identity: record it and withdraw the claim")]
+#[argh(description = "an entity is not an identity: record it and delete the annotation")]
 struct VetoArgs {
     #[argh(option, description = "knowledge entity id")]
     entity: i32,
@@ -120,7 +120,7 @@ struct VetoArgs {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "unveto")]
-#[argh(description = "lift a veto; the next resolve may claim the identity again")]
+#[argh(description = "lift a veto; the next resolve may assert the identity again")]
 struct UnvetoArgs {
     #[argh(positional, description = "verdict id (verdicts list)")]
     id: i32,
@@ -128,10 +128,10 @@ struct UnvetoArgs {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "reproject")]
-#[argh(description = "recompute projections for live entities holding no live claim")]
+#[argh(description = "recompute projections for live entities holding no identity")]
 struct ReprojectArgs {
     #[argh(switch)]
-    #[argh(description = "reproject every live entity, not only the ones holding no live claim")]
+    #[argh(description = "reproject every live entity, not only the ones holding no identity")]
     all: bool,
 }
 
@@ -175,7 +175,7 @@ enum EntityCommand {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "show")]
-#[argh(description = "members, claims and projected columns for one entity")]
+#[argh(description = "members, identities and projected columns for one entity")]
 struct EntityShowArgs {
     #[argh(positional, description = "knowledge entity id")]
     id: i32,
@@ -306,29 +306,30 @@ struct CompareArgs {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "resolve")]
-#[argh(description = "ask evidence providers about entities with no authority claim (cache first)")]
+#[argh(
+    description = "ask evidence providers about entities with no authority identity (cache first)"
+)]
 struct ResolveArgs {
     #[argh(option)]
     #[argh(description = "transport calls allowed in this run (default 200)")]
     max_requests: Option<usize>,
     #[argh(switch)]
     #[argh(
-        description = "serve from the cache only; makes no transport calls. Claims carried by \
+        description = "serve from the cache only; makes no transport calls. Identities carried by \
                                  cached answers are still written — this is not a rehearsal"
     )]
     offline: bool,
     #[argh(option)]
     #[argh(description = "consider at most this many entities")]
     limit: Option<usize>,
-    #[argh(option)]
-    #[argh(description = "resolve only this entity id")]
+    #[argh(option, description = "resolve only this entity id")]
     entity: Option<i32>,
     #[argh(switch)]
     #[argh(
-        description = "with --entity, retract this provider's old claims that the new answer did \
-                       not re-propose; requires --entity"
+        description = "report the identities a positive answer would replace; write no identities. \
+                       Still reads the network unless --offline"
     )]
-    replace: bool,
+    dry_run: bool,
     #[argh(option, default = "1000")]
     #[argh(description = "minimum milliseconds between transport calls")]
     min_interval_ms: u64,
@@ -345,7 +346,7 @@ struct ResolveArgs {
 struct StatsArgs {}
 
 /// Print one entity's walk through the pipeline.
-fn print_inspection(report: &knowledge::eval::inspect::Report) {
+fn print_inspection(report: &knowledge::identity::inspect::Report) {
     let entity = &report.entity;
     println!(
         "entity {} · {} [{}] · {}",
@@ -412,25 +413,25 @@ fn print_inspection(report: &knowledge::eval::inspect::Report) {
             Some((qid, method)) if step.vetoed => {
                 println!("      ⊘ vetoed {qid} via {method} (standing verdict)")
             }
-            Some((qid, method)) => println!("      → claimed {qid} via {method}"),
+            Some((qid, method)) => println!("      → identified {qid} via {method}"),
             None => println!("      ✗ {}", step.refusal),
         }
     }
 
     println!("\n-- held now --");
-    match &report.claim {
-        Some(claim) => println!(
+    match &report.identity {
+        Some(identity) => println!(
             "  {} {} · provided by {} · method {}",
-            claim.identity,
-            claim.label.as_deref().unwrap_or("(no label)"),
-            claim.provider,
-            claim.method.as_deref().unwrap_or("-")
+            identity.identity,
+            identity.label.as_deref().unwrap_or("(no label)"),
+            identity.provider,
+            identity.method.as_deref().unwrap_or("-")
         ),
-        None => println!("  no claim"),
+        None => println!("  no identity"),
     }
 }
 
-/// Print one entity's evidence: members, claims, projected columns.
+/// Print one entity's evidence: members, identities, projected columns.
 fn print_entity(detail: &stats::entity::Detail) {
     let entity = &detail.entity;
     println!(
@@ -468,21 +469,16 @@ fn print_entity(detail: &stats::entity::Detail) {
         );
     }
 
-    println!("\n-- claims ({}) --", detail.claims.len());
-    for claim in &detail.claims {
+    println!("\n-- identities ({}) --", detail.identities.len());
+    for identity in &detail.identities {
         println!(
-            "  {}:{}  {}  provider {} · confidence {:?} · {}{}",
-            claim.scheme,
-            claim.external_id,
-            claim.label.as_deref().unwrap_or("(no label)"),
-            claim.provider,
-            claim.confidence,
-            claim.method.as_deref().unwrap_or("-"),
-            if claim.retracted_at.is_some() {
-                " · retracted"
-            } else {
-                ""
-            }
+            "  {}:{}  {}  provider {} · confidence {:?} · {}",
+            identity.scheme,
+            identity.external_id,
+            identity.label.as_deref().unwrap_or("(no label)"),
+            identity.provider,
+            identity.confidence,
+            identity.method.as_deref().unwrap_or("-")
         );
     }
 }
@@ -497,17 +493,14 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
     if args.max_requests == Some(0) {
         anyhow::bail!("--max-requests 0 makes no transport calls; pass --offline to ask for that");
     }
-    if args.replace && args.entity.is_none() {
-        anyhow::bail!("--replace requires --entity; a corpus-wide replace is a rebuild");
-    }
     let max_requests = match (args.offline, args.max_requests) {
         (true, _) => 0,
         (false, Some(n)) => n,
         (false, None) => knowledge::identity::DEFAULT_MAX_REQUESTS,
     };
     let options = knowledge::identity::Options {
-        include_already_claimed: args.entity.is_some(),
-        replace: args.replace,
+        include_already_annotated: args.entity.is_some(),
+        dry_run: args.dry_run,
     };
     let engine = knowledge::identity::ResolutionEngine::new(
         knowledge::KnowledgeGraph::new(db),
@@ -537,32 +530,48 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
                     allowance.as_ref(),
                 )
                 .await?;
-            let after = stats::entity::detail(db, id)
-                .await?
-                .expect("the entity exists");
-            println!("entity {id} claims");
-            let live: Vec<_> = after
-                .claims
-                .iter()
-                .filter(|claim| claim.retracted_at.is_none())
-                .collect();
-            if live.is_empty() {
-                println!("  (none)");
-            }
-            for claim in live {
-                let held = before.claims.iter().any(|old| {
-                    old.scheme == claim.scheme
-                        && old.external_id == claim.external_id
-                        && old.retracted_at.is_none()
-                });
-                println!(
-                    "  {} {}:{}  {}  provider {}",
-                    if held { "*" } else { "→" },
-                    claim.scheme,
-                    claim.external_id,
-                    claim.method.as_deref().unwrap_or("-"),
-                    claim.provider
-                );
+            if report.dry_run {
+                println!("entity {id} identities (dry run — no identities written)");
+                let previews: Vec<_> = report
+                    .preview
+                    .iter()
+                    .filter(|preview| preview.entity_id == id)
+                    .collect();
+                if previews.is_empty() {
+                    println!("  (none)");
+                }
+                for preview in previews {
+                    println!(
+                        "  → {}:{}  {}  provider {}",
+                        preview.scheme,
+                        preview.external_id,
+                        preview.method.as_deref().unwrap_or("-"),
+                        preview.provider
+                    );
+                }
+            } else {
+                let after = stats::entity::detail(db, id)
+                    .await?
+                    .expect("the entity exists");
+                println!("entity {id} identities");
+                if after.identities.is_empty() {
+                    println!("  (none)");
+                }
+                for identity in &after.identities {
+                    let held = before.identities.iter().any(|old| {
+                        old.scheme == identity.scheme
+                            && old.external_id == identity.external_id
+                            && old.provider == identity.provider
+                    });
+                    println!(
+                        "  {} {}:{}  {}  provider {}",
+                        if held { "*" } else { "→" },
+                        identity.scheme,
+                        identity.external_id,
+                        identity.method.as_deref().unwrap_or("-"),
+                        identity.provider
+                    );
+                }
             }
             report
         }
@@ -584,30 +593,57 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
     } else {
         println!("budget {max_requests} requests");
     }
+    if report.dry_run {
+        println!("dry run — no identities written");
+    }
     println!(
         "considered {} · requested {} · cache hits {}",
         report.considered, report.fetch_traffic.requested, report.fetch_traffic.cache_hits
     );
-    println!(
-        "fetched {} · failed {} · claims {} · entities resolved {} · vetoed {}",
-        report.fetch_traffic.fetched,
-        report.fetch_traffic.failed,
-        report.claims_written,
-        report.entities_resolved,
-        report.claims_vetoed
-    );
-    for provider in &report.by_provider {
+    if report.dry_run {
         println!(
-            "  {:<16} batch {:>5} · requested {:>5} · cache {:>5} · fetched {:>4} · claims {:>4} · vetoed {} · replaced {}",
-            provider.provider,
-            provider.batch,
-            provider.fetch_traffic.requested,
-            provider.fetch_traffic.cache_hits,
-            provider.fetch_traffic.fetched,
-            provider.claims_written,
-            provider.claims_vetoed,
-            provider.replaced
+            "fetched {} · failed {} · would write {} identities · would resolve {} entities · vetoed {}",
+            report.fetch_traffic.fetched,
+            report.fetch_traffic.failed,
+            report.identities_written,
+            report.entities_resolved,
+            report.identities_vetoed
         );
+        for provider in &report.by_provider {
+            println!(
+                "  {:<16} batch {:>5} · requested {:>5} · cache {:>5} · fetched {:>4} · would write {:>4} · vetoed {}",
+                provider.provider,
+                provider.batch,
+                provider.fetch_traffic.requested,
+                provider.fetch_traffic.cache_hits,
+                provider.fetch_traffic.fetched,
+                provider.identities_written,
+                provider.identities_vetoed
+            );
+        }
+    } else {
+        println!(
+            "fetched {} · failed {} · identities {} · entities resolved {} · vetoed {} · replaced {}",
+            report.fetch_traffic.fetched,
+            report.fetch_traffic.failed,
+            report.identities_written,
+            report.entities_resolved,
+            report.identities_vetoed,
+            report.identities_replaced
+        );
+        for provider in &report.by_provider {
+            println!(
+                "  {:<16} batch {:>5} · requested {:>5} · cache {:>5} · fetched {:>4} · identities {:>4} · vetoed {} · replaced {}",
+                provider.provider,
+                provider.batch,
+                provider.fetch_traffic.requested,
+                provider.fetch_traffic.cache_hits,
+                provider.fetch_traffic.fetched,
+                provider.identities_written,
+                provider.identities_vetoed,
+                provider.identities_replaced
+            );
+        }
     }
     match report.refusal {
         Some(dreamscroll::fetch::Refusal::Budget) => {
@@ -724,7 +760,7 @@ async fn main() -> anyhow::Result<()> {
                 "loser": args.loser,
                 "winner": args.winner,
                 "observations": preview.observations,
-                "evidence": preview.evidence,
+                "identities": preview.identities,
                 "shared_illuminations": preview.shared_illuminations,
                 "standing_verdict": preview.standing_verdict,
                 "outcome": "dry_run",
@@ -732,11 +768,11 @@ async fn main() -> anyhow::Result<()> {
             });
             if !args.json {
                 println!(
-                    "merge {} -> {} · observations {} · evidence {} · shared illuminations {}",
+                    "merge {} -> {} · observations {} · identities {} · shared illuminations {}",
                     args.loser,
                     args.winner,
                     preview.observations,
-                    preview.evidence,
+                    preview.identities,
                     preview.shared_illuminations
                 );
             }
@@ -987,33 +1023,27 @@ async fn main() -> anyhow::Result<()> {
             if !args.yes {
                 let preview = knowledge::snapshot::preview(&db).await?;
                 println!(
-                    "would snapshot entities {} · identities {} · claims {} · proximities {} · \
+                    "would snapshot entities {} · identities {} · proximities {} · \
                      members {} · pass --yes to reset",
-                    preview.entities,
-                    preview.identities,
-                    preview.claims,
-                    preview.proximities,
-                    preview.members
+                    preview.entities, preview.identities, preview.proximities, preview.members
                 );
                 return Ok(());
             }
             let report = knowledge::snapshot::reset(&db).await?;
             match &report.snapshot {
                 Some(snapshot) => println!(
-                    "snapshot {} · entities {} · identities {} · claims {} · proximities {} · members {}",
+                    "snapshot {} · entities {} · identities {} · proximities {} · members {}",
                     snapshot.suffix,
                     report.snapshot_entities,
                     report.snapshot_identities,
-                    report.snapshot_claims,
                     report.snapshot_proximities,
                     report.snapshot_members
                 ),
                 None => println!("nothing to snapshot"),
             }
             println!(
-                "unlinked {} observations · deleted {} claims, {} proximities · \
-                 deleted {} entities",
-                report.unlinked, report.claims, report.proximities, report.entities
+                "unlinked {} observations · deleted {} proximities · deleted {} entities",
+                report.unlinked, report.proximities, report.entities
             );
             if report.pruned_snapshots > 0 {
                 println!("pruned {} old snapshot tables", report.pruned_snapshots);
@@ -1083,8 +1113,11 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Eval(args) => match args.command {
             EvalCommand::Blocker(_) => eval_blocker(&db).await?,
-            EvalCommand::Inspect(args) => {
-                let report = knowledge::eval::inspect(&db, &args.target).await?;
+        },
+        Command::Identity(args) => match args.command {
+            IdentityCommand::Resolve(args) => resolve_identity(&db, args).await?,
+            IdentityCommand::Inspect(args) => {
+                let report = knowledge::identity::inspect::inspect(&db, &args.target).await?;
                 match report {
                     Some(report) => {
                         if args.json {
@@ -1096,9 +1129,6 @@ async fn main() -> anyhow::Result<()> {
                     None => println!("nothing matches {:?}", args.target),
                 }
             }
-        },
-        Command::Identity(args) => match args.command {
-            IdentityCommand::Resolve(args) => resolve_identity(&db, args).await?,
             IdentityCommand::Reproject(args) => {
                 let scope = if args.all {
                     knowledge::graph::ReprojectScope::All
@@ -1111,7 +1141,7 @@ async fn main() -> anyhow::Result<()> {
                     if args.all {
                         "live entities"
                     } else {
-                        "live entities holding no live claim"
+                        "live entities holding no identity"
                     }
                 );
             }
@@ -1185,14 +1215,14 @@ async fn main() -> anyhow::Result<()> {
             }
             let linked: u64 = stats.platforms.iter().map(|group| group.observations).sum();
             println!("  total {linked} observations with a platform link");
-            println!("claims per entity");
+            println!("identities per entity");
             println!(
-                "  entities {} · 0 claims {} · 1 claim {} · 2 claims {} · 3+ claims {}",
-                stats.claim_counts.entities,
-                stats.claim_counts.zero,
-                stats.claim_counts.one,
-                stats.claim_counts.two,
-                stats.claim_counts.three_plus
+                "  entities {} · 0 identities {} · 1 identity {} · 2 identities {} · 3+ identities {}",
+                stats.identity_counts.entities,
+                stats.identity_counts.zero,
+                stats.identity_counts.one,
+                stats.identity_counts.two,
+                stats.identity_counts.three_plus
             );
             let number = |value: Option<f64>| {
                 value
@@ -1208,21 +1238,16 @@ async fn main() -> anyhow::Result<()> {
                 stats.confidence.unknown
             );
             println!("resolution");
-            println!("  with authority claim {:>5}", stats.with_claim);
-            println!("  claims by provider / scheme");
+            println!("  with authority identity {:>5}", stats.with_identity);
+            println!("  identities by provider / scheme");
             println!(
-                "    {:<16} {:<18} {:>10} {:>7} {:>9} {:>10}",
-                "provider", "scheme", "identities", "claims", "entities", "retracted"
+                "    {:<16} {:<18} {:>10} {:>9}",
+                "provider", "scheme", "identities", "entities"
             );
-            for group in &stats.claims_by {
+            for group in &stats.identities_by {
                 println!(
-                    "    {:<16} {:<18} {:>10} {:>7} {:>9} {:>10}",
-                    group.provider,
-                    group.scheme,
-                    group.identities,
-                    group.live_claims,
-                    group.entities,
-                    group.retracted
+                    "    {:<16} {:<18} {:>10} {:>9}",
+                    group.provider, group.scheme, group.identities, group.entities
                 );
             }
             println!(

@@ -15,7 +15,8 @@ use sea_orm::{
 use crate::knowledge::evidence::Evidence;
 use crate::knowledge::verdicts::{Cause, VerdictStore};
 use crate::model::{
-    knowledge_claims as claims, knowledge_entity as entity, user_observed_entity as observation,
+    knowledge_entity as entity, knowledge_identity as identities,
+    user_observed_entity as observation,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,7 +39,7 @@ pub enum Outcome {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Preview {
     pub observations: u64,
-    pub evidence: u64,
+    pub identities: u64,
     /// Illuminations both entities appear in. Nonzero means the merge is refused.
     pub shared_illuminations: i64,
     /// A `distinct` verdict names this pair, so the merge is refused in either direction.
@@ -101,8 +102,8 @@ pub(super) async fn preview<C: ConnectionTrait>(
         .filter(observation::Column::KnowledgeEntityId.eq(loser))
         .count(conn)
         .await?;
-    let claim_count = claims::Entity::find()
-        .filter(claims::Column::KnowledgeEntityId.eq(loser))
+    let identity_count = identities::Entity::find()
+        .filter(identities::Column::KnowledgeEntityId.eq(loser))
         .count(conn)
         .await?;
     let shared_illuminations = shared_illuminations(conn, loser, winner).await?;
@@ -121,14 +122,16 @@ pub(super) async fn preview<C: ConnectionTrait>(
     };
     let standing_verdict = match (origin(loser), origin(winner)) {
         (Some(loser_origin), Some(winner_origin)) => {
-            verdicts.kept_apart(conn, loser_origin, winner_origin).await?
+            verdicts
+                .kept_apart(conn, loser_origin, winner_origin)
+                .await?
         }
         _ => false,
     };
 
     Ok(Preview {
         observations,
-        evidence: claim_count,
+        identities: identity_count,
         shared_illuminations,
         standing_verdict,
     })
@@ -154,7 +157,8 @@ async fn merge(
     note: Option<&str>,
 ) -> anyhow::Result<Outcome> {
     // The transaction callback must be `'static`, so the handles are cloned (pool handles) rather
-    // than borrowed: the claims move and the log row inside write on the transaction they are handed.
+    // than borrowed: the identities move and the log row inside write on the transaction they are
+    // handed.
     let evidence = evidence.clone();
     let verdicts = verdicts.clone();
     let note = note.map(str::to_string);
@@ -247,8 +251,8 @@ async fn merge_in_transaction<C: ConnectionTrait>(
         .exec(conn)
         .await?;
 
-    // The claims move with them; evidence drops the duplicate the unique index would refuse.
-    evidence.move_claims(conn, loser, winner).await?;
+    // The annotations move with them; the move drops duplicates the unique index would refuse.
+    evidence.move_identities(conn, loser, winner).await?;
 
     // The log: which thing was folded into which, and what decided it. One row per merge, keyed by
     // what survives a rebuild.
@@ -637,7 +641,7 @@ mod tests {
         let capture = fixtures::Capture::new(&db, "merge").await;
         fixtures::attached(&db, &capture, 0, "Elon", None, "real_person", loser).await;
 
-        fixtures::claim(
+        fixtures::identity(
             &db,
             loser,
             "wikidata",
@@ -670,13 +674,13 @@ mod tests {
             "the observation follows the winner"
         );
         assert_eq!(
-            claims::Entity::find()
-                .filter(claims::Column::KnowledgeEntityId.eq(winner))
+            identities::Entity::find()
+                .filter(identities::Column::KnowledgeEntityId.eq(winner))
                 .count(&db.conn)
                 .await
                 .unwrap(),
             1,
-            "the claim moved"
+            "the identity moved"
         );
         assert_eq!(
             verdicts::Entity::find()

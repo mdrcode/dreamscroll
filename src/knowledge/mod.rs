@@ -22,19 +22,19 @@
 //! Three things stay at the root because more than one cluster needs them, and a stage that imports
 //! a cluster to reach its own vocabulary has the dependency backwards:
 //!
-//! - [`evidence`] — [`Claim`] and the two writers of `knowledge_claims`. `identity` writes through
-//!   it and `linking` reads it; it depends on `model`, `normalize` and `scoring` and on nothing else
-//!   here.
+//! - [`evidence`] — [`Identity`](evidence::Identity) and the store for `knowledge_identities`.
+//!   `identity` writes through it and `linking` reads it; it depends on `model`, `normalize` and
+//!   `scoring` and on nothing else here.
 //! - [`normalize`] and [`scoring`] — a surface fold and a confidence comparison, used by blocking,
 //!   identity, evidence and projection alike.
 //! - [`snapshot`] — copy the projection, empty it, diff two copies: an operation over the whole
 //!   graph, not a way of changing it.
 //! - [`helper`] — the illumination composition: which observations are linked together, and the
-//!   claim assertion that follows. The graph links a collection; only this knows it is one reading.
+//!   identity annotation that follows. The graph links a collection; only this knows it is one
+//!   reading.
 //!
 //! [Blocker]: blocker::Blocker
 //! [Linker]: linker::Linker
-//! [`Claim`]: evidence::Claim
 
 pub mod blocker;
 pub mod eval;
@@ -49,9 +49,9 @@ pub mod scoring;
 pub mod snapshot;
 pub mod verdicts;
 
-pub use proximity::AutoMergeReport;
 pub use graph::{KnowledgeGraph, LinkReport, ReplayReport};
 pub use helper::{
     LinkAllReport, link_all_pending, link_illumination, resolve_all_pending, resolve_illumination,
 };
+pub use proximity::AutoMergeReport;
 pub use scoring::{Rank, Scoring, Similarity, TotalCmp};

@@ -6,7 +6,6 @@ pub mod illumination;
 pub mod illumination_raw;
 pub mod inference_meta;
 pub mod knowledge_blocking_index;
-pub mod knowledge_claims;
 pub mod knowledge_entity;
 pub mod knowledge_generations;
 pub mod knowledge_identity;

@@ -1,7 +1,7 @@
-//! One knowledge entity as evidence: its members and claims, for review and audit.
+//! One knowledge entity as evidence: its members and identities, for review and audit.
 //!
-//! `eval inspect` answers "why did the resolver decide this". This answers "what is this entity
-//! made of" — the observations it absorbed and the identities it asserts, including retracted ones.
+//! `identity inspect` answers "why did the resolver decide this". This answers "what is this entity
+//! made of" — the observations it absorbed and the identities it currently asserts.
 
 use chrono::{DateTime, Utc};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
@@ -12,10 +12,10 @@ use crate::model;
 pub struct Detail {
     pub entity: model::knowledge_entity::Model,
     pub members: Vec<model::user_observed_entity::Model>,
-    pub claims: Vec<ClaimRow>,
+    pub identities: Vec<IdentityRow>,
 }
 
-pub struct ClaimRow {
+pub struct IdentityRow {
     pub id: i32,
     pub scheme: String,
     pub external_id: String,
@@ -25,7 +25,6 @@ pub struct ClaimRow {
     pub confidence: Option<f32>,
     pub method: Option<String>,
     pub provider: String,
-    pub retracted_at: Option<DateTime<Utc>>,
     pub observed_at: DateTime<Utc>,
     pub user_observed_entity_id: Option<i32>,
 }
@@ -45,36 +44,31 @@ pub async fn detail(db: &database::DbHandle, id: i32) -> anyhow::Result<Option<D
         .all(&db.conn)
         .await?;
 
-    let claims = model::knowledge_claims::Entity::find()
-        .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(id))
-        .order_by_asc(model::knowledge_claims::Column::Id)
-        .find_with_related(model::knowledge_identity::Entity)
+    let identities = model::knowledge_identity::Entity::find()
+        .filter(model::knowledge_identity::Column::KnowledgeEntityId.eq(id))
+        .order_by_asc(model::knowledge_identity::Column::Id)
         .all(&db.conn)
         .await?
         .into_iter()
-        .filter_map(|(claim, identities)| {
-            let identity = identities.into_iter().next()?;
-            Some(ClaimRow {
-                id: claim.id,
-                scheme: identity.scheme,
-                external_id: identity.external_id,
-                label: identity.label,
-                description: identity.description,
-                classes: identity.classes,
-                confidence: identity.confidence,
-                method: claim.method.clone(),
-                provider: claim.provider.clone(),
-                retracted_at: claim.retracted_at,
-                observed_at: claim.observed_at,
-                user_observed_entity_id: claim.user_observed_entity_id,
-            })
+        .map(|identity| IdentityRow {
+            id: identity.id,
+            scheme: identity.scheme,
+            external_id: identity.external_id,
+            label: identity.label,
+            description: identity.description,
+            classes: identity.classes,
+            confidence: identity.confidence,
+            method: identity.method.clone(),
+            provider: identity.provider.clone(),
+            observed_at: identity.observed_at,
+            user_observed_entity_id: identity.user_observed_entity_id,
         })
         .collect();
 
     Ok(Some(Detail {
         entity,
         members,
-        claims,
+        identities,
     }))
 }
 
@@ -102,23 +96,22 @@ impl Detail {
                 })
             })
             .collect();
-        let claims: Vec<serde_json::Value> = self
-            .claims
+        let identities: Vec<serde_json::Value> = self
+            .identities
             .iter()
-            .map(|claim| {
+            .map(|identity| {
                 serde_json::json!({
-                    "id": claim.id,
-                    "scheme": claim.scheme,
-                    "external_id": claim.external_id,
-                    "label": claim.label,
-                    "description": claim.description,
-                    "classes": claim.classes,
-                    "confidence": claim.confidence,
-                    "method": claim.method,
-                    "provider": claim.provider,
-                    "retracted_at": claim.retracted_at.map(|at| at.to_rfc3339()),
-                    "observed_at": claim.observed_at.to_rfc3339(),
-                    "user_observed_entity_id": claim.user_observed_entity_id,
+                    "id": identity.id,
+                    "scheme": identity.scheme,
+                    "external_id": identity.external_id,
+                    "label": identity.label,
+                    "description": identity.description,
+                    "classes": identity.classes,
+                    "confidence": identity.confidence,
+                    "method": identity.method,
+                    "provider": identity.provider,
+                    "observed_at": identity.observed_at.to_rfc3339(),
+                    "user_observed_entity_id": identity.user_observed_entity_id,
                 })
             })
             .collect();
@@ -143,7 +136,7 @@ impl Detail {
                 "origin_observation_id": entity.origin_observation_id,
             },
             "members": members,
-            "claims": claims,
+            "identities": identities,
         })
     }
 }
@@ -155,10 +148,10 @@ mod tests {
     use crate::test_support::{db_or_skip, fixtures};
 
     #[tokio::test]
-    async fn detail_lists_members_and_claims() {
+    async fn detail_lists_members_and_identities() {
         db_or_skip!(db);
         let id = fixtures::knowledge_entity_with_member(&db, "Entity Detail").await;
-        fixtures::claim(
+        fixtures::identity(
             &db,
             id,
             "wikidata",
@@ -172,15 +165,15 @@ mod tests {
         let detail = detail(&db, id).await.unwrap().unwrap();
         assert_eq!(detail.entity.id, id);
         assert_eq!(detail.members.len(), 1);
-        assert_eq!(detail.claims.len(), 1);
-        assert_eq!(detail.claims[0].scheme, "wikidata");
-        assert_eq!(detail.claims[0].external_id, "Q1");
+        assert_eq!(detail.identities.len(), 1);
+        assert_eq!(detail.identities[0].scheme, "wikidata");
+        assert_eq!(detail.identities[0].external_id, "Q1");
 
         let json = detail.to_json();
         assert_eq!(
             json["entity"]["origin_observation_id"].as_i64(),
             detail.entity.origin_observation_id.map(i64::from)
         );
-        assert_eq!(json["claims"][0]["external_id"], "Q1");
+        assert_eq!(json["identities"][0]["external_id"], "Q1");
     }
 }

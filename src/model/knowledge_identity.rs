@@ -1,21 +1,25 @@
 use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 
-/// A thing the world names, independent of whether we have an entity for it.
+/// One authority's annotation of one entity with one durable identity.
 ///
-/// `(scheme, external_id)` is the identity: a Wikidata item, a platform account, a Wikimedia file.
-/// The authority's answer about it — label, description, classes, and how we came by it — belongs
-/// here rather than on every claim that cites it, because one identity may be claimed by several
-/// entities: an album's article is the identity of the album and the coverage of each of its songs.
+/// An identity is the pair `(scheme, external_id)` — a Wikidata item, a platform account, a
+/// Wikimedia file. The row says **this entity is named that**, and carries the authority's answer
+/// about it: label, description, classes, method and confidence.
 ///
-/// Unique on the pair. That is the invariant this table actually owns; nothing here says an identity
-/// belongs to one entity.
+/// Rows are per provider, not per key. Two authorities may name the same key for the same entity;
+/// that corroboration has its own confidence and method, and a resolver's full replace must not be
+/// able to delete another provider's annotation. A key may also be held by several entities — one
+/// Wikidata item can name an album and cover its songs — which is what `proximity` asks about.
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "knowledge_identities")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
+
+    /// The entity this annotation is about. An identity is never free-floating.
+    pub knowledge_entity_id: i32,
 
     /// The namespace: `wikidata`, `wikimedia`, `x_twitter`.
     pub scheme: String,
@@ -28,22 +32,27 @@ pub struct Model {
     pub description: Option<String>,
     pub classes: Vec<String>,
 
-    /// Who supplied the row: `illuminator` when an observation showed the handle, a resolver's id when one
-    /// answered, `model` when a guess produced it. For an authority this is the same id
-    /// `Request::provider` uses; `illuminator` and `model` never appear in `fetch_cache`. It follows
-    /// the current answer (`upsert_identity`), so it is not the first sighting — the claim records
-    /// that.
+    /// Who supplied the annotation: `illuminator` when an observation showed the handle, a
+    /// resolver's id when one answered, `model` when a guess produced it.
     pub provider: String,
-    /// How the current answer was reached: `observation` when an observation showed the handle, a Wikidata
-    /// property (`P2002`, `P2003`, …) when the answer came from a handle join, or the ladder step
-    /// (`exact_label`, `wikipedia_title`, `search_lookup`, `search_ranked`, `search_hint`, `ranked`).
+    /// How the annotation was reached: `observation`, a Wikidata property (`P2002`, `P2003`, …) when
+    /// the answer came from a handle join, or the ladder step (`exact_label`, `wikipedia_title`,
+    /// `search_lookup`, `search_ranked`, `search_hint`, `ranked`).
     #[sea_orm(nullable)]
     pub method: Option<String>,
     #[sea_orm(nullable)]
     pub confidence: Option<f32>,
 
+    /// The observation that carried it, when a capture showed the handle. `None` for an authority
+    /// answer.
+    #[sea_orm(nullable)]
+    pub user_observed_entity_id: Option<i32>,
+
     #[sea_orm(default_expr = "Expr::current_timestamp()")]
-    pub first_seen: DateTime<Utc>,
+    pub observed_at: DateTime<Utc>,
+
+    #[sea_orm(belongs_to, from = "knowledge_entity_id", to = "id")]
+    pub knowledge_entity: HasOne<crate::model::knowledge_entity::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

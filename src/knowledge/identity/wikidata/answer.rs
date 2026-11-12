@@ -6,9 +6,9 @@
 use super::Candidate;
 use super::ID;
 
-/// A Wikidata answer before it becomes an identity and a claim edge.
+/// A Wikidata answer before it becomes an identity annotation.
 #[derive(Debug, Clone, PartialEq)]
-pub(crate) struct AuthorityClaim {
+pub(crate) struct AuthorityIdentity {
     pub scheme: String,
     pub external_id: String,
     pub label: Option<String>,
@@ -26,8 +26,8 @@ const MENUS: [&str; 2] = [
     "Q22808320", // Wikimedia human name disambiguation page
 ];
 
-pub(super) fn claim(candidate: &Candidate, method: &str, confidence: f32) -> AuthorityClaim {
-    AuthorityClaim {
+pub(super) fn identity(candidate: &Candidate, method: &str, confidence: f32) -> AuthorityIdentity {
+    AuthorityIdentity {
         scheme: ID.to_string(),
         external_id: candidate.id.clone(),
         label: candidate.label.clone(),

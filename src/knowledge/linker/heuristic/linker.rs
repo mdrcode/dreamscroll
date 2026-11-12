@@ -55,7 +55,7 @@ impl Default for HeuristicLinker {
 impl Linker for HeuristicLinker {
     /// Give the batch's observations their entities.
     ///
-    /// A held identity settles the question before any scoring: an entity that already claims this
+    /// A held identity settles the question before any scoring: an entity already annotated with this
     /// platform link *is* the thing, and asking a name-similarity model to second-guess that is how a
     /// handle and a real name end up as two entities. Several entities may hold it, so the most
     /// substantiated one wins and the rest are left to the scan, which is where "are these one
@@ -85,23 +85,17 @@ impl Linker for HeuristicLinker {
             if observation.knowledge_entity_id.is_some() {
                 continue;
             }
-            // A platform link names an identity only if it has a handle and that identity row
-            // already exists; the observation itself has no identity.
+            // A platform link names an identity only if it has a handle; the observation itself has
+            // no identity.
             let key =
                 platform_link(&observation).and_then(|link| IdentityKey::try_from(&link).ok());
-            let identity = match key {
-                Some(key) => evidence.find_identity_id(&key).await?,
-                None => None,
+            let holders = match key {
+                Some(key) => evidence.query_entities_for_identity(&key).await?,
+                None => Vec::new(),
             };
 
-            // `holders_of_identity` returns the most substantiated first; the rest go to the scan.
-            if let Some(identity_id) = identity
-                && let Some(best) = evidence
-                    .holders_of_identity(identity_id)
-                    .await?
-                    .into_iter()
-                    .next()
-            {
+            // The holders arrive most substantiated first; the rest go to the scan.
+            if let Some(best) = holders.into_iter().next() {
                 decisions.push(Decision {
                     observation,
                     action: Action::Attach(best.id),
@@ -159,7 +153,7 @@ mod tests {
 
     /// Link one illumination: build the blocker from the corpus and run the linker over it.
     ///
-    /// Needs a database now, because the linker asks the evidence store whether a claim is already
+    /// Needs a database now, because the linker asks the evidence store whether an identity is already
     /// held. Observations with no platform link never reach that call.
     async fn link(
         db: &crate::database::DbHandle,

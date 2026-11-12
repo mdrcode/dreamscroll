@@ -3,11 +3,11 @@
 //! One type, one owned handle: every write to `knowledge_entities` and every move of an observation
 //! onto one goes through [`KnowledgeGraph`], and the handle itself never leaves this module tree — the
 //! primitives here are private, and the collaborators (`decider`, `blocker`, `evidence`, `verdicts`)
-//! are `pub(super)` because only the passes beside the facade read them. Identity and claim writes are
-//! [`KnowledgeGraph::claim_identity`], so `helper` and the resolver hold a graph, not a store. There is no
-//! connection getter: `link_illumination` and `proximity` take the pool as an argument, and the two
-//! stores hold their own. Outside `graph`, a caller sees [`KnowledgeGraph`]'s methods and nothing
-//! else.
+//! are `pub(super)` because only the passes beside the facade read them. Identity writes are
+//! [`KnowledgeGraph::replace_provider_identities`] and [`KnowledgeGraph::add_identity`], so `helper`
+//! and the resolver hold a graph, not a store. There is no connection getter: `link_illumination` and
+//! `proximity` take the pool as an argument, and the two stores hold their own. Outside `graph`, a
+//! caller sees [`KnowledgeGraph`]'s methods and nothing else.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -18,7 +18,7 @@ use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder
 use super::replay::ReplayReport;
 use crate::database::DbHandle;
 use crate::knowledge::blocker::Blocker;
-use crate::knowledge::evidence::{Claim, ClaimOutcome, Evidence, IdentityDraft};
+use crate::knowledge::evidence::{Evidence, Identity, IdentityWrite};
 use crate::knowledge::linker::Linker;
 use crate::knowledge::verdicts::{Cause, VerdictStore, VetoReport};
 use crate::model;
@@ -70,11 +70,6 @@ impl KnowledgeGraph {
         &self.evidence
     }
 
-    #[cfg(test)]
-    pub(crate) fn db(&self) -> &DbHandle {
-        &self.db
-    }
-
     /// The default wiring: the index blocker and today's heuristic linker.
     ///
     /// A caller that needs a different blocker or policy builds [`KnowledgeGraph::with_linking`]
@@ -101,29 +96,30 @@ impl KnowledgeGraph {
         get(&self.db.conn, knowledge_entity_id).await
     }
 
-    /// Settle the identity and write the claim edge, unless a standing veto names it.
-    pub async fn claim_identity(
+    /// Replace a provider's complete identity set for one entity, unless a standing veto names a key.
+    pub async fn replace_provider_identities(
         &self,
-        identity_draft: IdentityDraft,
-        claim: Claim,
+        entity_id: i32,
+        provider: &str,
+        identities: &[Identity],
         vetoes: &HashSet<(i32, String, String)>,
-    ) -> anyhow::Result<ClaimOutcome> {
+    ) -> anyhow::Result<IdentityWrite> {
         self.evidence
-            .claim_identity(identity_draft, claim, vetoes)
+            .replace_provider_identities(entity_id, provider, identities, vetoes)
             .await
     }
 
-    /// Reproject every live holder of an identity. Used when a shared identity changes: the entity
-    /// that wrote the answer is projected by the resolver, the other holders are not.
-    pub(crate) async fn reproject_identity_holders(
+    /// Append one identity annotation, unless a standing veto names it.
+    pub async fn add_identity(
         &self,
-        identity_id: i32,
-    ) -> anyhow::Result<usize> {
-        let holders = self.evidence.holders_of_identity(identity_id).await?;
-        for holder in &holders {
-            self.update_projection(holder.id).await?;
-        }
-        Ok(holders.len())
+        entity_id: i32,
+        provider: &str,
+        identity: &Identity,
+        vetoes: &HashSet<(i32, String, String)>,
+    ) -> anyhow::Result<IdentityWrite> {
+        self.evidence
+            .add_identity(entity_id, provider, identity, vetoes)
+            .await
     }
 
     /// Apply the recorded decisions to a rebuilt graph. See [`crate::knowledge::verdicts`].
@@ -131,7 +127,7 @@ impl KnowledgeGraph {
         super::replay::replay(self).await
     }
 
-    /// Record that an entity is *not* an identity, and withdraw the claim it names.
+    /// Record that an entity is *not* an identity, and delete the annotation it names.
     ///
     /// Recording and applying are one act: a register that disagrees with the graph is a decision
     /// nobody has taken. The next replay does the same thing after a rebuild, through origins.
@@ -155,7 +151,7 @@ impl KnowledgeGraph {
         })
     }
 
-    /// Lift a veto. The next resolve may claim the identity again.
+    /// Lift a veto. The next resolve may annotate the identity again.
     pub async fn unveto(&self, verdict_id: i32) -> anyhow::Result<bool> {
         self.verdicts.unveto(verdict_id).await
     }
@@ -189,9 +185,8 @@ impl KnowledgeGraph {
 
     /// Link a batch of observations into entities: decide, attach, project.
     ///
-    /// Nothing here knows about identities or claims.
-    /// [`crate::knowledge::link_illumination`] is the caller that batches by illumination
-    /// and asserts what each capture showed.
+    /// Nothing here knows about identities. [`crate::knowledge::link_illumination`] is the caller
+    /// that batches by illumination and annotates what each capture showed.
     pub async fn link(
         &self,
         observations: &[model::user_observed_entity::Model],
@@ -259,8 +254,8 @@ async fn insert_new<C: ConnectionTrait>(
     conn: &C,
     observation: &model::user_observed_entity::Model,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
-    // Always provisional: a new entity has nothing proving it yet. If the capture asserted a claim,
-    // it is recorded against this entity and `project` promotes it to `identified` moments later —
+    // Always provisional: a new entity has nothing proving it yet. If the capture showed a handle,
+    // it is annotated on this entity and `project` promotes it to `identified` moments later —
     // guessing the status here would be a second writer of a projected column.
     let model = model::knowledge_entity::ActiveModel {
         name: Set(observation.name.trim().to_string()),

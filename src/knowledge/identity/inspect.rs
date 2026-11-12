@@ -8,16 +8,16 @@
 
 use std::collections::HashSet;
 
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
 use crate::fetch::cache::{FetchCache, State};
 use crate::fetch::{Answer, Outcome};
-use crate::knowledge::linker::heuristic::Heuristic;
+use crate::knowledge::blocker::SqlBlocker;
 use crate::knowledge::identity::wikidata::{Candidate as Offered, parse, plan};
+use crate::knowledge::linker::heuristic::Heuristic;
 use crate::knowledge::normalize;
 use crate::knowledge::scoring::Scoring;
-use crate::knowledge::blocker::SqlBlocker;
 use crate::model;
 
 /// One entity, and everything the pipeline did with it.
@@ -31,7 +31,7 @@ pub struct Report {
     pub ranked: Vec<(i32, String, f32)>,
     pub steps: Vec<Step>,
     /// What the graph currently holds for this entity.
-    pub claim: Option<Claim>,
+    pub identity: Option<StoredIdentity>,
 }
 
 /// One candidate, and which key generation found it.
@@ -56,16 +56,16 @@ pub struct Step {
     pub outcome: Option<Outcome>,
     /// The first candidates the answer carried: `(id, label, description)`.
     pub top: Vec<(String, String, String)>,
-    /// `(qid, method)` when this rung produced a claim.
+    /// `(qid, method)` when this rung produced an identity.
     pub decision: Option<(String, String)>,
-    /// The rung's claim is refused by a standing veto, so the engine would not write it.
+    /// The rung's identity is refused by a standing veto, so the engine would not write it.
     pub vetoed: bool,
     /// Why it did not, when it did not — recorded by the resolver, not inferred here.
     pub refusal: &'static str,
 }
 
 #[derive(Debug)]
-pub struct Claim {
+pub struct StoredIdentity {
     pub identity: String,
     pub label: Option<String>,
     pub provider: String,
@@ -124,7 +124,7 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
 
     let vetoes = crate::knowledge::KnowledgeGraph::new(db).vetoed().await?;
     let steps = ladder(db, &entity, &vetoes).await?;
-    let claim = current_claim(db, entity.id).await?;
+    let identity = current_identity(db, entity.id).await?;
 
     Ok(Some(Report {
         entity,
@@ -132,7 +132,7 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
         candidates,
         ranked,
         steps,
-        claim,
+        identity,
     }))
 }
 
@@ -170,7 +170,7 @@ async fn index_keys(db: &DbHandle, id: i32) -> anyhow::Result<(Vec<String>, Vec<
         .unwrap_or_default())
 }
 
-/// Every rung the resolver would climb, in order, stopped at the first claim.
+/// Every rung the resolver would climb, in order, stopped at the first identity.
 async fn ladder(
     db: &DbHandle,
     entity: &model::knowledge_entity::Model,
@@ -187,7 +187,7 @@ async fn ladder(
         };
         let lookup = cache
             .lookup::<_, Vec<Offered>>(
-                &request.provider,
+                request.provider,
                 &request.kind,
                 &request.shape,
                 &request.query,
@@ -209,7 +209,7 @@ async fn ladder(
                 outcome: lookup.outcome.expect("a present row has an outcome"),
                 body: lookup.body,
             };
-            let claim = match rung {
+            let identity = match rung {
                 // The last resort does not rank: it takes the article bearing this exact name.
                 plan::Step::SurfaceTitle => match parse::admit(entity, &raw) {
                     Ok(candidates) => parse::surface_only(entity, &candidates, &request),
@@ -222,9 +222,13 @@ async fn ladder(
                     .into_iter()
                     .next(),
             };
-            claim.map(|claim| {
-                vetoed = vetoes.contains(&(entity.id, claim.scheme.clone(), claim.external_id.clone()));
-                (claim.external_id, claim.method)
+            identity.map(|identity| {
+                vetoed = vetoes.contains(&(
+                    entity.id,
+                    identity.scheme.clone(),
+                    identity.external_id.clone(),
+                ));
+                (identity.external_id, identity.method)
             })
         } else {
             None
@@ -327,11 +331,11 @@ impl Report {
                     "refusal": step.refusal,
                 }))
                 .collect::<Vec<_>>(),
-            "claim": self.claim.as_ref().map(|claim| serde_json::json!({
-                "identity": claim.identity,
-                "label": claim.label,
-                "provider": claim.provider,
-                "method": claim.method,
+            "identity": self.identity.as_ref().map(|identity| serde_json::json!({
+                "identity": identity.identity,
+                "label": identity.label,
+                "provider": identity.provider,
+                "method": identity.method,
             })),
         })
     }
@@ -352,30 +356,18 @@ fn describe(candidates: &[Offered]) -> Vec<(String, String, String)> {
         .collect()
 }
 
-async fn current_claim(db: &DbHandle, id: i32) -> anyhow::Result<Option<Claim>> {
-    let rows = model::knowledge_claims::Entity::find()
-        .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(id))
-        .filter(model::knowledge_claims::Column::RetractedAt.is_null())
-        .find_with_related(model::knowledge_identity::Entity)
-        .all(&db.conn)
+async fn current_identity(db: &DbHandle, id: i32) -> anyhow::Result<Option<StoredIdentity>> {
+    let identity = model::knowledge_identity::Entity::find()
+        .filter(model::knowledge_identity::Column::KnowledgeEntityId.eq(id))
+        .filter(model::knowledge_identity::Column::Scheme.eq("wikidata"))
+        .order_by_asc(model::knowledge_identity::Column::Id)
+        .one(&db.conn)
         .await?;
-    let Some((claim, identities)) = rows
-        .into_iter()
-        .find(|(_, identities)| identities.iter().any(|identity| identity.scheme == "wikidata"))
-    else {
-        return Ok(None);
-    };
-    let Some(identity) = identities
-        .into_iter()
-        .find(|identity| identity.scheme == "wikidata")
-    else {
-        return Ok(None);
-    };
-    Ok(Some(Claim {
+    Ok(identity.map(|identity| StoredIdentity {
         identity: identity.external_id,
         label: identity.label,
-        provider: claim.provider,
-        method: claim.method,
+        provider: identity.provider,
+        method: identity.method,
     }))
 }
 
@@ -385,15 +377,15 @@ mod tests {
 
     use crate::fetch::cache::FetchCache;
     use crate::fetch::{Answer, Outcome};
-    use crate::knowledge::identity::wikidata::{Candidate, Kind};
     use crate::knowledge::KnowledgeGraph;
+    use crate::knowledge::identity::wikidata::{Candidate, Kind};
     use crate::test_support::{db_or_skip, fixtures};
     use sea_orm::EntityTrait;
 
     /// A veto is the engine's refusal, so the inspector must report it as one: the rung did produce
-    /// a claim, and the graph would not write it.
+    /// an identity, and the graph would not write it.
     #[tokio::test]
-    async fn a_standing_veto_is_not_reported_as_a_claim() {
+    async fn a_standing_veto_is_not_reported_as_an_identity() {
         db_or_skip!(db);
 
         let id = fixtures::knowledge_entity_with_member(&db, "Inspected Thing").await;
@@ -444,6 +436,9 @@ mod tests {
             Some(("Q42".to_string(), "exact_label".to_string()))
         );
         assert!(label.vetoed);
-        assert!(report.claim.is_none(), "the veto left no claim to hold");
+        assert!(
+            report.identity.is_none(),
+            "the veto left no identity to hold"
+        );
     }
 }

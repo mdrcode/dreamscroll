@@ -1,9 +1,10 @@
 //! What an answer means: the gates every candidate passes, and the rung that speaks for it.
 //!
-//! Pure: the same entity plus the same answer yields the same claims, so the whole decision can be
-//! re-run over cached payloads with no transport. Nothing here knows which wire produced the answer.
+//! Pure: the same entity plus the same answer yields the same identities, so the whole decision can
+//! be re-run over cached payloads with no transport. Nothing here knows which wire produced the
+//! answer.
 
-use super::AuthorityClaim as Claim;
+use super::AuthorityIdentity as Identity;
 use super::answer;
 use super::policy;
 use super::ranking::HANDLE_CONFIDENCE;
@@ -12,12 +13,12 @@ use super::{Candidate, Kind};
 use crate::fetch::{Answer, Request};
 use crate::model;
 
-/// Turn an answer into claims. Pure: same entity plus same answer, same claims.
-pub(crate) fn claims(
+/// Turn an answer into identities. Pure: same entity plus same answer, same identities.
+pub(crate) fn identities(
     entity: &model::knowledge_entity::Model,
     request: &Request<Kind>,
     raw: &Answer<Vec<Candidate>>,
-) -> Vec<Claim> {
+) -> Vec<Identity> {
     let mut reason = "";
     explained(entity, request, raw, &mut reason)
 }
@@ -59,11 +60,11 @@ pub(crate) fn surface_only(
     entity: &model::knowledge_entity::Model,
     candidates: &[Candidate],
     request: &Request<Kind>,
-) -> Option<Claim> {
+) -> Option<Identity> {
     policy::surface_only(entity, candidates, request)
 }
 
-/// [`claims`], and *why* it refused. `reason` is empty when a claim came back.
+/// [`identities`], and *why* it refused. `reason` is empty when an identity came back.
 ///
 /// The refusal is recorded where it happens rather than inferred afterwards: an inspector that
 /// guessed at the gate would be a second implementation of the gates.
@@ -72,7 +73,7 @@ pub(crate) fn explained(
     request: &Request<Kind>,
     raw: &Answer<Vec<Candidate>>,
     reason: &mut &'static str,
-) -> Vec<Claim> {
+) -> Vec<Identity> {
     // `admit` is the one gate, and it already refuses an answer that carried nothing — the reason
     // it records is the reason reported here.
     let candidates = match admit(entity, raw) {
@@ -85,7 +86,7 @@ pub(crate) fn explained(
     match request.kind {
         // A property match *is* the identity: an item claiming this handle is the account itself.
         Kind::Handle(property) => match candidates.first() {
-            Some(candidate) => vec![answer::claim(candidate, property, HANDLE_CONFIDENCE)],
+            Some(candidate) => vec![answer::identity(candidate, property, HANDLE_CONFIDENCE)],
             None => {
                 *reason = "the handle answer carried no item";
                 Vec::new()

@@ -8,45 +8,25 @@ use super::Cause;
 
 use crate::test_support::{db_or_skip, fixtures};
 
-/// Seed an entity claiming one identity, as `resolve` would have written it.
+/// Seed an entity annotated with one identity, as `resolve` would have written it.
 async fn seed_claim(db: &crate::database::DbHandle, name: &str, external_id: &str) -> i32 {
     let entity_id = fixtures::knowledge_entity_with_member(db, name).await;
-    let identity = match model::knowledge_identity::Entity::find()
-        .filter(model::knowledge_identity::Column::Scheme.eq("wikidata"))
-        .filter(model::knowledge_identity::Column::ExternalId.eq(external_id))
-        .one(&db.conn)
-        .await
-        .unwrap()
-    {
-        Some(identity) => identity,
-        None => model::knowledge_identity::Entity::insert(model::knowledge_identity::ActiveModel {
-            scheme: Set("wikidata".to_string()),
-            external_id: Set(external_id.to_string()),
-            provider: Set("wikidata".to_string()),
-            classes: Set(Vec::new()),
-            ..Default::default()
-        })
-        .exec_with_returning(&db.conn)
-        .await
-        .unwrap(),
-    };
-    model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
-        knowledge_entity_id: Set(entity_id),
-        knowledge_identity_id: Set(identity.id),
-        provider: Set(identity.provider.clone()),
-        method: Set(identity.method.clone()),
-        ..Default::default()
-    })
-    .exec(&db.conn)
-    .await
-    .unwrap();
+    fixtures::identity(
+        db,
+        entity_id,
+        "wikidata",
+        external_id,
+        "wikidata",
+        None,
+        None,
+    )
+    .await;
     entity_id
 }
 
 async fn live_claims(db: &crate::database::DbHandle, entity_id: i32) -> usize {
-    model::knowledge_claims::Entity::find()
-        .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(entity_id))
-        .filter(model::knowledge_claims::Column::RetractedAt.is_null())
+    model::knowledge_identity::Entity::find()
+        .filter(model::knowledge_identity::Column::KnowledgeEntityId.eq(entity_id))
         .all(&db.conn)
         .await
         .unwrap()
@@ -98,7 +78,7 @@ async fn a_veto_retracts_a_claim_that_arrived_by_handle() {
     db_or_skip!(db);
     let store = KnowledgeGraph::new(&db);
     let entity_id = fixtures::knowledge_entity_with_member(&db, "Tsoding").await;
-    fixtures::claim(
+    fixtures::identity(
         &db,
         entity_id,
         "wikidata",
@@ -205,7 +185,7 @@ async fn a_veto_reprojects_the_entity_it_empties() {
     db_or_skip!(db);
     let store = KnowledgeGraph::new(&db);
     let entity_id = fixtures::knowledge_entity_with_member(&db, "Q").await;
-    fixtures::claim(
+    fixtures::identity(
         &db,
         entity_id,
         "wikidata",
@@ -242,7 +222,7 @@ async fn a_veto_drops_the_score_that_claim_earned_and_no_more() {
     db_or_skip!(db);
     let store = KnowledgeGraph::new(&db);
     let entity_id = fixtures::knowledge_entity_with_member(&db, "Nintendo").await;
-    fixtures::claim(
+    fixtures::identity(
         &db,
         entity_id,
         "wikidata",
@@ -252,7 +232,7 @@ async fn a_veto_drops_the_score_that_claim_earned_and_no_more() {
         Some(0.9),
     )
     .await;
-    fixtures::claim(
+    fixtures::identity(
         &db,
         entity_id,
         "x_twitter",

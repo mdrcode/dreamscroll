@@ -1,10 +1,12 @@
 # Entity attestations — references, not identities
 
 **Status:** Proposed 2026-11-11. Design only; no schema or code change. Not scheduled, not
-committed. This doc records a model worth keeping even if implementation waits.
+committed. This doc records a model worth keeping even if implementation waits. It predates schema
+39; read "claim" below as an identity annotation on an entity, and `Claim` in the resolver sketch as
+`Identity` — see [knowledge-identity-annotations.md](knowledge-identity-annotations.md).
 
 **See also:** [knowledge-resolution.md](knowledge-resolution.md) (the resolver contract this would
-extend), [knowledge-claim-management.md](knowledge-claim-management.md) (the claim edge and its
+extend), [knowledge-claim-management.md](archive/knowledge-claim-management.md) (the claim edge and its
 provenance), [lexicon.md](lexicon.md) (current vocabulary), `src/knowledge/knowledge.md` (the model
 as built), [pragmatism.md](pragmatism.md) (the trade-off ledger).
 

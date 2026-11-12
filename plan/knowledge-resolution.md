@@ -1,9 +1,11 @@
 # Resolution — cache first, providers second
 
-**Status:** Implemented (current schema 33). `dreamscroll_knowledge identity resolve` runs manually;
-there is no scheduled trigger and no enrichment yet. Wikidata is the first provider. The next slice —
-multiple authorities, multiple claims per authority, per-entity re-resolution — is designed below and
-not implemented.
+**Status:** Implemented (current schema 39). `dreamscroll_knowledge identity resolve` runs manually;
+there is no scheduled trigger and no enrichment yet. Wikidata is the first provider. Schema 39
+removed the claim edge: a resolver returns an entity's identities and the engine replaces that
+provider's set — see [knowledge-identity-annotations.md](knowledge-identity-annotations.md). Sections
+below that describe claims are kept for the rationale; read "claim" there as the edge that no longer
+exists.
 
 **See also:** [knowledge-canonical-entities.md](archive/knowledge-canonical-entities.md) (the graph this feeds),
 [knowledge-evidence-prototype.md](archive/knowledge-evidence-prototype.md) (the measured prototype, and the
@@ -31,7 +33,7 @@ trait Transport {
 trait Resolver {
     fn id(&self) -> &'static str;
     async fn resolve(&self, entities: &[Model], gateway: &fetch::Gateway<'_>)
-        -> Vec<(i32, Claim)>;
+        -> Vec<(i32, Identity)>;
 }
 ```
 
@@ -85,6 +87,10 @@ the misses into one call (50 at a time), and writes back one row per query. Part
 warm query costs nothing.
 
 ## Many authorities, one claim edge
+
+> **Superseded (schema 39).** The edge described in this section is gone; an identity is now an
+> annotation on one entity. The authority-selection and provenance rules below still apply. See
+> [knowledge-identity-annotations.md](knowledge-identity-annotations.md).
 
 Today Wikidata is the only provider, and the claim model must not know that. What is authority-neutral
 already: `knowledge_identities.scheme` names the namespace, `provider` records who supplied the row,
@@ -284,8 +290,7 @@ The engine exposes only the `pub(crate)` accessor the helpers need: `providers()
 `Resolver` exposes `id()` and `resolve(&[Model], gateway)`.
 
 The caller owns the graph, cache and allowance. `ResolutionEngine::new` validates the
-reserved-provider invariant and the `replace`/`include_already_claimed` pair once; `resolve` never
-repeats those checks.
+reserved-provider and unique-resolver-id invariants once; `resolve` never repeats those checks.
 `resolve` builds the ephemeral `Gateway` from the cache and allowance, so a fresh allowance gives a
 run its own budget and a shared allowance caps several runs. `None` is cache-only. The gateway is not
 stored: its counters and budget are exactly a run long. `resolve_all_pending` takes the cache
@@ -297,7 +302,7 @@ per-resolver selection, write-all semantics and entity-first apply are settled; 
 empty.
 
 - **`resolve(entities, cache, allowance)` is the primitive.** The slice is the scope: per-resolver
-  selection, resolver-first fetch, entity-first apply. A resolver that already claimed an entity in
+  selection, resolver-first fetch, entity-first apply. A resolver that already annotated an entity in
   the slice is skipped, so a repeat is free. Selection policy is not here; the caller chose the set.
 - **`resolve_illumination`** gathers the distinct live entities linked from the illumination's
   observations and calls `resolve`. It requires `link` to have run; an unlinked observation is a
@@ -308,35 +313,37 @@ empty.
   illuminations: one call over the whole pending set is what preserves the 50-item waves.
 - **`run` disappears.** The CLI's `identity resolve` calls `helper::resolve_all_pending`; `--entity`
   loads the entity and calls `resolve(&[entity], &cache, allowance)` with
-  `include_already_claimed` from step 6.
+  `include_already_annotated` from step 6.
 
 **Scheduling is outside the engine.** A live illumination can call `resolve_illumination` immediately for low latency, or enqueue a resolve task; a periodic worker can call `resolve_all_pending` with a limit every N minutes to amortize transport calls. The cache is per query, so batching changes call count and latency, not hit rate. Corpus runs (`resolve_all_pending`) remain single-writer; a live per-illumination resolve may run beside the link task, but a corpus drain must not.
 
-### Confidence is the best claim
+### Confidence is the best identity
 
-`project` takes the highest identity confidence among the entity's live claims. There is no
+`project` takes the highest confidence among the entity's identity annotations. There is no
 independent-input count and no route classification: `knowledge_claims.basis` was removed in schema
-38. A claim with no confidence cannot substantiate anything; if no live claim has one, the entity's
-confidence is `None`.
+38, and the table itself in schema 39. An identity with no confidence cannot substantiate anything;
+if no annotation has one, the entity's confidence is `None`.
 
 ### Re-resolution is per entity and per authority
 
 - `identity resolve --entity <id>` runs the **full ladder** for that entity even when it already holds
-  a claim, and marks the currently held identity (or identities) with `*` in the per-entity output. It
-  is a demonstration, not a bypass: every rung is asked, the held answer is highlighted, and a new
-  identity is written additively. Today the already-claimed filter silently returns zero candidates,
-  which is the trap.
-- `--replace` writes the new claims, then retracts the live claims **owned by this resolver**
-  (`claim.provider`) that the new answer did not reproduce, only in the schemes the resolver got
-  accepted this run. If the provider refused, failed, or only proposed vetoed/dropped claims, nothing
-  is retracted: absence is not evidence. A provider answer truncated by the per-entity cap is
-  capped, so replacement is skipped for that provider and entity. The kept set is built during
-  admission, not from raw proposals. It is the repair path for a provider that improved.
-- `--replace` requires `--entity`; a corpus-wide replace is a rebuild, not a convenience flag.
-- `eval inspect <id>` remains the read-only replay: no writes, so it is the dry run.
+  an identity, and marks the currently held identities with `*` in the per-entity output. Every rung
+  is asked, the held answer is highlighted, and the provider's set is replaced when the authority
+  answers.
+- A positive answer is the resolver's complete statement: `replace_provider_identities` deletes that
+  provider's rows for the entity, then inserts what came back. An abstention writes nothing and leaves
+  the old rows; a refused provider (budget or rate limit) replaces nothing. Another provider's
+  annotation of the same key is untouched.
+- `identity inspect <id>` remains the read-only replay: no writes, so it is the decision dry run.
+- `identity resolve --entity <id> --dry-run` runs the same selection and resolver, but reports the
+  positive answer as the replacement set without writing or projecting it. Provider answers may still
+  populate `fetch_cache` unless `--offline`; `--offline --dry-run` is the free preview.
 - Re-resolution is single-writer, like a rebuild: stop the link worker.
 
 ### Ordered work
+
+Historical: steps 0–7 landed before schema 39. The claim-specific parts are superseded; the table is
+kept as the record of how resolution reached its current shape.
 
 | # | Change | Acceptance |
 | --- | --- | --- |
@@ -1018,7 +1025,7 @@ only valid against a freshly refreshed cache — refresh first, or compare withi
 
 ### Where the unresolved entities fail, by gate (331 unclaimed, replayed)
 
-`eval inspect` over every unclaimed entity and a tally of its refusals — no judge needed, and it says
+`identity inspect` over every unclaimed entity and a tally of its refusals — no judge needed, and it says
 more than the presence split did:
 
 | refusal | count |

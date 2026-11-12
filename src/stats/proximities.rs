@@ -5,9 +5,7 @@
 
 use std::collections::BTreeMap;
 
-use sea_orm::{
-    ConnectionTrait, DatabaseBackend, EntityTrait, QueryOrder, Statement,
-};
+use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, QueryOrder, Statement};
 
 use crate::database;
 use crate::knowledge::verdicts::{Cause, pair_key};
@@ -75,7 +73,7 @@ pub struct ProximityRow {
     /// Why the pair is worth a second look — `same entity_type`, or blank.
     pub type_note: String,
     pub basis: String,
-    /// The entity ids `merge` and `eval inspect` take; the names are for reading.
+    /// The entity ids `merge` and `identity inspect` take; the names are for reading.
     pub holder_id: i32,
     pub counterpart_id: i32,
     pub holder: String,
@@ -130,7 +128,7 @@ pub async fn proximity_list(
                     p.basis, \
                     h.name || ' [' || h.entity_type || ']', \
                     c.name || ' [' || c.entity_type || ']', \
-                    coalesce(i.scheme || ':' || i.external_id, ''), \
+                    coalesce(p.scheme || ':' || p.external_id, ''), \
                     h.origin_observation_id, \
                     c.origin_observation_id, \
                     h.id, \
@@ -140,7 +138,6 @@ pub async fn proximity_list(
                FROM knowledge_proximities p \
                JOIN knowledge_entities h ON h.id = p.holder_id \
                JOIN knowledge_entities c ON c.id = p.counterpart_id \
-               LEFT JOIN knowledge_identities i ON i.id = p.knowledge_identity_id \
               ORDER BY (h.entity_type = c.entity_type) DESC, \
                        p.score DESC NULLS LAST, \
                        p.id",
@@ -219,7 +216,7 @@ pub async fn proximity_list(
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
-    rows.retain(|row| status.map_or(true, |filter| row.status == filter));
+    rows.retain(|row| status.is_none_or(|filter| row.status == filter));
     rows.truncate(limit);
     Ok(rows)
 }
@@ -236,7 +233,8 @@ mod tests {
         model::knowledge_proximities::Entity::insert(model::knowledge_proximities::ActiveModel {
             holder_id: Set(holder),
             counterpart_id: Set(counterpart),
-            knowledge_identity_id: Set(None),
+            scheme: Set(None),
+            external_id: Set(None),
             basis: Set("shared_id".to_string()),
             score: Set(Some(0.5)),
             ..Default::default()

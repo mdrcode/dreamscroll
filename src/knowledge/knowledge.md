@@ -60,7 +60,7 @@ entity_type / alt_types     the chosen type, and every other one asserted
 description / alt_*         same shape: one selected, the rest kept for matching
 search_query / alt_*        the disambiguation hint, projected the same way
 platform / platform_*       the presence one member carried, so the resolver can ask by handle
-confidence                  the best claim's score; null when no claim has one
+confidence                  the best identity's score; null when no identity has one
 status                      provisional → identified
 merged_into_id              set when this entity was folded into another
 ```
@@ -74,7 +74,7 @@ under.
 
 Linking asks one question — **have we already got this thing?** — and asks it about a whole
 **illumination** at once. That is the unit, because it is what the system produces: one illumination of one
-image, a coherent set of the things that image showed. An observation is a part of that claim set,
+image, a coherent set of the things that image showed. An observation is a part of that reading,
 not an independent event.
 
 ```rust
@@ -111,7 +111,7 @@ struct LinkReport {                 // what one illumination's decisions did
     attached: usize,
     created: usize,
     left_pending: usize,           // pending observations the linker did not decide
-    vetoed: usize,                 // claims a standing decision refused
+    vetoed: usize,                 // identity annotations a standing decision refused
 }
 ```
 
@@ -129,13 +129,13 @@ The derived forms the scorer works with (`surfaces()`, `descriptions()`, `types(
 methods on the model, beside its columns.
 
 `link.rs` is the executor. It loads the rows, drives them through the blocker and linker, and applies
-the effects: decisions first, writes second. It knows nothing about identities or claims — the
-observation's handle is claimed afterwards, by `helper::write_observation_claims`
-(`claim_identity`, then a second projection), once the observations have homes. Every decision is
-made before any is applied, so the illumination's own claims are invisible to its own decisions: two
-observations that claim one previously unknown handle are both told to create, and become two
-entities holding one identity. `merge` refuses that pair (shared illumination), so the scan records
-it once and it stays open — the terminal state the merge-side rule produces everywhere.
+the effects: decisions first, writes second. It knows nothing about identities — the observation's
+handle is annotated afterwards, by `helper::write_observation_identities` (`add_identity`, then a
+second projection), once the observations have homes. Every decision is made before any is applied,
+so the illumination's own annotations are invisible to its own decisions: two observations that name
+one previously unknown handle are both told to create, and become two entities annotated with one
+identity. `merge` refuses that pair (shared illumination), so the scan records it once and it stays
+open — the terminal state the merge-side rule produces everywhere.
 
 **The heuristic is one implementation of that chain — not the chain.** The chain is `scoring.rs`, and
 it is two verbs:
@@ -149,7 +149,7 @@ a rejected pair still reports its score: `Nintendo [organization] ⇄ Nintendo [
 pair that must never merge, and the number is how a person sees why.
 
 Everything else is not a verb. The scan stores the number and `merge` asks `Rank` for the verdict; the
-linker asks `Rank` and applies the answer; `project` takes the best claim's confidence; `merge` and
+linker asks `Rank` and applies the answer; `project` takes the best identity's confidence; `merge` and
 the holder order ask `TotalCmp`, a convention about `NULL`. The linker **holds** its
 `Scoring`; the proximity passes are **handed** one; the store holds none. Choosing one policy for both
 sides is the composition root's job — it constructs the linker and passes the same `Scoring` to `scan`
@@ -175,9 +175,9 @@ Resolving is the opposite kind of work: network, cached, and only ever through o
 
 ```rust
 trait Resolver {                              // src/knowledge/identity
-    fn provider(&self) -> &'static str;
+    fn id(&self) -> &'static str;
     async fn resolve(&self, entities: &[Model], gateway: &fetch::Gateway<'_>)
-        -> Vec<(i32, Claim)>;                 // claims, each tagged with its entity
+        -> Vec<(i32, Identity)>;              // this entity's identities
 }
 
 // src/fetch: generic over the provider's own vocabulary, so it can hold none of ours.
@@ -193,7 +193,7 @@ trait Transport {
 hundred transport calls for a corpus walk and five thousand, and only the resolver knows how to
 group its own requests.
 
-How a resolver gets to its claims is its own business. `Wikidata` climbs one step at a time — handle,
+How a resolver gets to its identities is its own business. `Wikidata` climbs one step at a time — handle,
 title, label, search hint, search label, surface title — and each step asks only the entities still
 unresolved, batched across them. A title that resolves an entity drops its label and search questions.
 That shape is internal to the provider, not vocabulary the engine knows about. `Kind` is the
@@ -208,24 +208,23 @@ agentic resolver, whose tool calls happen inside a provider's runtime, is the on
 the same gateway by convention, and it is expected to fail at that rather than to pretend.)
 
 Identities **accumulate**. Wikidata supplies a QID, a capture's handle sits beside it as a separate
-identity, and a second authority may claim the same or another identity. The engine selects
-candidates per resolver, writes every claim the graph accepts, and applies an entity's claims before
-projecting it. Confidence is the best claim's score; a claim without one contributes nothing.
+annotation, and a second authority may assert the same or another key. The engine selects candidates
+per resolver, replaces that provider's set for every entity it answered about, and applies every
+authority before projecting the entity. Confidence is the best annotation's score; one without a
+score contributes nothing. An abstention is not an answer: an entity the resolver returned nothing for
+keeps its old annotations.
 
 `plan` and `parse` inside `Wikidata` are pure, so its whole decision can be re-run over cached
-payloads for free — that is what the resolver's tests and `eval inspect` do.
+payloads for free — that is what the resolver's tests and `identity inspect` do.
 
 ## Evidence: why we believe it
 
-Four tables, because they answer four different questions:
+Three tables, because they answer three different questions:
 
 ```
-knowledge_identities   the thing the world names: scheme + external id, and the answer its
+knowledge_identities   an annotation on one entity: scheme + external id, and the answer its
                        provider gave (label, description, classes, method, confidence);
                        provider is a resolver id, `illuminator`, or `model`
-knowledge_claims       this entity is that thing — the edge, with `provider` and `method`;
-                       several entities may claim one identity, and several providers may claim
-                       one identity on one entity
 knowledge_proximities  two entities the graph considers close, with the score that a pass
                        computed — one scan's batch, replaced wholesale by the next
 knowledge_verdicts     a person's decision, and what decided it — the modification log: a
@@ -233,18 +232,18 @@ knowledge_verdicts     a person's decision, and what decided it — the modifica
                        identity), or a `distinct` (two origins are deliberately separate)
 ```
 
-Only the first two are about the world. A proximity is a judgement about our own rows and a merge is a
-mutation of them. `enrichment` and `rejection` stay reserved vocabulary, not tables.
+An identity annotation belongs to one entity. Its durable name is the pair `(scheme, external_id)`;
+the row is one provider's statement of it. Two providers may assert one key for one entity — that is
+corroboration with its own confidence and method — and two entities may hold one key, which is what
+`proximity` asks about. The uniqueness is `(entity, provider, scheme, external_id)`: one provider
+annotates an entity with a key once, and replacing that provider's set is one delete and one insert.
 
-Sharing an identity is a **candidate**, not a verdict — that is why the uniqueness lives on the edge
-(one entity claims an identity once) rather than on the identity. `proximity` asks the question:
-for each identity with two or more holders, score the holders pairwise with the `Scoring` the pass is
-handed, fold the pairs that look like one thing, and queue the ones the shared-illumination rule
-refuses.
+A proximity is a judgement about our own rows and a merge is a mutation of them. `enrichment` and
+`rejection` stay reserved vocabulary, not tables.
 
-The only uniqueness is per entity: one live claim per `(entity, identity)`, so retracting frees that
-pair's slot and re-claiming it is a no-op. Nothing forbids two entities holding one identity — that is
-the many-to-one the model exists for.
+Sharing an identity is a **candidate**, not a verdict. `proximity` asks the question: for each key
+with two or more holder entities, score the holders pairwise with the `Scoring` the pass is handed,
+fold the pairs that look like one thing, and queue the ones the shared-illumination rule refuses.
 
 `proximity` runs in two passes. **Scan** derives the candidate set and replaces the table with
 it in one transaction, so what it holds is always what the graph looked like when it was last asked
@@ -279,7 +278,7 @@ rebuild is six commands, each one job, none invoking another:
 reset -y                    snapshot the projection, then empty it
 link                        observations → entities
 verdicts replay             a person's recorded folds, applied to the new ids
-identity resolve --offline  evidence: identities and claims from cached answers
+identity resolve --offline  evidence: identity annotations from cached answers
 proximity scan              derive the candidate batch from shared identities
 proximity auto-merge --yes  answer the batch (dry run without --yes)
 ```
@@ -293,13 +292,12 @@ The order is not a preference:
   is lost and there is no unmerge. And a folded entity is resolved *once*, from the union of both
   sides' surfaces, instead of twice and then shuffled by a merge.
 - **`scan` after `identity resolve`**, because its basis is a shared identity: measured on the local
-  corpus, 0 of 345 platform identities have more than one holder, while 13 Wikidata identities
-  account for all 26 multi-holder claims. A scan before resolution raises nothing.
+  corpus, 0 of 345 platform identities have more than one holder, while 13 Wikidata keys account for
+  all 26 multi-holder annotations. A scan before resolution raises nothing.
 - **`auto-merge` after `scan`**, because it answers the batch the scan wrote.
 
-`identity resolve` reprojects every entity it gives a claim to, and every other live holder of an
-identity it touched, before returning: a later `auto-merge` reads that confidence, so leaving it
-stale would fold the wrong side.
+`identity resolve` reprojects every entity it gives an identity to, before returning: a later
+`auto-merge` reads that confidence, so leaving it stale would fold the wrong side.
 
 **A rebuild is a single-writer operation. Stop the link worker first.** Running these commands
 against a live queue has produced both failures it can produce: a link task attaching to an entity a
@@ -312,8 +310,8 @@ task links and stops; there is no resolve task, so resolution and both proximity
 commands. A live capture updates entities immediately and leaves the proximity batch untouched until
 the next `proximity scan` — the table is a snapshot of when it was last asked.
 
-`reset` snapshots the projection, then empties it — entities, claims, identities, proximities and
-the index rows, all of it derived. It keeps the newest **ten snapshot suffixes** and drops older
+`reset` snapshots the projection, then empties it — entities, identities, proximities and the index
+rows, all of it derived. It keeps the newest **ten snapshot suffixes** and drops older
 archive tables; the generation register keeps its history even after a suffix is pruned.
 Observations, captures, illuminations, the merge log (`knowledge_verdicts`) and the **fetch cache**
 are untouched. `merge` folds one entity into another, tombstones the loser, and runs in a
@@ -333,20 +331,21 @@ one.
 | `blocker/index.rs` | `knowledge_blocking_index`: the folded forms a blocker matches on — `rebuild`, `check`, `write`, `forget` |
 | `linker/mod.rs` | the `Linker` trait: one batch of observations in, decisions out. A `&Scoring` argument is deliberately absent — the implementation holds its policy. Everything upstream is recall, everything downstream is effect; the caller decides how the batch was assembled |
 | `linker/heuristic/linker.rs` | `HeuristicLinker`: the procedure over the heuristic's `Scoring` — best candidate that clears the bar, else create |
-| `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the merge rule (a name match plus one corroborating signal), and the best-claim confidence |
-| `graph/link.rs` | `link`: a batch of observations in, decisions applied and projected out — plus the `observation → entity` mapping and `LinkReport`. It knows nothing about identities or claims |
+| `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the merge rule (a name match plus one corroborating signal), and the best-identity confidence |
+| `graph/link.rs` | `link`: a batch of observations in, decisions applied and projected out — plus the `observation → entity` mapping and `LinkReport`. It knows nothing about identities |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
-| `evidence/` | the vocabulary — `PlatformLink`, `IdentityKey`, `IdentityDraft`, `Claim`, `ClaimOutcome` — and the write path in `store.rs`: `upsert_identity` settles the row, `claim_identity` adds the edge, and `ClaimOutcome` carries the ids. `store.rs` also owns `move_claims` on a fold, `retract` on a veto, and `holders_of_identity`; `selection.rs` owns the candidate reads (`awaiting_authority`, `claimed_by`) |
+| `evidence/` | the vocabulary — `PlatformLink`, `IdentityKey`, `Identity` — and the write path in `store.rs`: `replace_provider_identities` rewrites a provider's set for one entity, `add_identity` appends a capture's handle, `query_identities` and `query_entities_for_identity` answer the reads. `store.rs` also owns `move_identities` on a fold and `delete_identity` on a veto; `selection.rs` owns the candidate reads (`awaiting_authority`, `annotated_by`) |
 | `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors (`new`, `with_linking`, `with_heuristic_linking`) and the operations that own a write path — link, merge, replay, reproject, the veto commands. It holds the connection, the blocker, the decider and the evidence — no policy of its own |
 | `graph/replay.rs` | the verdict effects: `replay` (merges, then withdrawals) and the withdrawal the veto command shares |
-| `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is the best claim's score. `reproject` repairs a scope of entities, with `Stale` the "live, no live claim" rule |
+| `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is the best identity's score. `reproject` repairs a scope of entities, with `Stale` the "live, no identity annotation" rule |
 | `graph/merge.rs` | fold one entity into another |
 | `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `Basis` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `auto_merge.rs` folds what it can on its own and leaves the rest. Both take the connection and the `Scoring` as arguments |
 | `verdicts/` | the register: the modification log and the standing vetoes, held by `KnowledgeGraph`. `store.rs` is the type, its connection, `record` (the one write that takes the caller's transaction, so a merge's row commits with the fold) and the reads the replay and `stats` share; `veto.rs` holds `veto`/`unveto`/`vetoed`; `origin.rs` turns an origin into the entity it names now. Applying the log is the graph's command (`graph/replay.rs`), exposed as `KnowledgeGraph::replay_verdicts`; `pair_key` is shared with `stats` |
-|`identity/`|`mod.rs` (module declarations) · `resolution` (the `Resolver` trait a provider implements, the run loop, candidate selection, vetoes) · `wikidata/` (today's only authority). The claim it returns, and where it becomes a row, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
+|`identity/`|`mod.rs` (module declarations) · `resolution` (the `Resolver` trait a provider implements, the run loop, candidate selection, vetoes) · `wikidata/` (today's only authority). The identities it returns, and where they become rows, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
 | `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the gates and decision order in `policy.rs` · answer parsing in `answer.rs` · the ladder in `resolver.rs` · request planning in `plan.rs` · query text in `query.rs` · candidate scoring in `ranking.rs`, as the graph's `Rank` verb · shape keys in `shape.rs` · class filtering in `types.rs` · HTTP in `transport.rs` |
 |`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, and their TTLs) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
-| `eval/` | offline diagnostics: `eval inspect` walks one entity through blocking, ranking and the ladder; `eval blocker` measures recall |
+| `identity/inspect.rs` | `identity inspect`: walks one entity through blocking, ranking and the ladder, read-only |
+| `eval/` | offline diagnostics: `eval blocker` measures recall |
 
 The three write paths that carry their own logic and tests (`link.rs`, `project.rs`, `merge.rs`) are
 reached through `KnowledgeGraph`'s methods; `link` and `project` are private modules, and what

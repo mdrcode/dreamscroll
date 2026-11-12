@@ -1,7 +1,6 @@
 use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 
-
 /// One build cycle. `reset` closes it and opens the next.
 ///
 /// The row doubles as the snapshot register: reset is the only snapshotter and it empties as it
@@ -27,7 +26,6 @@ pub struct Model {
 
     pub entities: Option<i32>,
     pub identities: Option<i32>,
-    pub claims: Option<i32>,
     pub merges: Option<i32>,
     pub proximities: Option<i32>,
     pub members: Option<i32>,

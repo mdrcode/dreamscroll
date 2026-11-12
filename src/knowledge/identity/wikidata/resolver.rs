@@ -15,34 +15,31 @@
 
 use std::collections::HashSet;
 
-use super::answer::AuthorityClaim;
+use super::answer::AuthorityIdentity;
 use super::transport::Wire;
-use super::{Candidate, ID, Kind, parse, plan};
+use super::{Candidate, Kind, parse, plan};
 use crate::fetch::{Answers, Gateway, Request, Transport};
-use crate::knowledge::evidence::{Claim, IdentityDraft, IdentityKey};
+use crate::knowledge::evidence::Identity;
 use crate::knowledge::identity::Resolver;
 use crate::model;
 
 const USER_AGENT: &str = "dreamscroll-knowledge/0.1 (https://dreamscroll.ai)";
 
-/// Split a provider answer into the identity it describes and the claim edge to it.
-fn resolve_answer(holder: i32, answer: AuthorityClaim) -> (IdentityDraft, Claim) {
-    let key = IdentityKey {
-        scheme: answer.scheme.clone(),
-        external_id: answer.external_id.clone(),
-    };
-    let identity = IdentityDraft {
-        scheme: answer.scheme,
-        external_id: answer.external_id,
-        provider: ID.to_string(),
-        method: Some(answer.method.clone()),
-        confidence: Some(answer.confidence),
-        label: answer.label,
-        description: answer.description,
-        classes: answer.classes,
-    };
-    let claim = Claim::from_provider(holder, key, ID, answer.method);
-    (identity, claim)
+/// Turn one provider answer into the annotation the engine stores.
+fn resolve_answer(holder: i32, answer: AuthorityIdentity) -> (i32, Identity) {
+    (
+        holder,
+        Identity {
+            scheme: answer.scheme,
+            external_id: answer.external_id,
+            method: Some(answer.method),
+            confidence: Some(answer.confidence),
+            label: answer.label,
+            description: answer.description,
+            classes: answer.classes,
+            observation_id: None,
+        },
+    )
 }
 
 /// One authority: the policy, and the wire it speaks through.
@@ -61,14 +58,14 @@ impl Wikidata {
         })
     }
 
-    /// Turn answers into claims. First request to speak wins for an entity, which is why `plan`
+    /// Turn answers into annotations. First request to speak wins for an entity, which is why `plan`
     /// orders them: a handle is a stronger statement than a title, and a title than a label.
     fn collect(
         &self,
         entities: &[model::knowledge_entity::Model],
         plans: &[(usize, Request<Kind>)],
         answers: &Answers<Kind, Vec<Candidate>>,
-        claims: &mut Vec<(IdentityDraft, Claim)>,
+        identities: &mut Vec<(i32, Identity)>,
         resolved: &mut HashSet<i32>,
     ) {
         for (index, request) in plans {
@@ -81,7 +78,7 @@ impl Wikidata {
             let Some(raw) = answers.get(request) else {
                 continue;
             };
-            let parsed = parse::claims(entity, request, raw);
+            let parsed = parse::identities(entity, request, raw);
             if parsed.is_empty() {
                 // Not wrong, just not usable here: a disambiguation page, a different kind of
                 // thing, or a name with no item. The answer is still a fact about the provider, so
@@ -89,7 +86,7 @@ impl Wikidata {
                 continue;
             }
             resolved.insert(entity.id);
-            claims.extend(
+            identities.extend(
                 parsed
                     .into_iter()
                     .map(|claim| resolve_answer(entity.id, claim)),
@@ -103,14 +100,14 @@ impl Wikidata {
     /// surface-only title. Generic over the wire, so a test can drive the ordering against a fake
     /// with no database and no client — [`Resolver::resolve`] supplies the real one.
     ///
-    /// The engine sees only the claims that come back.
+    /// The engine sees only the identities that come back.
     async fn ladder<T: Transport<Kind = Kind, Payload = Vec<Candidate>>>(
         &self,
         transport: &T,
         entities: &[model::knowledge_entity::Model],
         gateway: &Gateway<'_>,
-    ) -> Vec<(IdentityDraft, Claim)> {
-        let mut claims = Vec::new();
+    ) -> Vec<(i32, Identity)> {
+        let mut identities = Vec::new();
         let mut resolved: HashSet<i32> = HashSet::new();
 
         // One step, one wave. The boundary lives here because no other authority knows that search
@@ -152,15 +149,15 @@ impl Wikidata {
                     };
                     if let Some(claim) = parse::surface_only(entity, &candidates, &request) {
                         resolved.insert(entity.id);
-                        claims.push(resolve_answer(entity.id, claim));
+                        identities.push(resolve_answer(entity.id, claim));
                     }
                 }
             } else {
-                self.collect(entities, &plans, &answers, &mut claims, &mut resolved);
+                self.collect(entities, &plans, &answers, &mut identities, &mut resolved);
             }
         }
 
-        claims
+        identities
     }
 }
 
@@ -174,7 +171,7 @@ impl Resolver for Wikidata {
         &self,
         entities: &[model::knowledge_entity::Model],
         gateway: &Gateway<'_>,
-    ) -> Vec<(IdentityDraft, Claim)> {
+    ) -> Vec<(i32, Identity)> {
         self.ladder(&self.wire, entities, gateway).await
     }
 }
@@ -330,7 +327,7 @@ mod tests {
             "label": "Boba Fett",
             "description": "fictional character from Star Wars",
         }]));
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity(
                 "The Bounty Hunter Wars",
                 Some("a trilogy of Star Wars novels"),
@@ -349,7 +346,7 @@ mod tests {
             "label": "The Bounty Hunter Wars",
             "description": "novel trilogy by K. W. Jeter",
         }]));
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity(
                 "The Bounty Hunter Wars",
                 Some("a trilogy of Star Wars novels"),
@@ -366,7 +363,7 @@ mod tests {
             "label": null,
             "description": "Canadian filmmaker and explorer (born 1954)",
         }]));
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity(
                 "James Cameron",
                 Some("Canadian filmmaker who served as executive producer on Point Break"),
@@ -380,7 +377,7 @@ mod tests {
 
     #[test]
     fn an_exact_label_match_is_claimed() {
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity("Train Dreams", None),
             &request(Kind::Label, "Train Dreams"),
             &found(json!([{"id": "Q185971", "label": "Train Dreams", "description": "novella"}])),
@@ -401,7 +398,7 @@ mod tests {
     /// `Orthodoxy` article names the concept, and the book is a different page.
     #[test]
     fn a_title_cannot_claim_on_an_exact_label_alone() {
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity(
                 "Orthodoxy",
                 Some("A 1908 philosophical and apologetic book by G.K. Chesterton"),
@@ -420,7 +417,7 @@ mod tests {
     /// string. With nothing to corroborate it — no description on either side — that is identity.
     #[test]
     fn a_lone_label_with_nothing_to_contradict_it_claims() {
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity("Tsoding", None),
             &request(Kind::Label, "Tsoding"),
             &found(json!([{"id": "Q1", "label": "Tsoding"}])),
@@ -433,7 +430,7 @@ mod tests {
     /// "English film director" describe one person without agreeing on a single token.
     #[test]
     fn a_lone_label_claims_even_when_the_descriptions_share_no_word() {
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity(
                 "Alfred Hitchcock",
                 Some("English film director and producer"),
@@ -452,7 +449,7 @@ mod tests {
     #[test]
     fn an_ambiguous_label_is_not_claimed() {
         // The Django case: two items share the surface, so the name cannot decide.
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity("Django", None),
             &request(Kind::Label, "Django"),
             &found(json!([
@@ -466,7 +463,7 @@ mod tests {
     /// Not the same surface: no claim, however close the spelling. The label stage does not rank.
     #[test]
     fn a_misspelt_label_is_not_claimed() {
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity("Sunset Boulevarde", None),
             &request(Kind::Label, "Sunset Boulevarde"),
             &found(json!([{"id": "Q1", "label": "Sunset Boulevard"}])),
@@ -476,7 +473,7 @@ mod tests {
 
     #[test]
     fn a_handle_match_is_stronger_than_a_label_match() {
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity("Tsoding", None),
             &request(Kind::Handle("P2002"), "tsoding"),
             &found(json!([{"id": "Q1234", "label": "Tsoding"}])),
@@ -496,7 +493,7 @@ mod tests {
             {"id": "Q3", "label": "Sunset Boulevard", "description": "musical by Andrew Lloyd Webber"},
             {"id": "Q4", "label": "Sunset Boulevard", "description": "film directed by someone else"}
         ]);
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity(
                 "Sunset Boulevard",
                 Some(
@@ -520,7 +517,7 @@ mod tests {
     /// labelled sample; the invariant worth locking now is that the painting never wins.
     #[test]
     fn a_short_generic_description_never_wins() {
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity(
                 "George Washington",
                 Some(
@@ -544,7 +541,7 @@ mod tests {
     fn the_hint_decides_when_nothing_fits_the_description() {
         let mut view = entity("Stagecoach", Some("a western"));
         view.search_query = Some("Stagecoach 1939 film".to_string());
-        let claims = parse::claims(
+        let claims = parse::identities(
             &view,
             &request(Kind::Label, "Stagecoach"),
             &found(json!([
@@ -565,7 +562,7 @@ mod tests {
     fn the_hint_does_not_break_a_tie_between_qualifying_candidates() {
         let mut view = entity("Dune", Some("1965 science fiction novel by Frank Herbert"));
         view.search_query = Some("Dune novel Frank Herbert".to_string());
-        let claims = parse::claims(
+        let claims = parse::identities(
             &view,
             &request(Kind::Label, "Dune"),
             &found(json!([
@@ -579,7 +576,7 @@ mod tests {
     /// No description to arbitrate: the tie is honest, so nothing is claimed.
     #[test]
     fn a_near_tie_claims_nothing() {
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity("Dune", None),
             &request(Kind::Label, "Dune"),
             &found(json!([
@@ -593,7 +590,7 @@ mod tests {
     /// …but with a description it resolves, which is the whole point of holding the text.
     #[test]
     fn a_description_breaks_the_dune_tie() {
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity("Dune", Some("1965 science fiction novel by Frank Herbert")),
             &request(Kind::Label, "Dune"),
             &found(json!([
@@ -734,7 +731,7 @@ mod tests {
     /// surface comparison ignores the difference.
     #[test]
     fn a_search_answer_is_accepted_on_a_punctuation_variant() {
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity(
                 "J.R.R. Tolkien",
                 Some("English author, philologist, and academic"),
@@ -754,7 +751,7 @@ mod tests {
     /// `Dostoyevsky` is how Wikidata spells him, `Dostoevsky` is how the capture did.
     #[test]
     fn a_search_answer_with_a_misspelt_label_is_ranked() {
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity(
                 "Fyodor Dostoevsky",
                 Some(
@@ -788,7 +785,7 @@ mod tests {
                 "Clawdbot Pro",
             ),
         ] {
-            let claims = parse::claims(
+            let claims = parse::identities(
                 &entity(name, Some(description)),
                 &request(Kind::Search, name),
                 &found(json!([{"id": "Q1", "label": label, "description": "something else"}])),
@@ -801,7 +798,7 @@ mod tests {
     /// `Symphony No. 7`, the article is `Symphony No. 7 (Sibelius)`.
     #[test]
     fn a_title_reaches_an_item_whose_label_differs() {
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity(
                 "Symphony No. 7 (Sibelius)",
                 Some("The final published symphony by Finnish composer Jean Sibelius"),
@@ -822,7 +819,7 @@ mod tests {
     /// A title that lands on a disambiguation page is a menu, not a referent.
     #[test]
     fn a_title_that_is_a_disambiguation_page_is_refused() {
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity("John Grant", Some("American singer-songwriter")),
             &request(Kind::Title, "John Grant"),
             &found(json!([{
@@ -839,7 +836,7 @@ mod tests {
     /// claimed, because the menu check lived in `parse_title` and the label rung never looked.
     #[test]
     fn a_label_answer_that_is_a_menu_is_refused() {
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity("Robert Chandler", Some("British literary translator")),
             &request(Kind::Label, "Robert Chandler"),
             &found(json!([{
@@ -855,7 +852,7 @@ mod tests {
     /// The subclass is not in every stored class list, so the description has to carry the rule too.
     #[test]
     fn a_menu_with_no_classes_is_refused_by_its_description() {
-        let claims = parse::claims(
+        let claims = parse::identities(
             &entity(
                 "Rogue Heroes",
                 Some("British historical drama television series"),
@@ -916,7 +913,7 @@ mod tests {
 
         let ids: Vec<(i32, &str)> = claims
             .iter()
-            .map(|(identity, claim)| (claim.holder, identity.external_id.as_str()))
+            .map(|(holder, identity)| (*holder, identity.external_id.as_str()))
             .collect();
         assert_eq!(ids, vec![(1, "Q2"), (2, "Q892")], "{claims:?}");
         assert!(
@@ -1007,7 +1004,7 @@ mod tests {
 
         let ids: Vec<(i32, &str)> = claims
             .iter()
-            .map(|(identity, claim)| (claim.holder, identity.external_id.as_str()))
+            .map(|(holder, identity)| (*holder, identity.external_id.as_str()))
             .collect();
         assert_eq!(ids, vec![(1, "Q200"), (2, "Q300")], "{claims:?}");
         assert!(

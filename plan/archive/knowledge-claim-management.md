@@ -1,8 +1,9 @@
 # Claim management — one identity phase, one claim phase
 
-**Status:** Implemented 2026-11-09. A claim is written in two phases, both callers use both, and a
-veto names a pairing. Supersedes the veto's addressing in
-[knowledge-verdicts.md](archive/knowledge-verdicts.md).
+**Status:** Superseded 2026-11-11 by
+[knowledge-identity-annotations.md](knowledge-identity-annotations.md), schema 39. The claim edge and
+everything below is history; an identity is now an annotation on one entity. Kept for the rationale
+behind the veto's pairing address and the two-phase write it replaced.
 
 **See also:** [lexicon.md](lexicon.md) (vocabulary), [knowledge-canonical-entities.md](archive/knowledge-canonical-entities.md)
 (evidence as an append-only edge), `src/knowledge/knowledge.md` (the model as built).

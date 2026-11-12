@@ -1,10 +1,10 @@
-//! The illumination composition: what to link, what to claim, and what to resolve.
+//! The illumination composition: what to link, what to annotate, and what to resolve.
 //!
 //! [`KnowledgeGraph::link`] knows only about a collection of observations, and
 //! [`ResolutionEngine::resolve`] knows only about a collection of entities. Everything that knows they
 //! arrive one illumination at a time lives here: the batch is one illumination's observations, a
-//! capture's claims are written after its entities exist, and the entities are then offered to the
-//! authorities.
+//! capture's identities are written after its entities exist, and the entities are then offered to
+//! the authorities.
 //!
 //! [`link_all_pending`] and [`resolve_all_pending`] are the same compositions over the whole
 //! outstanding set — the rebuild steps, and the only places that decide what a corpus run touches.
@@ -17,13 +17,13 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use crate::database::DbHandle;
 use crate::fetch::FetchCache;
 use crate::knowledge::evidence::{
-    Claim, ClaimOutcome, ClaimSelection, IdentityDraft, platform_link,
+    Identity, IdentitySelection, PLATFORM_LINK_PROVIDER_ID, platform_link,
 };
 use crate::knowledge::graph::{KnowledgeGraph, LinkReport};
 use crate::knowledge::identity::{ResolutionEngine, ResolutionReport};
 use crate::model;
 
-/// Link one illumination: its observations become entities, then their handles become claims.
+/// Link one illumination: its observations become entities, then their handles become identities.
 pub async fn link_illumination(
     graph: &KnowledgeGraph,
     illumination: &model::illumination::ModelEx,
@@ -43,7 +43,7 @@ pub async fn link_illumination(
         .collect();
 
     let (mut report, linked) = graph.link(&observations).await?;
-    report.vetoed = write_observation_claims(graph, &observations, &linked).await?;
+    report.vetoed = write_observation_identities(graph, &observations, &linked).await?;
     Ok(report)
 }
 
@@ -61,7 +61,7 @@ pub struct LinkAllReport {
     pub created: usize,
     /// Pending observations the linker returned no decision for.
     pub left_pending: usize,
-    /// Claims a standing veto refused.
+    /// Identity annotations a standing veto refused.
     pub vetoed: usize,
 }
 
@@ -168,7 +168,7 @@ pub async fn resolve_all_pending(
     limit: Option<usize>,
     newest_first: bool,
 ) -> anyhow::Result<ResolutionReport> {
-    let selection = ClaimSelection::from_handle(db);
+    let selection = IdentitySelection::from_handle(db);
     // One provider's pending set, then the union: an entity Wikidata answered is still pending for
     // IMDb. The limit is global, so a second resolver does not silently double the run.
     let mut pending: BTreeMap<i32, model::knowledge_entity::Model> = BTreeMap::new();
@@ -201,11 +201,10 @@ pub async fn resolve_all_pending(
     engine.resolve(&entities, cache, allowance).await
 }
 
-/// Claim the handle each linked observation showed, and project where it landed.
+/// Annotate each linked observation's handle, and project where it landed.
 ///
-/// The only place a capture's identity and claim are written. Returns how many a standing veto
-/// refused.
-async fn write_observation_claims(
+/// The only place a capture's identity is written. Returns how many a standing veto refused.
+async fn write_observation_identities(
     graph: &KnowledgeGraph,
     observations: &[model::user_observed_entity::Model],
     linked: &HashMap<i32, i32>,
@@ -217,21 +216,15 @@ async fn write_observation_claims(
             continue;
         };
         if let Some(link) = platform_link(observation)
-            && let Ok(identity) = IdentityDraft::try_from(&link)
+            && let Ok(mut identity) = Identity::try_from(&link)
         {
-            let key = identity.key();
-            let claimed = graph
-                .claim_identity(
-                    identity,
-                    Claim::from_observation(entity, observation, key),
-                    &vetoes,
-                )
-                .await?;
-            if matches!(claimed, ClaimOutcome::Vetoed { .. }) {
-                vetoed += 1;
-            }
+            identity.observation_id = Some(observation.id);
+            vetoed += graph
+                .add_identity(entity, PLATFORM_LINK_PROVIDER_ID, &identity, &vetoes)
+                .await?
+                .vetoed;
         }
-        // After the claims: status and confidence are functions of them.
+        // After the annotations: status and confidence are functions of them.
         graph.update_projection(entity).await?;
     }
     Ok(vetoed)
@@ -241,11 +234,10 @@ async fn write_observation_claims(
 mod tests {
     use super::*;
     use crate::fetch::Gateway;
-    use crate::knowledge::evidence::Claim;
     use crate::knowledge::identity::{Options, Resolver};
     use crate::test_support::{db_or_skip, fixtures};
 
-    /// An authority that answers nothing: the helper tests are about scope, not claims.
+    /// An authority that answers nothing: the helper tests are about scope, not identities.
     struct Empty;
 
     #[async_trait::async_trait]
@@ -258,7 +250,7 @@ mod tests {
             &self,
             _entities: &[model::knowledge_entity::Model],
             _gateway: &Gateway<'_>,
-        ) -> Vec<(IdentityDraft, Claim)> {
+        ) -> Vec<(i32, Identity)> {
             Vec::new()
         }
     }
@@ -311,7 +303,7 @@ mod tests {
                 .expect("resolve");
 
         assert_eq!(report.considered, 1, "{report:?}");
-        assert_eq!(report.offline, false);
+        assert!(!report.offline);
     }
 
     /// An illumination handed over before `link` is a pipeline error, not an empty resolve.

@@ -45,13 +45,12 @@ observation.
 | --- | --- | --- | --- |
 | **observation** | `UserObservedEntity` | `user_observed_entities` | `id`, `user_id`, `capture_id`, `illumination_id`, `position`, `created_at`, `name`, `entity_type`, `description`, `search_query`, `platform`, `platform_handle`, `platform_display_name`, `knowledge_entity_id` |
 | **knowledge entity** | `KnowledgeEntity` | `knowledge_entities` | `id`, `name`, `alt_names`, `entity_type`, `alt_types`, `description`, `alt_descriptions`, `status`, `confidence`, `merged_into_id`, timestamps |
-| **identity** (schema 23) | `KnowledgeIdentity` | `knowledge_identities` | `id`, `scheme`, `external_id`, `label`, `description`, `classes`, `provider`, `method`, `confidence`, `first_seen` |
-| **claim** | `KnowledgeClaim` | `knowledge_claims` | `id`, `knowledge_entity_id`, `knowledge_identity_id`, `provider`, `method`, `user_observed_entity_id`, `retracted_at`, `observed_at` |
+| **identity** (schema 39) | `KnowledgeIdentity` | `knowledge_identities` | `id`, `knowledge_entity_id`, `scheme`, `external_id`, `label`, `description`, `classes`, `provider`, `method`, `confidence`, `user_observed_entity_id`, `observed_at` |
 | **merge** | `KnowledgeVerdict` | `knowledge_verdicts` | `id`, `generation`, `cause`, `winner_origin`, `loser_origin`, `winner_label`, `loser_label`, `at` |
-| **proximity** | `KnowledgeProximity` | `knowledge_proximities` | `id`, `holder_id`, `counterpart_id`, `knowledge_identity_id`, `basis`, `score`, `verdict`, `raised_at`, `settled_at` |
+| **proximity** | `KnowledgeProximity` | `knowledge_proximities` | `id`, `holder_id`, `counterpart_id`, `scheme`, `external_id`, `basis`, `score`, `scanned_at` |
 
-Two things have no table: an **identity** is `(scheme, external_id)` on a claim, and a **snapshot**
-is what `reset` saves and `compare` diffs.
+Two things have no table: an **identity key** is `(scheme, external_id)`, which one or more entity
+annotations may carry, and a **snapshot** is what `reset` saves and `compare` diffs.
 
 ### Column conventions
 
@@ -85,30 +84,30 @@ per-kind index.
 | **resolve** | knowledge entities → evidence | network, cache-first |
 | **merge** | knowledge entity → knowledge entity | tombstones the loser, never deletes |
 | **project** | observations + evidence → entity columns | pure |
-| **retract** | a claim stops being believed | sets `retracted_at` |
+| **delete** | an identity annotation stops being believed | a veto removes it; the verdict is the durable record |
 | **reset** | drop derived state, keep observations | pure |
 | **compare** | snapshot → snapshot diff | pure |
 
-## Claims, proximities and merges
+## Identities, proximities and merges
 
 | Table | Is | Written by |
 | --- | --- | --- |
-| `knowledge_claims` | a fact about the world: this entity has this identity, on whose authority | `link` (a capture's handle), `resolve` (an authority's answer) |
+| `knowledge_identities` | a fact about the world: this entity is named `(scheme, external_id)` by this provider | `link` (a capture's handle), `resolve` (an authority's complete answer) |
 | `knowledge_proximities` | a judgement about our data: two entities look close enough to ask about, and what was decided — a record, never deleted | `proximity::scan`, when a merge is refused; a human, with a verdict |
 | `knowledge_verdicts` | a mutation of our data: one thing folded into another, what decided it (`repair`, `proximity_auto`, `replayed`), and which generation — a log, keyed by origin so it survives a rebuild | `resolve`, the repair command, and `verdicts replay` |
 
 `enrichment` and `rejection` remain reserved kinds in the vocabulary, not tables: enrichment is the
 authority's answer about an identity — its `label`, `description`, and `classes` — and it lives on
-`knowledge_identities`, not on the claim. `project` does not read it yet.
+`knowledge_identities`. `project` does not read it yet.
 
-An identity is owned by one provider at a time. Its metadata is that provider's answer, not a
-reconciliation of several; a provider answer may take the row over from another. Claims keep their
-own `provider`, so takeover changes the identity without rewriting edge history.
+An identity annotation is owned by one provider. Its metadata is that provider's answer, not a
+reconciliation of several; a second provider asserting the same key adds its own row, with its own
+method and confidence. Replacing a provider's set never rewrites another provider's annotation.
 
 ## Status
 
-`provisional` → `identified`. `identified` describes a knowledge entity that holds a live authority
-claim; it is not the past participle of `resolve`, which may abstain.
+`provisional` → `identified`. `identified` describes a knowledge entity that holds at least one
+identity annotation; it is not the past participle of `resolve`, which may abstain.
 
 There is no `contested` status. "This entity shares an identity with another and nobody has decided"
 is a **proximity** — a pair-level record with a score and a verdict — and folding it into one field

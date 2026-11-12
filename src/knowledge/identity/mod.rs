@@ -8,19 +8,21 @@
 //!
 //! What lives here is everything that knows what a knowledge entity *is*: the authority contract and
 //! the run loop that drives it (`resolution`), and the authority that answers today (`wikidata`).
+//!
+//! A resolver returns an entity's identities, not an edge to a shared row. The engine replaces that
+//! provider's complete set for every entity the run answered about.
 
+pub mod inspect;
 pub mod resolution;
 pub mod wikidata;
 
-pub use resolution::{Options, ProviderReport, ResolutionEngine, ResolutionReport, Resolver};
+pub use resolution::{
+    Options, PreviewIdentity, ProviderReport, ResolutionEngine, ResolutionReport, Resolver,
+};
 
 /// Transport calls a plain resolve is allowed to make when the caller does not choose a budget.
 /// Exists so that omitting the budget does real work instead of quietly resolving nothing.
 pub const DEFAULT_MAX_REQUESTS: usize = 200;
-
-/// Claims one resolver may assert for one entity in a run. An agentic authority must not inflate a
-/// confidence by returning a hundred URLs.
-const MAX_CLAIMS_PER_ENTITY: usize = 8;
 
 /// Provider ids the engine refuses from a resolver: they name our own pipeline, not an authority.
 pub const RESERVED_PROVIDER_IDS: &[&str] = &[

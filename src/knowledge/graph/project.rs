@@ -2,8 +2,8 @@
 //!
 //! One function writes `name`, `alt_names`, `description`, `alt_descriptions`, `search_query`,
 //! `alt_search_queries`, `platform`, `platform_handle`, `platform_display_name`, `status` and
-//! `confidence`, and nothing else does. Confidence is the best claim's confidence; how good a claim
-//! is belongs to its provider, not to projection. It reads the entity's members and its evidence and
+//! `confidence`, and nothing else does. Confidence is the best identity's confidence; how good an
+//! identity is belongs to its provider, not to projection. It reads the entity's members and its evidence and
 //! derives every column from them, so it is safe to run at any time and twice in a row.
 //!
 //! The entity **wears the values of its origin** — the member it was created from — and every other
@@ -17,8 +17,7 @@
 use std::collections::HashSet;
 
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
-    RelationTrait, Set,
+    ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
 
 use crate::model;
@@ -124,14 +123,9 @@ pub(super) async fn project<C: ConnectionTrait>(
         ),
     };
 
-    // A claim is the edge; how surely, on the identity.
-    let claims: Vec<Option<f32>> = model::knowledge_claims::Entity::find()
-        .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(knowledge_entity_id))
-        .filter(model::knowledge_claims::Column::RetractedAt.is_null())
-        .join(
-            JoinType::InnerJoin,
-            model::knowledge_claims::Relation::KnowledgeIdentity.def(),
-        )
+    // An identity is an annotation on this entity; how surely, on that row.
+    let identities: Vec<Option<f32>> = model::knowledge_identity::Entity::find()
+        .filter(model::knowledge_identity::Column::KnowledgeEntityId.eq(knowledge_entity_id))
         .select_only()
         .column(model::knowledge_identity::Column::Confidence)
         .into_tuple::<Option<f32>>()
@@ -140,9 +134,9 @@ pub(super) async fn project<C: ConnectionTrait>(
     // Status is one axis: how well substantiated the entity is. Whether it shares an identity with
     // another entity is a different question, answered by `knowledge_proximities` at pair
     // granularity — a third status value conflated the two and had to be re-projected on every scan.
-    let status = model::knowledge_entity::Status::of(claims.len());
+    let status = model::knowledge_entity::Status::of(identities.len());
 
-    let confidence = crate::knowledge::linker::heuristic::scoring::best_confidence(&claims);
+    let confidence = crate::knowledge::linker::heuristic::scoring::best_confidence(&identities);
 
     let updated = model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
         id: Set(knowledge_entity_id),
@@ -217,7 +211,7 @@ fn select(preferred: Option<&str>, candidates: &[String]) -> (Option<String>, Ve
 /// Which entities a reprojection pass walks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
-    /// Live entities holding no live claim — what a retraction can leave stale.
+    /// Live entities holding no identity annotation — what a deletion can leave stale.
     Stale,
     /// Every live entity — what a change to the projection rule needs.
     All,
@@ -226,26 +220,25 @@ pub enum Scope {
 /// Recompute the projection for a scope, and report how many entities it wrote.
 ///
 /// This is the repair half of the projection rule: `status`, `confidence` and the selected surface
-/// are functions of the live claims, so a retraction has to be followed by a pass; `All` is what a
-/// change to the derivation itself needs.
+/// are functions of the identity annotations, so a deletion has to be followed by a pass; `All` is
+/// what a change to the derivation itself needs.
 pub(super) async fn reproject(
     conn: &sea_orm::DatabaseConnection,
     scope: Scope,
 ) -> anyhow::Result<usize> {
     use sea_orm::sea_query::{Expr, ExprTrait, Query};
 
-    use crate::model::knowledge_claims as claims;
     use crate::model::knowledge_entity as entity;
+    use crate::model::knowledge_identity as identities;
 
     let mut query = entity::Entity::find().filter(entity::Column::MergedIntoId.is_null());
     if scope == Scope::Stale {
-        let claimed = Query::select()
+        let annotated = Query::select()
             .distinct()
-            .column((claims::Entity, claims::Column::KnowledgeEntityId))
-            .from(claims::Entity)
-            .and_where(Expr::col((claims::Entity, claims::Column::RetractedAt)).is_null())
+            .column((identities::Entity, identities::Column::KnowledgeEntityId))
+            .from(identities::Entity)
             .to_owned();
-        query = query.filter(Expr::col(entity::Column::Id).not_in_subquery(claimed));
+        query = query.filter(Expr::col(entity::Column::Id).not_in_subquery(annotated));
     }
     let rows = query.all(conn).await?;
     let total = rows.len();
@@ -269,29 +262,17 @@ mod tests {
         crate::knowledge::KnowledgeGraph::new(db)
     }
 
-    async fn claim(db: &DbHandle, id: i32, scheme: &str, value: &str) {
-        fixtures::claim(db, id, scheme, value, "test", None, None).await;
+    async fn annotate(db: &DbHandle, id: i32, scheme: &str, value: &str) {
+        fixtures::identity(db, id, scheme, value, "test", None, None).await;
     }
 
     async fn proximity(db: &DbHandle, holder: i32, scheme: &str, value: &str) {
         let claimant = fixtures::knowledge_entity_with_member(db, "a claimant").await;
-        let identity = crate::knowledge::evidence::Evidence::from_handle(db)
-            .upsert_identity(&crate::knowledge::evidence::IdentityDraft {
-                scheme: scheme.to_string(),
-                external_id: value.to_string(),
-                provider: "test".to_string(),
-                method: None,
-                confidence: None,
-                label: None,
-                description: None,
-                classes: Vec::new(),
-            })
-            .await
-            .unwrap();
         model::knowledge_proximities::Entity::insert(model::knowledge_proximities::ActiveModel {
             holder_id: Set(holder),
             counterpart_id: Set(claimant),
-            knowledge_identity_id: Set(Some(identity)),
+            scheme: Set(Some(scheme.to_string())),
+            external_id: Set(Some(value.to_string())),
             basis: Set(crate::knowledge::proximity::Basis::SharedId
                 .as_str()
                 .to_string()),
@@ -482,13 +463,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_live_claim_makes_it_identified() {
+    async fn a_live_identity_makes_it_identified() {
         let Some(db) = test_db::test_db().await else {
             return;
         };
         let db = db.handle();
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        claim(&db, id, "wikidata", "Q104919").await;
+        annotate(&db, id, "wikidata", "Q104919").await;
 
         store(&db).update_projection(id).await.unwrap();
 
@@ -496,7 +477,7 @@ mod tests {
         assert_eq!(entity.status, model::knowledge_entity::Status::Identified);
         assert_eq!(
             entity.confidence, None,
-            "a claim without a confidence does not invent one"
+            "an identity without a confidence does not invent one"
         );
     }
 
@@ -520,19 +501,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_retracted_claim_does_not_identify() {
+    async fn a_deleted_identity_does_not_identify() {
         let Some(db) = test_db::test_db().await else {
             return;
         };
         let db = db.handle();
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        claim(&db, id, "wikidata", "Q104919").await;
-        model::knowledge_claims::Entity::update_many()
-            .col_expr(
-                model::knowledge_claims::Column::RetractedAt,
-                Expr::value(chrono::Utc::now()),
-            )
-            .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(id))
+        annotate(&db, id, "wikidata", "Q104919").await;
+        model::knowledge_identity::Entity::delete_many()
+            .filter(model::knowledge_identity::Column::KnowledgeEntityId.eq(id))
             .exec(&db.conn)
             .await
             .unwrap();
@@ -545,27 +522,27 @@ mod tests {
         );
     }
 
-    /// The repair scope is "live and holding no live claim": a claimed entity is not stale, and a
-    /// tombstone is not live.
+    /// The repair scope is "live and holding no identity annotation": an annotated entity is not
+    /// stale, and a tombstone is not live.
     #[tokio::test]
     async fn reproject_walks_only_the_scope_it_is_given() {
         let Some(db) = test_db::test_db().await else {
             return;
         };
         let db = db.handle();
-        let claimed = fixtures::knowledge_entity_with_member(&db, "Claimed").await;
-        claim(&db, claimed, "wikidata", "Q104919").await;
-        let unclaimed = fixtures::knowledge_entity_with_member(&db, "Unclaimed").await;
+        let annotated = fixtures::knowledge_entity_with_member(&db, "Annotated").await;
+        annotate(&db, annotated, "wikidata", "Q104919").await;
+        let unannotated = fixtures::knowledge_entity_with_member(&db, "Unannotated").await;
         let dead = fixtures::knowledge_entity_with_member(&db, "Dead").await;
         store(&db)
-            .merge(dead, unclaimed, crate::knowledge::verdicts::Cause::Repair)
+            .merge(dead, unannotated, crate::knowledge::verdicts::Cause::Repair)
             .await
             .unwrap();
 
         assert_eq!(
             reproject(&db.conn, Scope::Stale).await.unwrap(),
             1,
-            "only the live entity holding no live claim"
+            "only the live entity holding no identity"
         );
         assert_eq!(
             reproject(&db.conn, Scope::All).await.unwrap(),

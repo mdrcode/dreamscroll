@@ -12,8 +12,8 @@ use super::{auto_merge, scan};
 async fn claim_pairs(db: &crate::database::DbHandle, names: [&str; 2]) -> (i32, i32) {
     let first = fixtures::knowledge_entity_with_member(db, names[0]).await;
     let second = fixtures::knowledge_entity_with_member(db, names[1]).await;
-    fixtures::claim(db, first, "wikidata", "Q1", "wikidata", None, None).await;
-    fixtures::claim(db, second, "wikidata", "Q1", "wikidata", None, None).await;
+    fixtures::identity(db, first, "wikidata", "Q1", "wikidata", None, None).await;
+    fixtures::identity(db, second, "wikidata", "Q1", "wikidata", None, None).await;
     (first, second)
 }
 
@@ -40,11 +40,7 @@ async fn scanning_records_a_shared_identity() {
         .expect("one question, one row");
     // Two identical names and the same type: 0.6 * 1.0 + 0.1 * 1.0. Pinned, so a weight
     // change shows up here rather than as a silent shift in what folds.
-    assert!(
-        (row.score.unwrap() - 0.7).abs() < 1e-6,
-        "{:?}",
-        row.score
-    );
+    assert!((row.score.unwrap() - 0.7).abs() < 1e-6, "{:?}", row.score);
 
     // The batch is replaced, not appended: a second scan leaves exactly one row.
     assert_eq!(scan(&db.conn, &Heuristic::scoring()).await.unwrap(), 1);
@@ -59,19 +55,17 @@ async fn a_pair_sharing_two_identities_is_raised_once() {
     db_or_skip!(db);
     let (first, second) = claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
     for entity_id in [first, second] {
-        fixtures::claim(
-            &db,
-            entity_id,
-            "wikidata",
-            "Q104919",
-            "wikidata",
-            None,
-            None,
+        fixtures::identity(
+            &db, entity_id, "wikidata", "Q104919", "wikidata", None, None,
         )
         .await;
     }
 
-    assert_eq!(scan(&db.conn, &Heuristic::scoring()).await.expect("scan"), 1, "one pair, one question");
+    assert_eq!(
+        scan(&db.conn, &Heuristic::scoring()).await.expect("scan"),
+        1,
+        "one pair, one question"
+    );
     assert_eq!(batch_size(&db).await, 1);
 }
 
@@ -83,7 +77,9 @@ async fn merging_folds_the_pair_it_answers() {
     claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
     scan(&db.conn, &Heuristic::scoring()).await.unwrap();
 
-    let report = auto_merge(&db.conn, &store, &Heuristic::scoring(), true).await.expect("merge");
+    let report = auto_merge(&db.conn, &store, &Heuristic::scoring(), true)
+        .await
+        .expect("merge");
 
     assert_eq!(report.merged, 1, "{report:?}");
     assert_eq!(
@@ -107,7 +103,9 @@ async fn merging_leaves_a_pair_it_cannot_claim() {
     claim_pairs(&db, ["Belfast, Maine", "The Fishing Fleet"]).await;
 
     scan(&db.conn, &Heuristic::scoring()).await.unwrap();
-    let report = auto_merge(&db.conn, &store, &Heuristic::scoring(), true).await.expect("merge");
+    let report = auto_merge(&db.conn, &store, &Heuristic::scoring(), true)
+        .await
+        .expect("merge");
 
     assert_eq!(report.merged, 0, "{report:?}");
     assert_eq!(report.undecided, 1, "{report:?}");
@@ -149,10 +147,12 @@ async fn a_distinct_pair_is_not_folded() {
     fixtures::set_origin(&db, first, 100_001).await;
     fixtures::set_origin(&db, second, 100_002).await;
     scan(&db.conn, &Heuristic::scoring()).await.unwrap();
-    assert!(store
-        .distinct(first, second, Some("two different works"))
-        .await
-        .unwrap());
+    assert!(
+        store
+            .distinct(first, second, Some("two different works"))
+            .await
+            .unwrap()
+    );
 
     let report = auto_merge(&db.conn, &store, &Heuristic::scoring(), true)
         .await
@@ -185,7 +185,7 @@ async fn a_distinct_pair_survives_a_rebuild() {
     for origin in [100_001, 100_002] {
         let entity = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         fixtures::set_origin(&db, entity, origin).await;
-        fixtures::claim(&db, entity, "wikidata", "Q1", "wikidata", None, None).await;
+        fixtures::identity(&db, entity, "wikidata", "Q1", "wikidata", None, None).await;
         reborn.push(entity);
     }
     assert!(
@@ -209,5 +209,8 @@ async fn a_distinct_verdict_is_idempotent() {
     let store = KnowledgeGraph::new(&db);
     let (first, second) = claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
     assert!(store.distinct(first, second, None).await.unwrap());
-    assert!(!store.distinct(second, first, None).await.unwrap(), "direction-free");
+    assert!(
+        !store.distinct(second, first, None).await.unwrap(),
+        "direction-free"
+    );
 }
