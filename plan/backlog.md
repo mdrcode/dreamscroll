@@ -209,6 +209,13 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `parse_search` builds `Weights` itself instead of asking the policy, which is the visible oddity
   rather than a hidden one.
 
+- [ ] **`snapshot::reset::tests::two_resets_keep_two_separate_snapshots` is racy.** Observed once
+  2026-11-12 under parallel test execution: `relation "knowledge_entity_membership__<ts>" does not
+  exist`. `reset` keeps a bounded number of snapshots and prunes by age, so one test's reset can drop
+  another's snapshot tables while they are being read; the test passes alone and on rerun. Either
+  serialise the snapshot tests or scope the prune to past the snapshot under test. Found while
+  verifying the wikidata review (`plan/wikidata-cleanup-20261112.md`), not caused by it.
+
 - [ ] **Normalisation at the query boundary — watch, do not build.** Entity names reach Wikidata as
   `trim()`ed surfaces and nothing else. That is correct: the label rung is an exact `rdfs:label`
   match (folding case or collapsing inner spaces would *cause* misses), the Wikipedia title API
