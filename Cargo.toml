@@ -67,3 +67,8 @@ uuid = { version = "1.26", features = ["v4"] }
 # `start_paused` so tests of deadline pacing assert exact times instead of racing a real clock.
 # Dev-only: `cargo build` does not unify this feature in.
 tokio = { version = "1", features = ["full", "test-util"] }
+
+# Line tables only. Full DWARF on a ~140 MB debug binary is most of the link time, and the backtrace
+# it buys beyond file:line is rarely worth it. See the build loop in AGENTS.md.
+[profile.dev]
+debug = 1

@@ -56,3 +56,14 @@ Three supported topologies (ignore all others):
 1. Local macOS development via `cargo run`
 2. Local development inside Docker
 3. Production on Google Cloud Run via Docker
+
+# Build Loop
+- **Iterate narrow:** `cargo test --lib <filter>` or `cargo check --lib`. Never `--all-targets` —
+  every test lives in the lib, and the four `src/bin` harnesses run none.
+- **Clippy once per commit**, immediately before it, not between edits: `clippy-driver` has a
+  different fingerprint from `rustc`, so each switch costs a full non-incremental rebuild.
+- **One line per suite run:** `484 ✓ · 16 s run · 8 s rebuild`, so timing regressions stay visible.
+- **`[profile.dev] debug = 1`** is deliberate — fast links, still readable backtraces. `target/debug`
+  still grows; `cargo clean` when it gets gross (and expect a full dependency rebuild after).
+- **Format only what you touched.** The tree is not rustfmt-clean; a repo-wide `cargo fmt` rewrites
+  unrelated files and buries the real diff.
