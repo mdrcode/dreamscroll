@@ -136,11 +136,18 @@ async fn a_dry_run_reports_without_folding() {
 }
 
 /// A distinct verdict keeps the pair out of the automatic pass.
+///
+/// The origins are pushed far from the entity ids on purpose: the fixture creates one user, one
+/// capture, one illumination and one observation per entity, so a fresh schema makes
+/// `entity.id == origin_observation_id`. That coincidence is what let the pass compare a
+/// verdict's origins against entity ids and still look right.
 #[tokio::test]
 async fn a_distinct_pair_is_not_folded() {
     db_or_skip!(db);
     let store = KnowledgeGraph::new(&db);
     let (first, second) = claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
+    fixtures::set_origin(&db, first, 100_001).await;
+    fixtures::set_origin(&db, second, 100_002).await;
     scan(&db.conn, &Heuristic::scoring()).await.unwrap();
     assert!(store
         .distinct(first, second, Some("two different works"))
@@ -159,6 +166,40 @@ async fn a_distinct_pair_is_not_folded() {
         .await
         .unwrap();
     assert_eq!(tombstones, 0);
+}
+
+/// The decision is keyed by origin, so a rebuild — which renumbers every entity and leaves the
+/// observations alone — cannot put the pair back in the automatic pass.
+#[tokio::test]
+async fn a_distinct_pair_survives_a_rebuild() {
+    db_or_skip!(db);
+    let store = KnowledgeGraph::new(&db);
+    let (first, second) = claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
+    fixtures::set_origin(&db, first, 100_001).await;
+    fixtures::set_origin(&db, second, 100_002).await;
+    assert!(store.distinct(first, second, None).await.unwrap());
+
+    // A rebuild: the graph is emptied, the observations and the verdict survive it.
+    crate::knowledge::snapshot::reset(&db).await.unwrap();
+    let mut reborn = Vec::new();
+    for origin in [100_001, 100_002] {
+        let entity = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        fixtures::set_origin(&db, entity, origin).await;
+        fixtures::claim(&db, entity, "wikidata", "Q1", "wikidata", None, None).await;
+        reborn.push(entity);
+    }
+    assert!(
+        reborn.iter().all(|id| *id != first && *id != second),
+        "the rebuild renumbered the pair: {reborn:?} vs [{first}, {second}]"
+    );
+
+    scan(&db.conn, &Heuristic::scoring()).await.unwrap();
+    let report = auto_merge(&db.conn, &store, &Heuristic::scoring(), true)
+        .await
+        .expect("merge");
+
+    assert_eq!(report.merged, 0, "the decision still holds: {report:?}");
+    assert_eq!(report.kept_apart, 1, "{report:?}");
 }
 
 /// The log of a distinct verdict is a pair, not a survivor.

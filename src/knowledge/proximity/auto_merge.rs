@@ -42,6 +42,8 @@ pub async fn auto_merge(
     apply: bool,
 ) -> anyhow::Result<AutoMergeReport> {
     let mut report = AutoMergeReport::default();
+    // Keyed by origin, like every verdict: the id that survives a rebuild, never the
+    // generation-scoped entity id. The batch's entities are matched on their origins below.
     let kept_apart: HashSet<(i32, i32)> = model::knowledge_verdicts::Entity::find()
         .filter(
             model::knowledge_verdicts::Column::Kind
@@ -63,7 +65,13 @@ pub async fn auto_merge(
             report.moot += 1;
             continue;
         }
-        if kept_apart.contains(&pair_key(left.id, right.id)) {
+        // A `distinct` verdict names each side by its origin, so the pair is matched on origins.
+        // Entity ids are generation-scoped and agree with origins only by coincidence on a fresh
+        // graph: they diverge as soon as an entity has two members, and always after a reset.
+        if let (Some(left_origin), Some(right_origin)) =
+            (left.origin_observation_id, right.origin_observation_id)
+            && kept_apart.contains(&pair_key(left_origin, right_origin))
+        {
             report.kept_apart += 1;
             continue;
         }
