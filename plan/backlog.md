@@ -63,6 +63,12 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   foreign-key violation rather than a torn read. `Evidence` holds a `DatabaseConnection` today and
   seven call sites build one, so this and "Give evidence claims a repository" below are the same
   change approached from opposite ends — do them together.
+  **Observed consequence, from the 2026-11 audit:** the claims are written by
+  `write_observation_claims`, and only for the observations the linker decided *in that call*
+  (`linked`, `helper.rs:216`). A failure after the links land leaves the observations attached and
+  the claims unwritten; the retry finds nothing pending, so `linked` is empty and the handle claim
+  is never written. A torn read heals on the next projection — a lost claim does not: the entity
+  stays unfindable by the handle that named it until someone re-links it by hand.
 - [ ] **Assert the projection invariant.** `knowledge_stats` prints `platform_from_members` beside
   `with_platform`, and the field is documented as always equal: a divergence means `project` lost a
   presence that some member still carries. Nothing asserts it — a lost presence currently shows up
