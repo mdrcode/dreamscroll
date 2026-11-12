@@ -9,7 +9,7 @@
 //! class never rejects, so the filter cannot lose a candidate because our table is incomplete — it
 //! can only decline one we can show is a different kind of thing. That is the opposite of a type
 //! *gate*, and it is why this does not need subclass traversal: `animated film` is unrecognised and
-//! passes, which is a miss for us and never a wrong claim.
+//! passes, which is a miss for us and never a wrong identity.
 //!
 //! Every QID below was checked against Wikidata on 2026-11-07.
 
@@ -100,10 +100,10 @@ impl Family {
 ///
 /// True only when at least one class is recognised and **every** recognised one is a kind of thing
 /// this entity cannot be. Unknown classes and unmapped entity types never reject, so an incomplete
-/// table can cost a rejection but never a correct claim.
+/// table can cost a rejection but never a correct identity.
 ///
 /// The mapped types are the ones whose meaning we can defend. `publication`, `place`, `organization`
-/// and `event` are deliberately unmapped: measured 2026-11-07, mapping them rejected correct claims
+/// and `event` are deliberately unmapped: measured 2026-11-07, mapping them rejected correct identities
 /// — `Rotten Tomatoes` is a business (`Q4830453`), the `Locarno Film Festival` an organization
 /// (`Q43229`), the `Twenty-six Martyrs of Japan` a group of humans (`Q16334295`) — because a capture's
 /// `entity_type` is a guess and Wikidata's classes are precise about a different axis.
@@ -248,7 +248,7 @@ mod tests {
         assert!(!incompatible("unknown", &classes(&["Q151885"])));
     }
 
-    /// Measured on the first rebuild: these are correct claims the filter must not reject.
+    /// Measured on the first rebuild: these are correct identities the filter must not reject.
     #[test]
     fn a_publication_may_be_a_business() {
         // Rotten Tomatoes, `Q105584`, P31 `business`.

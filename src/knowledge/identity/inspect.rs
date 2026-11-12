@@ -2,7 +2,7 @@
 //!
 //! Recall, then ranking, then the resolver's ladder — each step printed with what the cache held
 //! and what the decision was. Nothing here re-implements a stage: it calls the same blocker, the
-//! same `Rank` and the same `interpret` the engine calls, and reads `fetch_cache` with the same
+//! same `Rank` and the same `decision` the engine calls, and reads `fetch_cache` with the same
 //! expiry rule, and it applies the same standing vetoes. That is the point: if the inspector and
 //! the run disagreed, the inspector would be lying.
 
@@ -14,7 +14,7 @@ use crate::database::DbHandle;
 use crate::fetch::cache::{FetchCache, State};
 use crate::fetch::{Answer, Outcome};
 use crate::knowledge::blocker::SqlBlocker;
-use crate::knowledge::identity::wikidata::{Candidate as Offered, interpret, plan};
+use crate::knowledge::identity::wikidata::{WikidataCandidate, decision, plan};
 use crate::knowledge::linker::heuristic::Heuristic;
 use crate::knowledge::normalize;
 use crate::knowledge::scoring::Scoring;
@@ -123,7 +123,7 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
     };
 
     let vetoes = crate::knowledge::KnowledgeGraph::new(db).vetoed().await?;
-    let steps = ladder(db, &entity, &vetoes).await?;
+    let steps = walk(db, &entity, &vetoes).await?;
     let identity = current_identity(db, entity.id).await?;
 
     Ok(Some(Report {
@@ -171,14 +171,14 @@ async fn index_keys(db: &DbHandle, id: i32) -> anyhow::Result<(Vec<String>, Vec<
 }
 
 /// Every rung the resolver would climb, in order, stopped at the first identity.
-async fn ladder(
+async fn walk(
     db: &DbHandle,
     entity: &model::knowledge_entity::Model,
     vetoes: &HashSet<(i32, String, String)>,
 ) -> anyhow::Result<Vec<Step>> {
     let mut steps = Vec::new();
     let cache = FetchCache::new(&db.conn);
-    for (rung, request) in plan::ladder(entity) {
+    for (rung, request) in plan::all_steps(entity) {
         // The last resort asks the *same* title question again, so without a label the two steps
         // would look like a duplicate.
         let kind = match rung {
@@ -186,7 +186,7 @@ async fn ladder(
             _ => request.kind.to_string(),
         };
         let lookup = cache
-            .lookup::<_, Vec<Offered>>(
+            .lookup::<_, Vec<WikidataCandidate>>(
                 request.provider,
                 &request.kind,
                 &request.shape,
@@ -211,14 +211,14 @@ async fn ladder(
             };
             let identity = match rung {
                 // The last resort does not rank: it takes the article bearing this exact name.
-                plan::Step::SurfaceTitle => match interpret::admit(entity, &raw) {
-                    Ok(candidates) => interpret::surface_only(entity, &candidates, &request),
+                plan::Step::SurfaceTitle => match decision::admit(entity, &raw) {
+                    Ok(candidates) => decision::surface_only(entity, &candidates),
                     Err(gate) => {
                         refusal = gate;
                         None
                     }
                 },
-                _ => interpret::claim_explained(entity, &request, &raw, &mut refusal),
+                _ => decision::decide(entity, request.kind, &raw, &mut refusal),
             };
             identity.map(|identity| {
                 vetoed = vetoes.contains(&(
@@ -226,7 +226,7 @@ async fn ladder(
                     identity.scheme.clone(),
                     identity.external_id.clone(),
                 ));
-                // Every provider claim names its method; `None` is the stored type's allowance for a
+                // Every provider identity names its method; `None` is the stored type's allowance for a
                 // capture's own handle annotation, not something a resolver can return.
                 (identity.external_id, identity.method.unwrap_or_default())
             })
@@ -342,7 +342,7 @@ impl Report {
 }
 
 /// The first few candidates an answer carried, as the inspection prints them.
-fn describe(candidates: &[Offered]) -> Vec<(String, String, String)> {
+fn describe(candidates: &[WikidataCandidate]) -> Vec<(String, String, String)> {
     candidates
         .iter()
         .take(4)
@@ -378,7 +378,7 @@ mod tests {
     use crate::fetch::cache::FetchCache;
     use crate::fetch::{Answer, Outcome};
     use crate::knowledge::KnowledgeGraph;
-    use crate::knowledge::identity::wikidata::{Candidate, RequestKind};
+    use crate::knowledge::identity::wikidata::{WikidataCandidate, WikidataKind};
     use crate::test_support::{db_or_skip, fixtures};
     use sea_orm::EntityTrait;
 
@@ -394,10 +394,10 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let request = plan::ladder(&entity)
+        let request = plan::all_steps(&entity)
             .into_iter()
             .map(|(_, request)| request)
-            .find(|request| request.kind == RequestKind::Label)
+            .find(|request| request.kind == WikidataKind::Label)
             .expect("the ladder asks for a label");
         FetchCache::new(&db.conn)
             .put(
@@ -407,7 +407,7 @@ mod tests {
                 &request.query,
                 &Answer {
                     outcome: Outcome::Found,
-                    body: Some(vec![Candidate {
+                    body: Some(vec![WikidataCandidate {
                         id: "Q42".to_string(),
                         label: Some(entity.name.clone()),
                         description: None,

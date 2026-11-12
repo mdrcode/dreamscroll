@@ -209,6 +209,18 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `parse_search` builds `Weights` itself instead of asking the policy, which is the visible oddity
   rather than a hidden one.
 
+- [ ] **Normalisation at the query boundary — watch, do not build.** Entity names reach Wikidata as
+  `trim()`ed surfaces and nothing else. That is correct: the label rung is an exact `rdfs:label`
+  match (folding case or collapsing inner spaces would *cause* misses), the Wikipedia title API
+  normalises case and underscores itself, and search is tokenised. Measured 2026-11-12 over 2,281
+  entities: 0 names with leading/trailing whitespace, 0 not in NFC, 0 containing invisible
+  characters (ZWSP/ZWNJ/soft hyphen/BOM/NBSP/word joiner), 0 with doubled inner spaces.
+  **Tripwire:** if an illuminator ever emits zero-width or NFD text the symptom is a *silent
+  duplicate entity* — the exact-label query misses **and** `normalize::comparable` cannot fold the
+  string either (its table is precomposed-only, per the note at `normalize.rs:228`). Fix it in
+  `normalize.rs` (NFC, strip `Cf`) and bump `norm_fingerprint`; not in `plan.rs`, because comparison
+  needs it at least as much as querying does.
+
 - [ ] **Decide how admin privilege reaches the common APIs.** Today an admin can do a thing only if a
   route was written for it. `POST /api/queues/illuminate` resolves the capture through the caller's own
   list, so an admin asking for someone else's capture gets a 404 — *before*

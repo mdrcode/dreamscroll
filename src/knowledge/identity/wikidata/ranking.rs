@@ -1,6 +1,6 @@
 //! Scoring: which of a query's candidates, if any, is the entity we meant.
 
-use super::Candidate;
+use super::WikidataCandidate;
 use crate::knowledge::normalize;
 use crate::knowledge::scoring::Rank;
 use crate::model;
@@ -76,15 +76,15 @@ pub(super) fn answer_confidence(score: f32) -> f32 {
 }
 
 /// A description this short has little to say, so one distinctive shared word can be the whole of
-/// the evidence: `Irish writer (1911-1966)` against a capture that calls him an Irish novelist.
+/// the evidence: `Irish writer (1911-1966)` against an entity described as an Irish novelist.
 const TERSE_TOKENS: usize = 4;
 
-/// Weight of matched evidence at which a claim is half-convincing. A scale, not a threshold: two
+/// Weight of matched evidence at which a match is half-convincing. A scale, not a threshold: two
 /// common words land well below it, two rare ones well above.
 const EVIDENCE_SCALE: f32 = 3.0;
 /// The hint is only trusted when at least half of its disambiguating words are accounted for.
 pub(super) const HINT_MIN_SUPPORT: f32 = 0.50;
-/// The hint fallback is gated on the blend: a name plus partial support is not a claim.
+/// The hint fallback is gated on the blend: a name plus partial support is not enough.
 pub(super) const CLAIM_BAR: f32 = 0.60;
 /// A name blocks; evidence decides. The name is worth enough to matter and not enough to win alone.
 pub(super) const NAME_WEIGHT: f32 = 0.40;
@@ -101,9 +101,9 @@ const NOISE: &[&str] = &[
 /// A resolver implements `Rank`, not `Similarity`: its measure is corpus-aware — terms are weighed
 /// by rarity among the answers the question returned — and a pair comparison cannot see the corpus.
 /// The score `Rank` returns is the description evidence (`fit`), because that is the quantity
-/// `decide` margins. The claim's confidence is this policy's own calibration, [`blend`].
+/// `decide` margins. The identity's confidence is this policy's own calibration, [`blend`].
 ///
-/// The signal is the capture's description, read two ways: *containment* — how much of what Wikidata
+/// The signal is the entity's description, read two ways: *containment* — how much of what Wikidata
 /// says about the candidate is accounted for by our description of it, which survives our description
 /// being long — and symmetric *overlap*, which separates `Dune` (1965 novel) from `Dune` (the series)
 /// because the series' description is a superset of ours.
@@ -114,11 +114,11 @@ const NOISE: &[&str] = &[
 /// evidence about which candidate we meant.
 pub(super) struct Ranking;
 
-impl Rank<model::knowledge_entity::Model, Candidate> for Ranking {
+impl Rank<model::knowledge_entity::Model, WikidataCandidate> for Ranking {
     fn rank(
         &self,
         entity: &model::knowledge_entity::Model,
-        candidates: &[Candidate],
+        candidates: &[WikidataCandidate],
     ) -> Vec<(usize, f32)> {
         let ours = our_tokens(entity);
         let weights = Weights::over(candidates);
@@ -132,7 +132,7 @@ impl Rank<model::knowledge_entity::Model, Candidate> for Ranking {
             .collect();
         // Ordering is `fit`, the quantity `decide` margins. The blend only breaks ties: an order
         // that disagreed with the quantity being compared made the margin negative and refused
-        // claims the evidence supported.
+        // identities the evidence supported.
         scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| b.2.total_cmp(&a.2)));
         scored
             .into_iter()
@@ -145,27 +145,24 @@ impl Rank<model::knowledge_entity::Model, Candidate> for Ranking {
 /// so are `Pokémon` and `Pokemon`.
 pub(super) fn exact_label(
     entity: &model::knowledge_entity::Model,
-    candidate: &Candidate,
+    candidate: &WikidataCandidate,
 ) -> bool {
-    candidate.label.as_deref().is_some_and(|label| {
-        normalize::comparable(label) == normalize::comparable(&entity.name)
-    })
+    candidate
+        .label
+        .as_deref()
+        .is_some_and(|label| normalize::comparable(label) == normalize::comparable(&entity.name))
 }
 
 /// The description evidence for one candidate, given the corpus the answer supplied.
-fn fit(ours: &[Vec<String>], candidate: &Candidate, weights: &Weights) -> f32 {
+fn fit(ours: &[Vec<String>], candidate: &WikidataCandidate, weights: &Weights) -> f32 {
     let theirs = content_tokens(candidate.description.as_deref().unwrap_or_default());
     ours.iter()
         .map(|tokens| weights.fit(&theirs, tokens))
         .fold(0.0f32, f32::max)
 }
 
-/// The blend: name agreement plus description evidence. The claim's confidence input, not the order.
-fn blend(
-    entity: &model::knowledge_entity::Model,
-    candidate: &Candidate,
-    fit: f32,
-) -> f32 {
+/// The blend: name agreement plus description evidence. The identity's confidence input, not the order.
+fn blend(entity: &model::knowledge_entity::Model, candidate: &WikidataCandidate, fit: f32) -> f32 {
     let name = if exact_label(entity, candidate) {
         1.0
     } else {
@@ -181,8 +178,8 @@ fn blend(
 /// same-surface candidate that still has to be corroborated by the corpus the question returned.
 pub(super) fn fit_within(
     entity: &model::knowledge_entity::Model,
-    candidate: &Candidate,
-    candidates: &[Candidate],
+    candidate: &WikidataCandidate,
+    candidates: &[WikidataCandidate],
 ) -> f32 {
     fit(&our_tokens(entity), candidate, &Weights::over(candidates))
 }
@@ -190,8 +187,8 @@ pub(super) fn fit_within(
 /// The winning candidate's confidence input, measured against the answer it arrived in.
 pub(super) fn blend_within(
     entity: &model::knowledge_entity::Model,
-    candidate: &Candidate,
-    candidates: &[Candidate],
+    candidate: &WikidataCandidate,
+    candidates: &[WikidataCandidate],
 ) -> f32 {
     let weights = Weights::over(candidates);
     let fit = fit(&our_tokens(entity), candidate, &weights);
@@ -233,11 +230,12 @@ pub(super) fn content_tokens(text: &str) -> Vec<String> {
 
 /// Light suffix stripping, so `painter`, `painting` and `paint` are the same word.
 ///
-/// Measured on `Caravaggio`: the capture says "revolutionized Western **painting**", Wikidata says
+/// Measured on `Caravaggio`: the entity's description says "revolutionized Western **painting**",
+/// Wikidata says
 /// "Italian **painter**", and without this they share a single token — under a two-token minimum that
 /// is zero evidence, so the best possible description scored nothing.
 /// Unigrams plus adjacent bigrams. `"first president"` is stronger evidence than `first` and
-/// `president` appearing separately: the phrase is a claim about the same thing, whereas two loose
+/// `president` appearing separately: the phrase is evidence about the same thing, whereas two loose
 /// words can be coincidence — our description and a *statue's* both contain `united` and `states`.
 fn grams(tokens: &[String]) -> Vec<String> {
     let mut grams = tokens.to_vec();
@@ -274,7 +272,8 @@ fn stem(token: String) -> String {
 ///
 /// This is what separates a *subject* from a *location*: `"George Washington"` returns a president
 /// and a "bronze statue in Portland, Oregon, United States", and both share two words with the
-/// capture — but `united`/`states` appear in a large fraction of the candidates (every American
+/// entity's description — but `united`/`states` appear in a large fraction of the candidates (every
+/// American
 /// place) while `president` does not. Inverse document frequency, computed over the candidates the
 /// query itself returned, weights them accordingly. No hand-written stoplist, no global tuning.
 pub(super) struct Weights {
@@ -283,7 +282,7 @@ pub(super) struct Weights {
 }
 
 impl Weights {
-    pub(super) fn over(candidates: &[Candidate]) -> Self {
+    pub(super) fn over(candidates: &[WikidataCandidate]) -> Self {
         let mut frequency = std::collections::BTreeMap::new();
         for candidate in candidates {
             let tokens = content_tokens(candidate.description.as_deref().unwrap_or_default());
@@ -350,13 +349,13 @@ impl Weights {
 
 #[cfg(test)]
 mod tests {
+    use super::WikidataCandidate;
     use super::*;
-    use super::Candidate;
 
     fn weights(descriptions: &[&str]) -> Weights {
-        let candidates: Vec<Candidate> = descriptions
+        let candidates: Vec<WikidataCandidate> = descriptions
             .iter()
-            .map(|description| Candidate {
+            .map(|description| WikidataCandidate {
                 id: "Q1".to_string(),
                 label: None,
                 description: Some((*description).to_string()),
@@ -382,7 +381,7 @@ mod tests {
 
     /// A term in every candidate used to be worth *less* than nothing: `N / (1 + df)` is below 1,
     /// and `ln` of that is negative, so `Salamandra · "publisher"` scored 0.09 against a 0.20 floor
-    /// and a single-candidate answer could never claim on one matched word.
+    /// and a single-candidate answer could never be identified on one matched word.
     #[test]
     fn a_term_present_in_every_candidate_is_worth_the_minimum() {
         let weights = weights(&["publisher"]);

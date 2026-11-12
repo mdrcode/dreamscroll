@@ -2,12 +2,12 @@
 //!
 //! The variant order *is* the ladder's, and every dispatch on it is exhaustive — a typo can no
 //! longer fall through to the label path. Nothing outside this provider reads it: the fetch layer
-//! only ever sees [`RequestKind`]'s `Display`, which is the string a cached answer is keyed by.
+//! only ever sees [`WikidataKind`]'s `Display`, which is the string a cached answer is keyed by.
 
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum RequestKind {
+pub enum WikidataKind {
     /// Exact label, through a SPARQL `VALUES`.
     Label,
     /// A Wikipedia article title, which is unique where a label is not.
@@ -18,7 +18,7 @@ pub enum RequestKind {
     Handle(&'static str),
 }
 
-impl RequestKind {
+impl WikidataKind {
     /// The property a handle request asks about, if it is one.
     pub fn property(&self) -> Option<&'static str> {
         match self {
@@ -30,7 +30,7 @@ impl RequestKind {
 
 /// The name this kind answers to in the cache and in `shape`. Stored, so changing it invalidates
 /// answers — the same rule `shape` follows.
-impl fmt::Display for RequestKind {
+impl fmt::Display for WikidataKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Label => f.write_str("label"),

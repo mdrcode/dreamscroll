@@ -1,14 +1,14 @@
 //! Transport: the ways Wikidata answers a question, and nothing else.
 //!
 //! Every function here is one HTTP shape and its response walking — no ranking, no decisions, no
-//! knowledge of what a claim means. They live here so `resolver.rs` can stay about the ladder.
+//! knowledge of what an identity means. They live here so `resolver.rs` can stay about the ladder.
 
 use std::collections::HashMap;
 
 use serde_json::Value;
 
 use super::query;
-use super::{Candidate, LANGUAGE, RequestKind};
+use super::{LANGUAGE, WikidataCandidate, WikidataKind};
 use crate::fetch::{Answer, BATCH, FetchError, Outcome, Request, Transport};
 
 /// MediaWiki's API: search, entities and page lookups.
@@ -18,7 +18,7 @@ const SEARCH_ENDPOINT: &str = "https://www.wikidata.org/w/api.php";
 const WIKIPEDIA_ENDPOINT: &str = "https://en.wikipedia.org/w/api.php";
 
 /// One answer per query, which is what a transport hands a batch back as.
-type Batched = Vec<(String, Answer<Vec<Candidate>>)>;
+type Batched = Vec<(String, Answer<Vec<WikidataCandidate>>)>;
 
 /// How Wikidata identifies us: its API asks for a tool name with a contact URL.
 const USER_AGENT: &str = "dreamscroll-knowledge/0.1 (https://dreamscroll.ai)";
@@ -47,7 +47,7 @@ impl Wire {
 
 /// Which query a SPARQL row answers, and the candidate it names. Items arrive as entity URLs, and a
 /// repeated item is deduped by the caller.
-fn candidate_from_row(row: &Value) -> Option<(String, Candidate)> {
+fn candidate_from_row(row: &Value) -> Option<(String, WikidataCandidate)> {
     let field = |key: &str| {
         row.get(key)
             .and_then(|v| v.get("value"))
@@ -57,7 +57,7 @@ fn candidate_from_row(row: &Value) -> Option<(String, Candidate)> {
     let id = field("item")?.rsplit('/').next()?;
     Some((
         query.to_string(),
-        Candidate {
+        WikidataCandidate {
             id: id.to_string(),
             label: field("itemLabel").map(str::to_string),
             description: field("itemDescription").map(str::to_string),
@@ -77,7 +77,7 @@ fn candidate_from_row(row: &Value) -> Option<(String, Candidate)> {
 /// `classes` is the field a silent failure would cost the most: empty is a legal answer, so a wrong
 /// path through `claims` would not fail — it would turn the gate off for every search and title
 /// answer and let a wrong QID be claimed.
-fn entity_candidate(qid: &str, item: &Value) -> Candidate {
+fn entity_candidate(qid: &str, item: &Value) -> WikidataCandidate {
     let language = |key: &str| {
         item.get(key)
             .and_then(|values| values.get(LANGUAGE))
@@ -103,7 +103,7 @@ fn entity_candidate(qid: &str, item: &Value) -> Candidate {
                 .collect()
         })
         .unwrap_or_default();
-    Candidate {
+    WikidataCandidate {
         id: qid.to_string(),
         label: language("labels").map(str::to_string),
         description: language("descriptions").map(str::to_string),
@@ -186,7 +186,7 @@ fn follow(title: &str, renamed: &HashMap<String, String>) -> String {
 /// The provider's `Retry-After`, in seconds, when it sent a usable one.
 ///
 /// The header is optional and may hold an HTTP date rather than a delta. Either way there is no number
-/// to wait: reporting one would claim the provider asked for a wait it never asked for.
+/// to wait: reporting one would assert the provider asked for a wait it never asked for.
 fn retry_after_secs(headers: &reqwest::header::HeaderMap) -> Option<u64> {
     headers
         .get(reqwest::header::RETRY_AFTER)?
@@ -219,7 +219,10 @@ impl Wire {
     /// it returns nothing for a punctuation difference (`J.R.R.` for `J. R. R.`) and ranks a
     /// disambiguation page above the novel for `A Christmas Carol`. On wikidata.org the page titles
     /// *are* QIDs, so the hit list is already a candidate set.
-    pub(super) async fn search(&self, query: &str) -> Result<Answer<Vec<Candidate>>, FetchError> {
+    pub(super) async fn search(
+        &self,
+        query: &str,
+    ) -> Result<Answer<Vec<WikidataCandidate>>, FetchError> {
         let response = self
             .client
             .get(SEARCH_ENDPOINT)
@@ -280,7 +283,7 @@ impl Wire {
         }
 
         let items = self.items(&ids).await?;
-        let candidates: Vec<Candidate> =
+        let candidates: Vec<WikidataCandidate> =
             ids.iter().filter_map(|id| items.get(id).cloned()).collect();
         if candidates.is_empty() {
             return Ok(negative());
@@ -295,8 +298,8 @@ impl Wire {
     pub(super) async fn items(
         &self,
         ids: &[String],
-    ) -> Result<HashMap<String, Candidate>, FetchError> {
-        let mut details: HashMap<String, Candidate> = HashMap::new();
+    ) -> Result<HashMap<String, WikidataCandidate>, FetchError> {
+        let mut details: HashMap<String, WikidataCandidate> = HashMap::new();
         for chunk in ids.chunks(BATCH) {
             let response = self
                 .client
@@ -328,7 +331,7 @@ impl Wire {
     /// the labels, descriptions and types the caller needs.
     pub(super) async fn titles(
         &self,
-        requests: &[Request<RequestKind>],
+        requests: &[Request<WikidataKind>],
     ) -> Result<Batched, FetchError> {
         let titles: Vec<String> = requests
             .iter()
@@ -401,10 +404,10 @@ const SPARQL_ENDPOINT: &str = "https://query.wikidata.org/sparql";
 /// Decode a SPARQL `SELECT` body into one answer per requested query.
 ///
 /// A body we cannot read is an error, never a batch of empty answers: every `Empty` leaving here
-/// becomes a cached negative, so a refused or malformed response would claim for a week that the item
+/// becomes a cached negative, so a refused or malformed response would assert for a week that the item
 /// does not exist. `search` guards its body for the same reason.
 fn answers_from_sparql(
-    requests: &[Request<RequestKind>],
+    requests: &[Request<WikidataKind>],
     body: &Value,
 ) -> Result<Batched, FetchError> {
     let results = api_result(body, "sparql", "results")?;
@@ -420,7 +423,7 @@ fn answers_from_sparql(
         .iter()
         .map(|request| (request.query.clone(), Answer::nothing(Outcome::Empty)))
         .collect();
-    let mut grouped: HashMap<String, Vec<Candidate>> = HashMap::new();
+    let mut grouped: HashMap<String, Vec<WikidataCandidate>> = HashMap::new();
     for row in rows {
         let Some((query, candidate)) = candidate_from_row(row) else {
             continue;
@@ -450,7 +453,7 @@ impl Wire {
     /// SPARQL over `VALUES`: the batched label and handle lookups.
     pub(super) async fn sparql(
         &self,
-        requests: &[Request<RequestKind>],
+        requests: &[Request<WikidataKind>],
     ) -> Result<Batched, FetchError> {
         let Some(first) = requests.first() else {
             return Ok(Vec::new());
@@ -481,14 +484,14 @@ impl Wire {
 /// The wire, as the door sees it: which kinds can share a call, and how one call is shaped.
 #[async_trait::async_trait]
 impl Transport for Wire {
-    type Kind = RequestKind;
-    type Payload = Vec<Candidate>;
+    type Kind = WikidataKind;
+    type Payload = Vec<WikidataCandidate>;
 
     /// The search endpoint takes one query per call; only SPARQL batches.
     fn batch_size(&self, kind: &Self::Kind) -> usize {
         match kind {
-            RequestKind::Search => 1,
-            RequestKind::Title => 50,
+            WikidataKind::Search => 1,
+            WikidataKind::Title => 50,
             _ => BATCH,
         }
     }
@@ -496,7 +499,7 @@ impl Transport for Wire {
     /// A title lookup reads the page, then the items it names; a search reads its hits the same way.
     fn cost(&self, kind: &Self::Kind) -> usize {
         match kind {
-            RequestKind::Title | RequestKind::Search => 2,
+            WikidataKind::Title | WikidataKind::Search => 2,
             _ => 1,
         }
     }
@@ -509,15 +512,15 @@ impl Transport for Wire {
             return Ok(Vec::new());
         };
         match first.kind {
-            RequestKind::Title => return self.titles(requests).await,
-            RequestKind::Search => {
+            WikidataKind::Title => return self.titles(requests).await,
+            WikidataKind::Search => {
                 let mut answers = Vec::with_capacity(requests.len());
                 for request in requests {
                     answers.push((request.query.clone(), self.search(&request.query).await?));
                 }
                 return Ok(answers);
             }
-            RequestKind::Label | RequestKind::Handle(_) => {}
+            WikidataKind::Label | WikidataKind::Handle(_) => {}
         }
         self.sparql(requests).await
     }
@@ -587,7 +590,7 @@ mod tests {
         assert_eq!(candidate.classes, vec!["Q571", "Q7725634"]);
     }
 
-    /// An item with no label, description or claims is a candidate with an id: absent is not empty,
+    /// An item with no label, description or `claims` is a candidate with an id: absent is not empty,
     /// and it is not an error.
     #[test]
     fn an_entity_with_nothing_but_an_id_still_reads() {
@@ -610,10 +613,10 @@ mod tests {
         assert_eq!(items.len(), 1, "{items:?}");
     }
 
-    fn labels(query: &str) -> Request<RequestKind> {
+    fn labels(query: &str) -> Request<WikidataKind> {
         Request {
             provider: "wikidata",
-            kind: RequestKind::Label,
+            kind: WikidataKind::Label,
             shape: "test".to_string(),
             query: query.to_string(),
         }

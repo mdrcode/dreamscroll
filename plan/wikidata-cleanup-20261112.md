@@ -22,11 +22,11 @@ Four properties that follow, and that every change should be judged against:
 
 1. **Soundness over coverage.** A wrong QID is worse than none: it merges entities, distorts
    proximity, and costs a verdict to repair. "An incomplete table can cost a rejection but never a
-   correct claim" is the rule `types.rs` and `policy.rs` are written to.
+   correct claim" is the rule `types.rs` and `decision.rs` are written to.
 2. **Cost.** Wikidata is rate-limited. The ladder exists to spend the fewest calls.
 3. **Auditability.** `method` and `confidence` are the recorded reason; `fetch_cache` is the
    evidence.
-4. **Replayability.** `plan`/`parse`/`policy` are pure, so an offline rebuild over cached payloads
+4. **Replayability.** `plan`/`interpret`/`decision` are pure, so an offline rebuild over cached payloads
    reproduces the decision.
 
 ## The mechanical pass (shipped 2026-11-12)
@@ -200,8 +200,8 @@ and the fix that closed them. Status values: `pending`, `discussed`, `fixed`.
 | # | File | Status | Findings / decisions |
 | --- | --- | --- | --- |
 | 1 | `resolver.rs` | fixed | R1–R5 implemented, R6 kept and isolated as a labelled hack — see below |
-| 2 | `plan.rs` | pending | — |
-| 3 | `policy.rs` | pending | — |
+| 2 | `plan.rs` | done | P1 naming (three `ladder`s), P2 query normalisation measured; P3 `Handle(&str)` left open |
+| 3 | `decision.rs` | in progress | M1 method vocabulary de-duplicated, M2 renamed from `policy` |
 | 4 | `interpret.rs` | pending | — |
 | 5 | `ranking.rs` | pending | — |
 | 6 | `types.rs` | pending | — |
@@ -223,11 +223,75 @@ each hold at most one question.
 | # | Finding | Fix | State |
 | --- | --- | --- | --- |
 | R1 | `USER_AGENT` and `Client::builder()` sat in `resolver.rs`, so the policy file named `reqwest`. `Wire`'s own doc claims "one client" but was handed one. Moved to `transport.rs`: `USER_AGENT`, the 30 s timeout and the builder; `Wire::new() -> anyhow::Result<Self>`; `Wikidata::new()` is now a wrapper. `resolver.rs` names no HTTP crate. | fixed |
-| R2 | `Kind` was one of **three** `Kind` enums in `crate::knowledge` (`snapshot::Kind`, `knowledge_verdicts::Kind`, `wikidata::Kind`), and it was `pub use`d at the module root. Renamed `RequestKind` — it matches `kind.rs`'s own doc and the field in `fetch::Request<K>`, and does not stutter the way `WikidataKind` would. (`Rung` was the alternative, matching the prose.) | fixed |
-| R3 | `collect` named the wrong half of the loop: it harvests one wave and arbitrates first-to-speak, into two `&mut` out-params. Renamed `harvest`, doc'd as the wave harvester. | fixed |
-| R4 | `parse` was misleading — parsing happens in `transport` (JSON → `Candidate`); this module decides what a candidate *means*. `identities` also returned `Vec` where every arm returns exactly one or none, and was sugar over `explained`. Now module `interpret`, entry `claim(...) -> Option<Identity>`, reason variant `claim_explained(...)`; `policy`'s four entry points return `Option` too, so no layer keeps the lie. | fixed |
+| R2 | `Kind` was one of **three** `Kind` enums in `crate::knowledge` (`snapshot::Kind`, `knowledge_verdicts::Kind`, `wikidata::Kind`), and it was `pub use`d at the module root. Renamed `WikidataKind` — unambiguous, unlike `WikiKind`, which in this domain reads as *kind of wiki entity* (item, article, file), a different axis. (`Rung` was considered and rejected as prose-only vocabulary.) | fixed |
+| R3 | `collect` named the wrong half of the loop: it reads one wave and arbitrates first-to-speak, into two `&mut` out-params. Renamed `accumulate` (via `harvest`, which read as a metaphor rather than a description): it appends one wave's identities and arbitrates first-to-speak. | fixed |
+| R4 | `parse` was misleading — parsing happens in `transport` (JSON → `Candidate`); this module decides what a candidate *means*. `identities` also returned `Vec` where every arm returns exactly one or none, and was sugar over `explained`. Now module `interpret`, entry `identify(...) -> Option<Identity>`, reason variant `identify_explained(...)`; `policy`'s four entry points return `Option` too, so no layer keeps the lie. | fixed |
 | R5 | `Gateway::resolve_requests` reused the domain verb — the lexicon defines **resolve** as "knowledge entities → evidence, network, cache-first". Renamed `Gateway::answers_for(...)`, which names its return type (`Answers<K, P>`). Deliberately not `fetch`: that is `Transport::fetch`, the network call, one layer down. | fixed |
 | R6 | `Step::SurfaceTitle` encodes a *decision* as a `Step`: it plans the identical `Request` as `Title`, then takes a different branch (`admit` + `surface_only`) in the step loop. Kept as a step (the deferral is visible as data), but now **labelled a hack**: documented as "a decision wearing a step's clothes", marked `HACK` in `plan.rs` with what it costs and what it wants to become, and extracted in `resolver` into a named `last_resort` pass with its own doc. The loop is one `if` and two calls. | kept |
+| R7 | `accumulate`, `last_resort` and `ladder` took no `self`, yet lived in `impl Wikidata`. Residue: they were methods when the loop was written against authority state, and after R1/R3 that state is gone — `Wikidata` holds one field and `ladder` takes the transport as a parameter. Moved to module-level free functions; the impl now holds only `new()`. | fixed |
+| R8 | `Candidate` was ambiguous across modules: `inspect` has its own `Candidate` (a *blocking* candidate) and imported the authority's as `Candidate as Offered` purely to avoid the clash, so nobody could tell which one a signature meant. Both authority types now carry the provider's name — `WikidataKind`, `WikidataCandidate` — and the `Offered` alias is gone. | fixed |
+| R9 | Considered returning a map from `Resolver::resolve` instead of `Vec<(i32, Identity)>`. Rejected: the engine needs entity -> resolver -> identities (`proposed: BTreeMap<i32, Vec<(usize, Identity)>>`) and validates every id against the batch it sent, so the grouping moves rather than disappears; a map would cost one `Vec` per entity and lose production order. Shape kept. | kept |
+| R10 | `interpret::claim` reintroduced the word the lexicon retired when the identity annotations replaced the old model. Renamed `identify` / `identify_explained`, locals and the module's comments swept with it; the only `claims` left are Wikidata's own JSON field, backticked where it appears in prose. | fixed |
+| R11 | Three functions were named `ladder`: the resolver's wave driver, a pure per-entity projection in `plan`, and `inspect`'s diagnostic traversal. Only the driver climbs; the other two are a view and a walk. Renamed `plan::all_steps` and `inspect::walk`, leaving one `ladder` in the tree that means what the word means. | fixed |
+### 3. `decision.rs` (was `policy.rs`) — in progress 2026-11-12
+
+- **M1 — the method vocabulary had four producers.** `method_for` mapped rung+exactness to a name,
+  while `parse_search` and `surface_only` wrote `"search_lookup"` and `"wikipedia_title"` as their
+  own literals — two names that had to agree with `method_for` by construction and could not. Deleted
+  the duplication instead of centralising it: both sites now call `method_for`, leaving exactly two
+  producers (the rung mapping, and `by_hint`'s one literal, which is correct because a hint is not a
+  rung). A new test pins the surface path's method, which nothing covered before.
+- **M2 — the file was named after a word this crate already uses.** `linker/heuristic/scoring.rs`
+  calls the pluggable scoring strategy "the policy" (`knowledge.md`: "Choosing one policy for both
+  sides"), so `wikidata/policy.rs` was a second meaning of `policy` — the same collision class as
+  `resolve`, `Kind` and `claim`. Renamed `decision.rs`; the module header now states its two layers
+  (admission per rung, then the decision) and the rule that admission may not re-implement the
+  decision.
+- **M3 — `decide` took a `&Request` but only ever read `kind`.** Narrowed to
+  `decide(entity, candidates, kind, reason)`: the signature now says the decision depends on *which
+  rung* answered, and stops advertising a dependency on the question text it must never score
+  against. `surface_only` lost its `kind != Title` guard and its request parameter for the same
+  reason — its only caller is the deferred title step, so the guard was a comment that could not
+  fail.
+- **M4 — the dispatch was a hybrid: four kinds, three depths.** `interpret` decided `Handle` itself,
+  sent `Title`/`Search` to their own procedures, and let `Label` reach the shared tail directly.
+  Folded into one entry: `decision::decide(entity, kind, answer, reason)` gates, then matches
+  exhaustively — `handle` / `label` / `title` / `search` — each ending in the private `choose`.
+  `interpret.rs` is gone; `admit` and `surface_only` live beside the entry. Adding a rung is now one
+  exhaustive match next to the four procedures, instead of an edit in one file plus a function in
+  another. Cost: a 1008-line file (392 impl / 616 test).
+
+### 2. `plan.rs` — done 2026-11-12
+
+- **P1 — three functions named `ladder`.** The resolver's wave driver, a pure per-entity projection
+  in `plan`, and `inspect`'s diagnostic traversal. Only the driver climbs; the other two are a view
+  and a walk. Now `plan::all_steps` (a flattening, not a one-to-one map: a platform link asks a
+  query per value) and `inspect::walk`, with one `ladder` left in the tree. `plan_flat` was
+  considered and dropped: it names the mechanism, stutters as `plan::plan_flat`, and "projection"
+  already means the graph's derived columns.
+- **P2 — `trim()` is the whole query-boundary policy, and that is right.** Measured over 2,281
+  entities: no leading/trailing whitespace, no non-NFC text, no invisible characters, no doubled
+  inner spaces. The label rung is an exact match, so folding would *cause* misses; the title API
+  normalises itself; search is tokenised. The tripwire (silent duplicate entity if a future
+  illuminator emits ZWSP/NFD) is recorded in `plan/backlog.md`.
+
+Left open on purpose when `plan.rs` was signed off:
+
+- **`WikidataKind::Handle(&'static str)` drops `PropertyId`.** The newtype exists because "a typo is
+  invisible" in a query, and it is the only source of the value today, so nothing is broken — but the
+  type no longer stops a future caller from minting a handle kind from an arbitrary string. Not worth
+  churn now; revisit if a second producer of handle kinds appears.
+Left open on purpose when `resolver.rs` was signed off:
+
+- **Handle > title > label precedence has no test.** The file's job is first-to-speak-wins; the
+  tests pin the *ordering of requests* and that a title resolution suppresses the label wave, but
+  nothing asserts that a handle answer beats a title answer when both arrive.
+- **The `Canned` fake answers `Empty` for any unseeded request**, so a typo in a seeded query looks
+  identical to a provider with nothing to say. `asked()` guards only the assertions that call it.
+- **`accumulate` and `last_resort` stay near-twins** (same guard, same lookup, different decision).
+  That is the price of keeping R6 as a step; we decided the `identify_for` dispatch was a lateral
+  move that would hide the anomaly from the file where it is visible.
+
 
 What R6 became, since it is the one we did not restructure: `Step::SurfaceTitle` is documented as
 a **decision wearing a step's clothes** and marked `HACK` in `plan.rs`, naming exactly what it
