@@ -59,7 +59,7 @@ impl Similarity<Observation, Entity> for Heuristic {
 
 impl Similarity<Entity, Entity> for Heuristic {
     fn score(&self, a: &Entity, b: &Entity) -> f32 {
-        features_of_entity(a, b).total
+        features_of_entities(a, b).total
     }
 }
 
@@ -71,7 +71,7 @@ impl Rank<Observation, Entity> for Heuristic {
 
 impl Rank<Entity, Entity> for Heuristic {
     fn rank(&self, a: &Entity, candidates: &[Entity]) -> Vec<(usize, f32)> {
-        rank_by(candidates, |candidate| features_of_entity(a, candidate))
+        rank_by(candidates, |candidate| features_of_entities(a, candidate))
     }
 }
 
@@ -173,10 +173,17 @@ impl NormalizedCandidate {
         let mut alt_name_token_keys = Vec::with_capacity(alt_names.len() + 1);
         for surface in std::iter::once(name).chain(alt_names.iter().map(String::as_str)) {
             let key = normalize::comparable(surface);
-            if !key.is_empty() {
-                alt_name_token_keys.push(normalize::word_key(&key));
-                alt_name_keys.push(key);
+            if key.is_empty() {
+                continue;
             }
+            // A surface with no words (`...` folds to `..`) has no word generation, and storing the
+            // empty string would make it match every other wordless surface. Same rule as
+            // `blocker::index::fold`, which is the one definition of the two generations.
+            let token_key = normalize::word_key(&key);
+            if !token_key.is_empty() {
+                alt_name_token_keys.push(token_key);
+            }
+            alt_name_keys.push(key);
         }
 
         Self {
@@ -220,11 +227,64 @@ fn features(observation: &Observation, candidate: &Entity) -> Features {
     score(&view, &NormalizedCandidate::from(candidate))
 }
 
-/// An entity scored as if it were an observation: its selected values stand in for what a capture
-/// said. This is how `proximity::auto_merge` asks about two entities.
-fn features_of_entity(a: &Entity, candidate: &Entity) -> Features {
-    let view = NormalizedObservation::new(&a.name, a.description.as_deref(), &a.entity_type);
-    score(&view, &NormalizedCandidate::from(candidate))
+/// Two entities, each read as everything its members contributed.
+///
+/// Symmetric by construction: a pair has one score, whichever side asks. Reading the subject's
+/// selected values only made its `alt_*` invisible, so the number depended on direction — and both
+/// passes choose that direction from the projected confidence, so a confidence change (a later
+/// resolve) could move the number, and with it the verdict, with no evidence changing.
+fn features_of_entities(a: &Entity, b: &Entity) -> Features {
+    let left = NormalizedCandidate::from(a);
+    let right = NormalizedCandidate::from(b);
+
+    let name = if left
+        .alt_name_keys
+        .iter()
+        .any(|key| right.alt_name_keys.contains(key))
+    {
+        1.0
+    } else if left
+        .alt_name_token_keys
+        .iter()
+        .any(|key| right.alt_name_token_keys.contains(key))
+    {
+        NAME_TOKEN_MATCH
+    } else {
+        0.0
+    };
+
+    // Best fit across every description either side has accumulated, never their union: a union
+    // would dilute a good match with text from captures that had nothing to do with this pair.
+    let description = left
+        .description_tokens
+        .iter()
+        .flat_map(|theirs| {
+            right
+                .description_tokens
+                .iter()
+                .map(move |ours| normalize::jaccard(ours, theirs))
+        })
+        .fold(0.0f32, f32::max);
+
+    // Any agreement counts, in either direction.
+    let type_match = left
+        .entity_types
+        .iter()
+        .flat_map(|theirs| {
+            right
+                .entity_types
+                .iter()
+                .map(move |ours| type_similarity(ours, theirs))
+        })
+        .fold(0.0f32, f32::max);
+
+    let total = WEIGHT_NAME * name + WEIGHT_DESCRIPTION * description + WEIGHT_TYPE * type_match;
+    Features {
+        name,
+        description,
+        type_match,
+        total,
+    }
 }
 
 /// Similarity of one normalized observation to one candidate: per feature, weighted into a total.
@@ -313,6 +373,18 @@ mod tests {
         row
     }
 
+    /// One pair, two directions: the film's only evidence is in its alternatives, the novella's is
+    /// its selected description.
+    fn train_dreams_pair() -> (
+        model::knowledge_entity::Model,
+        model::knowledge_entity::Model,
+    ) {
+        let mut movie = entity(1, "Train Dreams", None, "movie");
+        movie.alt_descriptions = vec!["a 2011 novella by Denis Johnson".to_string()];
+        let book = entity(2, "Train Dreams", Some("a 2011 novella by Denis Johnson"), "book");
+        (movie, book)
+    }
+
     /// `brand` and `organization` are the same referent described twice — the taxonomy does not have
     /// to choose for a member to agree.
     #[test]
@@ -323,6 +395,32 @@ mod tests {
         assert_eq!(typed("brand"), 1.0);
         assert_eq!(typed("organization"), 1.0);
         assert_eq!(typed("movie"), 0.0);
+    }
+
+    /// Two entities each carry what their members said, so a pair has one measurement whichever
+    /// side asks. Reading the subject's selected values only made its `alt_*` invisible, which is
+    /// how the same pair scored differently in each direction.
+    #[test]
+    fn the_pair_score_is_symmetric() {
+        let (a, b) = train_dreams_pair();
+
+        let features = features_of_entities(&a, &b);
+        assert_eq!(features_of_entities(&b, &a), features, "one pair, one number");
+        assert_eq!(features.name, 1.0);
+        assert_eq!(features.description, 1.0);
+    }
+
+    /// The evidence lives in the subject's alternatives. Under the selected-only view that
+    /// direction refused the pair outright while the reverse accepted it, so the outcome followed
+    /// the confidence ordering rather than the evidence. Both directions must agree now.
+    #[test]
+    fn a_subject_alternative_corroborates_the_pair() {
+        let (a, b) = train_dreams_pair();
+
+        for (subject, candidate) in [(&a, &b), (&b, &a)] {
+            let ranked = Heuristic.rank(subject, std::slice::from_ref(candidate));
+            assert_eq!(ranked.len(), 1, "the alternative corroborates from either side");
+        }
     }
 
     #[test]
@@ -454,3 +552,4 @@ mod tests {
         );
     }
 }
+
