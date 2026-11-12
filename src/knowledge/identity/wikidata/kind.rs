@@ -14,7 +14,7 @@ pub enum Kind {
     Title,
     /// MediaWiki full-text search: the expensive fallback.
     Search,
-    /// A platform account, held by one Wikidata property (`P2002` for X, and so on).
+    /// A platform link's handle, held by one Wikidata property (`P2002` for X, and so on).
     Handle(&'static str),
 }
 

@@ -3,10 +3,12 @@
 //! Pure and stateless — no client, no `self`. The ladder in `resolver` decides *when* to ask and
 //! what an answer means; this decides only *what*.
 
+use super::property_query::platform_link_queries;
 use super::shape;
 use super::Kind;
 use super::ID;
 use crate::fetch::Request;
+use crate::illumination::v2::PlatformLink;
 use crate::knowledge::normalize;
 use crate::model;
 
@@ -23,30 +25,6 @@ fn request(kind: Kind, query: &str) -> Request<Kind> {
     }
 }
 
-/// A platform account is an identity, and each platform is a different property. Adding one is a row
-/// in this table, not a new provider.
-///
-/// Every property here was verified against Wikidata on 2026-11-10. `other` stays unmapped: a wrong
-/// property would produce confident, fabricated identities, which is worse than leaving the entity
-/// unresolved. Reddit has two properties — a username (`P4265`) and a subreddit (`P3984`) — chosen by
-/// the handle's `u/`/`r/` prefix in [`handle`].
-pub(super) fn handle_property(platform: &str) -> Option<&'static str> {
-    match platform.to_ascii_lowercase().as_str() {
-        "x" | "twitter" | "x_twitter" => Some("P2002"),
-        "instagram" => Some("P2003"),
-        "tiktok" => Some("P7085"),
-        "youtube" => Some("P2397"),
-        "github" => Some("P2037"),
-        "mastodon" => Some("P4033"),
-        "facebook" => Some("P2013"),
-        "linkedin" => Some("P6634"),
-        "threads" => Some("P11892"),
-        "bluesky" => Some("P12361"),
-        "reddit" => Some("P4265"),
-        _ => None,
-    }
-}
-
 /// One step of the ladder, and which decision applies to its answer.
 ///
 /// The steps are request kinds, not bundled passes: the resolver asks one step across every
@@ -57,7 +35,7 @@ pub(super) fn handle_property(platform: &str) -> Option<&'static str> {
 /// the other is how `eval` came to report claims the resolver would not make.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Step {
-    /// A platform account property (`P2002`, …).
+    /// A platform link's handle, through the property that holds it (`P2002`, …).
     Handle,
     /// A Wikipedia article title.
     Title,
@@ -99,12 +77,7 @@ pub(crate) fn ladder(entity: &model::knowledge_entity::Model) -> Vec<(Step, Requ
 /// One step's requests for one entity. Pure, so the order is testable without a network.
 pub(crate) fn step(step: Step, entity: &model::knowledge_entity::Model) -> Vec<Request<Kind>> {
     match step {
-        Step::Handle => {
-            let Some(handle) = handle(entity) else {
-                return Vec::new();
-            };
-            vec![handle]
-        }
+        Step::Handle => handle(entity),
         Step::Title | Step::SurfaceTitle => title(entity).into_iter().collect(),
         Step::Label => label(entity).into_iter().collect(),
         Step::SearchHint => search_hint(entity).into_iter().collect(),
@@ -112,28 +85,22 @@ pub(crate) fn step(step: Step, entity: &model::knowledge_entity::Model) -> Vec<R
     }
 }
 
-fn handle(entity: &model::knowledge_entity::Model) -> Option<Request<Kind>> {
-    let (platform, handle) = (entity.platform.as_deref()?, entity.platform_handle.as_deref()?);
-    // A capture that names a platform but no handle is a platform we cannot ask about: an empty
-    // `VALUES` literal would be a wasted call and a cached negative about nothing.
-    let platform = platform.to_ascii_lowercase();
-    let handle = handle.trim();
-    if handle.is_empty() {
-        return None;
-    }
-    let (property, query) = if platform == "reddit" {
-        if let Some(subreddit) = handle.strip_prefix("r/") {
-            ("P3984", subreddit)
-        } else {
-            ("P4265", handle.strip_prefix("u/").unwrap_or(handle))
-        }
-    } else {
-        (handle_property(&platform)?, handle)
+/// The entity's projected platform link, one request per value the link's property expects.
+///
+/// `project` copies one member observation's `PlatformLink` onto the entity, so this reads a single
+/// presence: the resolver never sees a second member's link, and one presence names one referent.
+fn handle(entity: &model::knowledge_entity::Model) -> Vec<Request<Kind>> {
+    let Some(link) = PlatformLink::from_columns(
+        entity.platform.clone(),
+        entity.platform_handle.clone(),
+        entity.platform_display_name.clone(),
+    ) else {
+        return Vec::new();
     };
-    if query.is_empty() {
-        return None;
-    }
-    Some(request(Kind::Handle(property), query))
+    platform_link_queries(&link)
+        .into_iter()
+        .map(|query| request(Kind::Handle(query.property.as_str()), &query.value))
+        .collect()
 }
 
 fn label(entity: &model::knowledge_entity::Model) -> Option<Request<Kind>> {

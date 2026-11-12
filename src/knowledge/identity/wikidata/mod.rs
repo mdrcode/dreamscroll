@@ -7,6 +7,7 @@ mod kind;
 pub(crate) mod parse;
 pub(crate) mod plan;
 mod policy;
+mod property_query;
 mod query;
 mod ranking;
 mod resolver;

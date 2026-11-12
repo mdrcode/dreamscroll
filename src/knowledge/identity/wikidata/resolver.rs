@@ -673,7 +673,29 @@ mod tests {
 
         let plans = plan::for_entity(&target);
         assert_eq!(plans[0].kind, Kind::Handle("P11892"), "{plans:?}");
-        assert_eq!(plans[0].query, "@ada");
+        assert_eq!(
+            plans[0].query, "ada",
+            "the property's values carry no '@': the decorated form can never match"
+        );
+    }
+
+    /// YouTube has two namespaces. A handle goes through `P11245`; a channel ID through `P2397`.
+    /// The handle rung asked `P2397` for both until now, which is why it never resolved.
+    #[test]
+    fn a_youtube_handle_and_a_channel_id_ask_different_properties() {
+        let mut handle = entity("MeatCanyon", None);
+        handle.platform = Some("youtube".to_string());
+        handle.platform_handle = Some("@MeatCanyon".to_string());
+        let plans = plan::for_entity(&handle);
+        assert_eq!(plans[0].kind, Kind::Handle("P11245"), "{plans:?}");
+        assert_eq!(plans[0].query, "MeatCanyon");
+
+        let mut channel = entity("Some Channel", None);
+        channel.platform = Some("youtube".to_string());
+        channel.platform_handle = Some("UC_x5XG1OV2P6uZZ5FSM9Ttw".to_string());
+        let plans = plan::for_entity(&channel);
+        assert_eq!(plans[0].kind, Kind::Handle("P2397"), "{plans:?}");
+        assert_eq!(plans[0].query, "UC_x5XG1OV2P6uZZ5FSM9Ttw");
     }
 
     #[test]
