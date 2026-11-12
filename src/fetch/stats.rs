@@ -18,7 +18,7 @@ use super::transport::Outcome;
 /// snapshot, and the gateway no longer needs to know what a report is.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct Stats {
-    /// Requests handed to `resolve_requests`, including cache hits.
+    /// Requests handed to `answers_for`, including cache hits.
     pub requested: usize,
     /// Answers the cache already had.
     pub cache_hits: usize,

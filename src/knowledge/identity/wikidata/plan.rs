@@ -4,7 +4,7 @@
 //! what an answer means; this decides only *what*.
 
 use super::ID;
-use super::Kind;
+use super::RequestKind;
 use super::property_query::platform_link_queries;
 use super::shape;
 use crate::fetch::Request;
@@ -16,7 +16,7 @@ use crate::model;
 ///
 /// The only place requests are built here, so a kind and its shape cannot disagree — the failure the
 /// per-kind `shape` was fixed to prevent.
-fn request(kind: Kind, query: &str) -> Request<Kind> {
+fn request(kind: RequestKind, query: &str) -> Request<RequestKind> {
     Request {
         provider: ID,
         shape: shape::of(&kind),
@@ -31,8 +31,8 @@ fn request(kind: Kind, query: &str) -> Request<Kind> {
 /// unresolved entity, parses it, and only then plans the next. A title that resolves an entity
 /// removes its label and search questions entirely.
 ///
-/// One definition, used by the resolver and by the eval replay: a step that exists in one and not
-/// the other is how `eval` came to report claims the resolver would not make.
+/// One definition, used by the resolver and by `inspect`: a step that exists in one and not the
+/// other is what lets a diagnostic report claims the resolver would not make.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Step {
     /// A platform link's handle, through the property that holds it (`P2002`, …).
@@ -45,8 +45,16 @@ pub(crate) enum Step {
     SearchHint,
     /// Full-text search over the bare label.
     SearchLabel,
-    /// The article bearing this exact name, after every step above has refused. Claims through
-    /// [`super::parse::surface_only`], not through the ranking the other steps use.
+    /// **Not a question — a decision wearing a step's clothes.** It plans the *identical* `Request`
+    /// as [`Title`](Self::Title), so it asks nothing new: the cached answer is decided a second way,
+    /// taking the article bearing this exact name without ranking. It is a step only so the
+    /// deferral is visible as data; a `Step` should not decide anything, and this one does.
+    ///
+    /// HACK, kept deliberately until the ladder's shape is settled: it costs a branch in
+    /// `resolver::ladder` and a matching one in `inspect`. The shape it wants to become is a
+    /// post-pass over the title answer after every real question has been asked — see R6 in
+    /// `plan/wikidata-cleanup-20261112.md`. Claims through [`super::interpret::surface_only`], not
+    /// through the ranking the other steps use.
     SurfaceTitle,
 }
 
@@ -63,7 +71,7 @@ impl Step {
 }
 
 /// The whole ladder for one entity, in the order the resolver climbs it.
-pub(crate) fn ladder(entity: &model::knowledge_entity::Model) -> Vec<(Step, Request<Kind>)> {
+pub(crate) fn ladder(entity: &model::knowledge_entity::Model) -> Vec<(Step, Request<RequestKind>)> {
     Step::ORDER
         .into_iter()
         .flat_map(|rung| {
@@ -75,7 +83,10 @@ pub(crate) fn ladder(entity: &model::knowledge_entity::Model) -> Vec<(Step, Requ
 }
 
 /// One step's requests for one entity. Pure, so the order is testable without a network.
-pub(crate) fn step(step: Step, entity: &model::knowledge_entity::Model) -> Vec<Request<Kind>> {
+pub(crate) fn step(
+    step: Step,
+    entity: &model::knowledge_entity::Model,
+) -> Vec<Request<RequestKind>> {
     match step {
         Step::Handle => handle(entity),
         Step::Title | Step::SurfaceTitle => title(entity).into_iter().collect(),
@@ -89,7 +100,7 @@ pub(crate) fn step(step: Step, entity: &model::knowledge_entity::Model) -> Vec<R
 ///
 /// `project` copies one member observation's `PlatformLink` onto the entity, so this reads a single
 /// presence: the resolver never sees a second member's link, and one presence names one referent.
-fn handle(entity: &model::knowledge_entity::Model) -> Vec<Request<Kind>> {
+fn handle(entity: &model::knowledge_entity::Model) -> Vec<Request<RequestKind>> {
     let Some(link) = PlatformLink::from_columns(
         entity.platform.clone(),
         entity.platform_handle.clone(),
@@ -99,27 +110,27 @@ fn handle(entity: &model::knowledge_entity::Model) -> Vec<Request<Kind>> {
     };
     platform_link_queries(&link)
         .into_iter()
-        .map(|query| request(Kind::Handle(query.property.as_str()), &query.value))
+        .map(|query| request(RequestKind::Handle(query.property.as_str()), &query.value))
         .collect()
 }
 
-fn label(entity: &model::knowledge_entity::Model) -> Option<Request<Kind>> {
+fn label(entity: &model::knowledge_entity::Model) -> Option<Request<RequestKind>> {
     let label = entity.name.trim();
-    (!label.is_empty()).then(|| request(Kind::Label, label))
+    (!label.is_empty()).then(|| request(RequestKind::Label, label))
 }
 
 /// The bare label as a search fallback: Wikidata labels `J. R. R. Tolkien` with spaces, while the
 /// exact-label SPARQL is sent the capture's punctuation.
-fn search_label(entity: &model::knowledge_entity::Model) -> Option<Request<Kind>> {
+fn search_label(entity: &model::knowledge_entity::Model) -> Option<Request<RequestKind>> {
     let label = entity.name.trim();
-    (!label.is_empty()).then(|| request(Kind::Search, label))
+    (!label.is_empty()).then(|| request(RequestKind::Search, label))
 }
 
 /// The disambiguating hint, when it says something the name does not.
 ///
 /// Search is a lookup, so the hint runs before the bare label. A hint that only repeats the name is
 /// not a second request.
-fn search_hint(entity: &model::knowledge_entity::Model) -> Option<Request<Kind>> {
+fn search_hint(entity: &model::knowledge_entity::Model) -> Option<Request<RequestKind>> {
     let label = entity.name.trim();
     let hint = entity.search_query.as_deref()?.trim();
     if label.is_empty()
@@ -128,15 +139,15 @@ fn search_hint(entity: &model::knowledge_entity::Model) -> Option<Request<Kind>>
     {
         return None;
     }
-    Some(request(Kind::Search, hint))
+    Some(request(RequestKind::Search, hint))
 }
 
 /// The article whose exact name this is, when the name is not empty.
 ///
 /// Two steps: the title lookup, and the surface-only last resort that reuses its cached answer.
-fn title(entity: &model::knowledge_entity::Model) -> Option<Request<Kind>> {
+fn title(entity: &model::knowledge_entity::Model) -> Option<Request<RequestKind>> {
     let label = entity.name.trim();
-    (!label.is_empty()).then(|| request(Kind::Title, label))
+    (!label.is_empty()).then(|| request(RequestKind::Title, label))
 }
 
 #[cfg(test)]
@@ -157,7 +168,7 @@ mod tests {
         entity.platform = Some("x_twitter".to_string());
         entity.platform_handle = Some("tsoding".to_string());
 
-        let asked: Vec<(Step, Kind, String)> = ladder(&entity)
+        let asked: Vec<(Step, RequestKind, String)> = ladder(&entity)
             .into_iter()
             .map(|(step, request)| (step, request.kind, request.query))
             .collect();
@@ -165,18 +176,30 @@ mod tests {
         assert_eq!(
             asked,
             vec![
-                (Step::Handle, Kind::Handle("P2002"), "tsoding".to_string()),
-                (Step::Title, Kind::Title, "Alexey Kutepov".to_string()),
-                (Step::Label, Kind::Label, "Alexey Kutepov".to_string()),
-                (Step::SearchHint, Kind::Search, "Tsoding".to_string()),
+                (
+                    Step::Handle,
+                    RequestKind::Handle("P2002"),
+                    "tsoding".to_string()
+                ),
+                (
+                    Step::Title,
+                    RequestKind::Title,
+                    "Alexey Kutepov".to_string()
+                ),
+                (
+                    Step::Label,
+                    RequestKind::Label,
+                    "Alexey Kutepov".to_string()
+                ),
+                (Step::SearchHint, RequestKind::Search, "Tsoding".to_string()),
                 (
                     Step::SearchLabel,
-                    Kind::Search,
+                    RequestKind::Search,
                     "Alexey Kutepov".to_string()
                 ),
                 (
                     Step::SurfaceTitle,
-                    Kind::Title,
+                    RequestKind::Title,
                     "Alexey Kutepov".to_string()
                 ),
             ]
@@ -202,13 +225,21 @@ mod tests {
     #[test]
     fn every_platform_string_reaches_the_property_that_holds_its_handle() {
         for (platform, handle, property) in [
-            ("x_twitter", "tsoding", Kind::Handle("P2002")),
-            ("youtube", "@MeatCanyon", Kind::Handle("P11245")),
-            ("youtube", "UC_x5XG1OV2P6uZZ5FSM9Ttw", Kind::Handle("P2397")),
-            ("reddit", "r/NFCWestMemeWar", Kind::Handle("P3984")),
-            ("reddit", "u/spez", Kind::Handle("P4265")),
-            ("threads", "@ada", Kind::Handle("P11892")),
-            ("mastodon", "@user@mastodon.social", Kind::Handle("P4033")),
+            ("x_twitter", "tsoding", RequestKind::Handle("P2002")),
+            ("youtube", "@MeatCanyon", RequestKind::Handle("P11245")),
+            (
+                "youtube",
+                "UC_x5XG1OV2P6uZZ5FSM9Ttw",
+                RequestKind::Handle("P2397"),
+            ),
+            ("reddit", "r/NFCWestMemeWar", RequestKind::Handle("P3984")),
+            ("reddit", "u/spez", RequestKind::Handle("P4265")),
+            ("threads", "@ada", RequestKind::Handle("P11892")),
+            (
+                "mastodon",
+                "@user@mastodon.social",
+                RequestKind::Handle("P4033"),
+            ),
         ] {
             let mut entity = entity("someone");
             entity.platform = Some(platform.to_string());

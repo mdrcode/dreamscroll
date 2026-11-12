@@ -1,6 +1,6 @@
 //! The provider's only door to the world: cache first, then a paced, budgeted fetch.
 //!
-//! A provider cannot fetch. It hands [`Gateway::resolve_requests`] the questions it wants answered,
+//! A provider cannot fetch. It hands [`Gateway::answers_for`] the questions it wants answered,
 //! and this module decides what is already known, what the budget allows, and when the provider has
 //! asked us to stop. That is what lets one own its own strategy — including several passes — without
 //! being able to bypass the cache, the pace or the budget.
@@ -80,7 +80,7 @@ impl<'a> Gateway<'a> {
     ///
     /// A spent budget stops the run. A provider's `429` stops only that provider: its remaining
     /// groups are skipped, while other providers still read their caches and fetch.
-    pub async fn resolve_requests<T: Transport>(
+    pub async fn answers_for<T: Transport>(
         &self,
         transport: &T,
         requests: &[Request<T::Kind>],
@@ -416,7 +416,7 @@ mod tests {
         let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
         let fake = Fake::default();
         let answers = gateway
-            .resolve_requests(
+            .answers_for(
                 &fake,
                 &[
                     request(Probe::Alpha, "v1", "hit"),
@@ -450,7 +450,7 @@ mod tests {
             .map(|query| request(Probe::Alpha, "v1", query))
             .collect();
 
-        let answers = gateway.resolve_requests(&fake, &requests).await;
+        let answers = gateway.answers_for(&fake, &requests).await;
 
         assert_eq!(gateway.stats().fetched, 2);
         assert_eq!(
@@ -487,7 +487,7 @@ mod tests {
             },
         ];
 
-        let answers = gateway.resolve_requests(&fake, &requests).await;
+        let answers = gateway.answers_for(&fake, &requests).await;
 
         assert_eq!(gateway.stats().fetched, 2, "both providers were attempted");
         assert_eq!(answers.len(), 1, "beta still answered");
@@ -514,13 +514,13 @@ mod tests {
             request(Probe::Alpha, "v1", "fail-b"),
         ];
 
-        let answers = gateway.resolve_requests(&fake, &requests).await;
+        let answers = gateway.answers_for(&fake, &requests).await;
         assert!(answers.values().all(|raw| raw.outcome == Outcome::Failed));
         assert_eq!(gateway.stats().failed, 2);
 
         let second_allowance = Allowance::new(8, std::time::Duration::ZERO);
         let second = Gateway::new(Some(&cache), Some(&second_allowance), true);
-        let again = second.resolve_requests(&fake, &requests).await;
+        let again = second.answers_for(&fake, &requests).await;
         assert_eq!(second.stats().cache_hits, 2, "the failure was cached");
         assert_eq!(second.stats().fetched, 0);
         assert!(again.values().all(|raw| raw.outcome == Outcome::Failed));
@@ -541,7 +541,7 @@ mod tests {
             .iter()
             .map(|query| request(Probe::Alpha, "v1", query))
             .collect();
-        let answers = gateway.resolve_requests(&doubled, &requests).await;
+        let answers = gateway.answers_for(&doubled, &requests).await;
 
         assert_eq!(answers.len(), 2, "one batch of two, then refused");
         assert_eq!(
@@ -582,7 +582,7 @@ mod tests {
         let fake = Fake::default();
 
         let answers = gateway
-            .resolve_requests(&fake, &[request(Probe::Alpha, "v1", "budget")])
+            .answers_for(&fake, &[request(Probe::Alpha, "v1", "budget")])
             .await;
 
         assert!(answers.is_empty());
@@ -625,7 +625,7 @@ mod tests {
         // Alpha sorts first and misses, so the budget is gone before Beta is reached — and Beta's
         // cached answer is *not* collected, because the run stopped rather than keeping reading.
         let answers = gateway
-            .resolve_requests(
+            .answers_for(
                 &fake,
                 &[
                     request(Probe::Alpha, "v1", "cold"),
@@ -666,7 +666,7 @@ mod tests {
         let fake = Fake::default();
 
         let answers = gateway
-            .resolve_requests(
+            .answers_for(
                 &fake,
                 &[
                     request(Probe::Alpha, "v1", "cold"),
@@ -693,7 +693,7 @@ mod tests {
         let fake = Fake::default();
 
         let answers = gateway
-            .resolve_requests(&fake, &[request(Probe::Alpha, "v1", "fresh")])
+            .answers_for(&fake, &[request(Probe::Alpha, "v1", "fresh")])
             .await;
 
         assert_eq!(answers.len(), 1);
@@ -734,7 +734,7 @@ mod tests {
 
         // Two groups, with a miss in the first: both cached answers still come back.
         let answers = gateway
-            .resolve_requests(
+            .answers_for(
                 &fake,
                 &[
                     request(Probe::Alpha, "v1", "first-hit"),

@@ -2,7 +2,7 @@
 //!
 //! Recall, then ranking, then the resolver's ladder — each step printed with what the cache held
 //! and what the decision was. Nothing here re-implements a stage: it calls the same blocker, the
-//! same `Rank` and the same `parse` the engine calls, and reads `fetch_cache` with the same
+//! same `Rank` and the same `interpret` the engine calls, and reads `fetch_cache` with the same
 //! expiry rule, and it applies the same standing vetoes. That is the point: if the inspector and
 //! the run disagreed, the inspector would be lying.
 
@@ -14,7 +14,7 @@ use crate::database::DbHandle;
 use crate::fetch::cache::{FetchCache, State};
 use crate::fetch::{Answer, Outcome};
 use crate::knowledge::blocker::SqlBlocker;
-use crate::knowledge::identity::wikidata::{Candidate as Offered, parse, plan};
+use crate::knowledge::identity::wikidata::{Candidate as Offered, interpret, plan};
 use crate::knowledge::linker::heuristic::Heuristic;
 use crate::knowledge::normalize;
 use crate::knowledge::scoring::Scoring;
@@ -211,16 +211,14 @@ async fn ladder(
             };
             let identity = match rung {
                 // The last resort does not rank: it takes the article bearing this exact name.
-                plan::Step::SurfaceTitle => match parse::admit(entity, &raw) {
-                    Ok(candidates) => parse::surface_only(entity, &candidates, &request),
+                plan::Step::SurfaceTitle => match interpret::admit(entity, &raw) {
+                    Ok(candidates) => interpret::surface_only(entity, &candidates, &request),
                     Err(gate) => {
                         refusal = gate;
                         None
                     }
                 },
-                _ => parse::explained(entity, &request, &raw, &mut refusal)
-                    .into_iter()
-                    .next(),
+                _ => interpret::claim_explained(entity, &request, &raw, &mut refusal),
             };
             identity.map(|identity| {
                 vetoed = vetoes.contains(&(
@@ -380,7 +378,7 @@ mod tests {
     use crate::fetch::cache::FetchCache;
     use crate::fetch::{Answer, Outcome};
     use crate::knowledge::KnowledgeGraph;
-    use crate::knowledge::identity::wikidata::{Candidate, Kind};
+    use crate::knowledge::identity::wikidata::{Candidate, RequestKind};
     use crate::test_support::{db_or_skip, fixtures};
     use sea_orm::EntityTrait;
 
@@ -399,7 +397,7 @@ mod tests {
         let request = plan::ladder(&entity)
             .into_iter()
             .map(|(_, request)| request)
-            .find(|request| request.kind == Kind::Label)
+            .find(|request| request.kind == RequestKind::Label)
             .expect("the ladder asks for a label");
         FetchCache::new(&db.conn)
             .put(

@@ -9,20 +9,19 @@
 //! | `title` | Wikipedia `pageprops` → `wikibase_item` | yes | a page title is unique where a label is not |
 //! | `search` | MediaWiki full-text search (CirrusSearch) | no | fallback, only for entities the first stage missed |
 //!
-//! `plan` and `parse` are pure, so the whole decision can be tested from a fixture and re-run over
+//! `plan` and `interpret` are pure, so the whole decision can be tested from a fixture and re-run over
 //! cached payloads for free. Only `fetch` touches the network, and nothing here calls it directly:
-//! it goes through `Gateway::resolve_requests`, which keeps the cache, the pace and the budget.
+//! it goes through `Gateway::answers_for`, which keeps the cache, the pace and the budget.
 
 use std::collections::HashSet;
 
-use super::transport::Wire;
-use super::{Candidate, Kind, parse, plan};
 use crate::fetch::{Answers, Gateway, Request, Transport};
 use crate::knowledge::evidence::Identity;
 use crate::knowledge::identity::Resolver;
 use crate::model;
 
-const USER_AGENT: &str = "dreamscroll-knowledge/0.1 (https://dreamscroll.ai)";
+use super::transport::Wire;
+use super::{Candidate, RequestKind, interpret, plan};
 
 /// One authority: the policy, and the wire it speaks through.
 pub struct Wikidata {
@@ -31,21 +30,16 @@ pub struct Wikidata {
 
 impl Wikidata {
     pub fn new() -> anyhow::Result<Self> {
-        let client = reqwest::Client::builder()
-            .user_agent(USER_AGENT)
-            .timeout(std::time::Duration::from_secs(30))
-            .build()?;
-        Ok(Self {
-            wire: Wire::new(client),
-        })
+        Ok(Self { wire: Wire::new()? })
     }
 
-    /// Turn answers into annotations. First request to speak wins for an entity, which is why `plan`
-    /// orders them: a handle is a stronger statement than a title, and a title than a label.
-    fn collect(
+    /// Turn one wave of answers into annotations. First request to speak wins for an entity, which
+    /// is why `plan` orders them: a handle is a stronger statement than a title, than a label, than
+    /// a search. An answer that supports no claim is not a failure — see the comment below.
+    fn harvest(
         entities: &[model::knowledge_entity::Model],
-        plans: &[(usize, Request<Kind>)],
-        answers: &Answers<Kind, Vec<Candidate>>,
+        plans: &[(usize, Request<RequestKind>)],
+        answers: &Answers<RequestKind, Vec<Candidate>>,
         identities: &mut Vec<(i32, Identity)>,
         resolved: &mut HashSet<i32>,
     ) {
@@ -59,15 +53,49 @@ impl Wikidata {
             let Some(raw) = answers.get(request) else {
                 continue;
             };
-            let parsed = parse::identities(entity, request, raw);
-            if parsed.is_empty() {
+            let Some(claim) = interpret::claim(entity, request, raw) else {
                 // Not wrong, just not usable here: a disambiguation page, a different kind of
                 // thing, or a name with no item. The answer is still a fact about the provider, so
                 // it keeps its full life in the cache — only a new `shape` may re-ask it.
                 continue;
-            }
+            };
             resolved.insert(entity.id);
-            identities.extend(parsed.into_iter().map(|claim| (entity.id, claim)));
+            identities.push((entity.id, claim));
+        }
+    }
+
+    /// The last resort, and the one thing here that is not a question.
+    ///
+    /// [`plan::Step::SurfaceTitle`] plans the *identical* request as [`plan::Step::Title`], so this
+    /// asks nothing new: the cached answer is simply decided a second way — no ranking, just the
+    /// article that bears this exact name. That makes it a **decision wearing a step's clothes**,
+    /// which is why it needs a branch here and a matching one in `inspect`, and why it is marked as
+    /// a hack in `plan`. The shape it wants to become is a post-pass over the title answer once
+    /// every real question has been asked (see R6 in `plan/wikidata-cleanup-20261112.md`).
+    fn last_resort(
+        entities: &[model::knowledge_entity::Model],
+        plans: &[(usize, Request<RequestKind>)],
+        answers: &Answers<RequestKind, Vec<Candidate>>,
+        identities: &mut Vec<(i32, Identity)>,
+        resolved: &mut HashSet<i32>,
+    ) {
+        for (index, request) in plans {
+            let entity = &entities[*index];
+            if resolved.contains(&entity.id) {
+                continue;
+            }
+            let Some(raw) = answers.get(request) else {
+                continue;
+            };
+            // `admit` runs again on an answer the title wave already gated. It is pure, so the
+            // cost is a clone — the alternative is threading gated candidates between waves.
+            let Ok(candidates) = interpret::admit(entity, raw) else {
+                continue;
+            };
+            if let Some(claim) = interpret::surface_only(entity, &candidates, request) {
+                resolved.insert(entity.id);
+                identities.push((entity.id, claim));
+            }
         }
     }
 
@@ -76,7 +104,7 @@ impl Wikidata {
     /// with no database and no client — [`Resolver::resolve`] supplies the real one.
     ///
     /// The engine sees only the identities that come back.
-    async fn ladder<T: Transport<Kind = Kind, Payload = Vec<Candidate>>>(
+    async fn ladder<T: Transport<Kind = RequestKind, Payload = Vec<Candidate>>>(
         transport: &T,
         entities: &[model::knowledge_entity::Model],
         gateway: &Gateway<'_>,
@@ -85,12 +113,12 @@ impl Wikidata {
         let mut resolved: HashSet<i32> = HashSet::new();
 
         // One step, one wave. The boundary lives here because no other authority knows that search
-        // is the expensive route, and every wave must run offline too: `resolve_requests` decides
+        // is the expensive route, and every wave must run offline too: `answers_for` decides
         // what to fetch, so it serves cached answers and silently fetches nothing — skipping a step
         // once threw those answers away, and an offline rebuild then reproduced less than the cache
         // held.
         for step in plan::Step::ORDER {
-            let plans: Vec<(usize, Request<Kind>)> = entities
+            let plans: Vec<(usize, Request<RequestKind>)> = entities
                 .iter()
                 .enumerate()
                 .filter(|(_, entity)| !resolved.contains(&entity.id))
@@ -103,31 +131,16 @@ impl Wikidata {
             if plans.is_empty() {
                 continue;
             }
-            let requests: Vec<Request<Kind>> =
+            let requests: Vec<Request<RequestKind>> =
                 plans.iter().map(|(_, request)| request.clone()).collect();
-            let answers = gateway.resolve_requests(transport, &requests).await;
+            let answers = gateway.answers_for(transport, &requests).await;
 
+            // `SurfaceTitle` is not a question — it re-decides the title answer — so it takes the
+            // last-resort pass rather than the normal harvest. See `last_resort`.
             if step == plan::Step::SurfaceTitle {
-                // The last resort reuses the title answer: it does not rank, it takes the article
-                // bearing this exact name.
-                for (index, request) in plans {
-                    let entity = &entities[index];
-                    if resolved.contains(&entity.id) {
-                        continue;
-                    }
-                    let Some(raw) = answers.get(&request) else {
-                        continue;
-                    };
-                    let Ok(candidates) = parse::admit(entity, raw) else {
-                        continue;
-                    };
-                    if let Some(claim) = parse::surface_only(entity, &candidates, &request) {
-                        resolved.insert(entity.id);
-                        identities.push((entity.id, claim));
-                    }
-                }
+                Self::last_resort(entities, &plans, &answers, &mut identities, &mut resolved);
             } else {
-                Self::collect(entities, &plans, &answers, &mut identities, &mut resolved);
+                Self::harvest(entities, &plans, &answers, &mut identities, &mut resolved);
             }
         }
 
@@ -184,12 +197,14 @@ mod tests {
     /// The ladder is generic over the wire precisely so an ordering can be proven with this.
     #[derive(Default)]
     struct Canned {
-        answers: std::collections::HashMap<(Kind, String), Answer<Vec<Candidate>>>,
-        seen: std::sync::Mutex<Vec<(Kind, String)>>,
+        answers: std::collections::HashMap<(RequestKind, String), Answer<Vec<Candidate>>>,
+        seen: std::sync::Mutex<Vec<(RequestKind, String)>>,
     }
 
     impl Canned {
-        fn new(entries: impl IntoIterator<Item = (Kind, String, Answer<Vec<Candidate>>)>) -> Self {
+        fn new(
+            entries: impl IntoIterator<Item = (RequestKind, String, Answer<Vec<Candidate>>)>,
+        ) -> Self {
             let mut canned = Self::default();
             for (kind, query, answer) in entries {
                 canned.answers.insert((kind, query), answer);
@@ -197,7 +212,7 @@ mod tests {
             canned
         }
 
-        fn asked(&self, kind: Kind, query: &str) -> bool {
+        fn asked(&self, kind: RequestKind, query: &str) -> bool {
             self.seen
                 .lock()
                 .unwrap()
@@ -208,16 +223,16 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Transport for Canned {
-        type Kind = Kind;
+        type Kind = RequestKind;
         type Payload = Vec<Candidate>;
 
-        fn batch_size(&self, _kind: &Kind) -> usize {
+        fn batch_size(&self, _kind: &RequestKind) -> usize {
             50
         }
 
         async fn fetch(
             &self,
-            requests: &[Request<Kind>],
+            requests: &[Request<RequestKind>],
         ) -> Result<Vec<(String, Answer<Vec<Candidate>>)>, crate::fetch::FetchError> {
             self.seen.lock().unwrap().extend(
                 requests
@@ -248,7 +263,7 @@ mod tests {
     /// label, and only searches for the entity the first pass left unresolved.
     #[tokio::test]
     async fn resolve_prefers_a_title_and_searches_only_what_is_left() {
-        let seed = |kind: Kind, query: &str, answer: Answer<Vec<Candidate>>| {
+        let seed = |kind: RequestKind, query: &str, answer: Answer<Vec<Candidate>>| {
             (kind, query.to_string(), answer)
         };
 
@@ -266,12 +281,12 @@ mod tests {
         // The title answers for the first entity, so its label must never be consulted — and a
         // different QID there makes the ordering visible.
         let fake = Canned::new([
-            seed(Kind::Title, "Train Dreams", title_wins),
-            seed(Kind::Label, "Train Dreams", label_loses),
+            seed(RequestKind::Title, "Train Dreams", title_wins),
+            seed(RequestKind::Label, "Train Dreams", label_loses),
             // The second entity misses both lookups and has to be searched for.
-            seed(Kind::Title, "J.R.R. Tolkien", nothing.clone()),
-            seed(Kind::Label, "J.R.R. Tolkien", nothing),
-            seed(Kind::Search, "J.R.R. Tolkien", by_search),
+            seed(RequestKind::Title, "J.R.R. Tolkien", nothing.clone()),
+            seed(RequestKind::Label, "J.R.R. Tolkien", nothing),
+            seed(RequestKind::Search, "J.R.R. Tolkien", by_search),
         ]);
 
         let entities = vec![entity("Train Dreams", Some("novella by Denis Johnson")), {
@@ -291,15 +306,15 @@ mod tests {
             .collect();
         assert_eq!(ids, vec![(1, "Q2"), (2, "Q892")], "{claims:?}");
         assert!(
-            fake.asked(Kind::Search, "J.R.R. Tolkien"),
+            fake.asked(RequestKind::Search, "J.R.R. Tolkien"),
             "the unresolved entity is searched for"
         );
         assert!(
-            !fake.asked(Kind::Search, "Train Dreams"),
+            !fake.asked(RequestKind::Search, "Train Dreams"),
             "the resolved one is not searched"
         );
         assert!(
-            !fake.asked(Kind::Label, "Train Dreams"),
+            !fake.asked(RequestKind::Label, "Train Dreams"),
             "the title resolved it, so the label wave never asks"
         );
         // Title × 2, label × 1 (Train Dreams dropped), search × 1 (Tolkien only).
@@ -316,7 +331,7 @@ mod tests {
     /// answers, because a surface this exact is better than nothing at all.
     #[tokio::test]
     async fn a_surface_only_title_waits_for_every_other_rung() {
-        let seed = |kind: Kind, query: &str, answer: Answer<Vec<Candidate>>| {
+        let seed = |kind: RequestKind, query: &str, answer: Answer<Vec<Candidate>>| {
             (kind, query.to_string(), answer)
         };
         let nothing = Answer::<Vec<Candidate>>::nothing(Outcome::Empty);
@@ -328,9 +343,13 @@ mod tests {
             "classes": []
         });
         let fake = Canned::new([
-            seed(Kind::Title, "Orthodoxy", found(json!([concept.clone()]))),
             seed(
-                Kind::Label,
+                RequestKind::Title,
+                "Orthodoxy",
+                found(json!([concept.clone()])),
+            ),
+            seed(
+                RequestKind::Label,
                 "Orthodoxy",
                 found(json!([
                     concept,
@@ -344,7 +363,7 @@ mod tests {
             ),
             // `Paris`: the title is the only answer, and nothing contradicts it.
             seed(
-                Kind::Title,
+                RequestKind::Title,
                 "Paris",
                 found(json!([{
                     "id": "Q300",
@@ -353,8 +372,8 @@ mod tests {
                     "classes": []
                 }])),
             ),
-            seed(Kind::Label, "Paris", nothing.clone()),
-            seed(Kind::Search, "Paris", nothing),
+            seed(RequestKind::Label, "Paris", nothing.clone()),
+            seed(RequestKind::Search, "Paris", nothing),
         ]);
 
         let entities = vec![
@@ -380,11 +399,11 @@ mod tests {
             .collect();
         assert_eq!(ids, vec![(1, "Q200"), (2, "Q300")], "{claims:?}");
         assert!(
-            !fake.asked(Kind::Search, "Orthodoxy"),
+            !fake.asked(RequestKind::Search, "Orthodoxy"),
             "the entity the label answered was never searched for"
         );
         assert!(
-            fake.asked(Kind::Search, "Paris"),
+            fake.asked(RequestKind::Search, "Paris"),
             "the entity every rung refused fell through to search"
         );
     }

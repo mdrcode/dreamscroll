@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use super::query;
-use super::{Candidate, Kind, LANGUAGE};
+use super::{Candidate, LANGUAGE, RequestKind};
 use crate::fetch::{Answer, BATCH, FetchError, Outcome, Request, Transport};
 
 /// MediaWiki's API: search, entities and page lookups.
@@ -20,6 +20,12 @@ const WIKIPEDIA_ENDPOINT: &str = "https://en.wikipedia.org/w/api.php";
 /// One answer per query, which is what a transport hands a batch back as.
 type Batched = Vec<(String, Answer<Vec<Candidate>>)>;
 
+/// How Wikidata identifies us: its API asks for a tool name with a contact URL.
+const USER_AGENT: &str = "dreamscroll-knowledge/0.1 (https://dreamscroll.ai)";
+/// One call may take this long. An answer here is small, so a call this slow is a stuck socket,
+/// not a slow query — the property of the call, not of the ladder that issues it.
+const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// The wire: one client, and the four ways this authority answers a question.
 ///
 /// The door (`crate::fetch`) owns the cache, the pace and the budget; this type only speaks.
@@ -28,8 +34,14 @@ pub(super) struct Wire {
 }
 
 impl Wire {
-    pub(super) fn new(client: reqwest::Client) -> Self {
-        Self { client }
+    /// The one client this authority speaks through, built here so the ladder above names no HTTP
+    /// type: how a call is made is the wire's business.
+    pub(super) fn new() -> anyhow::Result<Self> {
+        let client = reqwest::Client::builder()
+            .user_agent(USER_AGENT)
+            .timeout(TIMEOUT)
+            .build()?;
+        Ok(Self { client })
     }
 }
 
@@ -314,7 +326,10 @@ impl Wire {
 
     /// `enwiki title -> item`, following normalisation and redirects, then one batched read for
     /// the labels, descriptions and types the caller needs.
-    pub(super) async fn titles(&self, requests: &[Request<Kind>]) -> Result<Batched, FetchError> {
+    pub(super) async fn titles(
+        &self,
+        requests: &[Request<RequestKind>],
+    ) -> Result<Batched, FetchError> {
         let titles: Vec<String> = requests
             .iter()
             .map(|request| request.query.trim().to_string())
@@ -388,7 +403,10 @@ const SPARQL_ENDPOINT: &str = "https://query.wikidata.org/sparql";
 /// A body we cannot read is an error, never a batch of empty answers: every `Empty` leaving here
 /// becomes a cached negative, so a refused or malformed response would claim for a week that the item
 /// does not exist. `search` guards its body for the same reason.
-fn answers_from_sparql(requests: &[Request<Kind>], body: &Value) -> Result<Batched, FetchError> {
+fn answers_from_sparql(
+    requests: &[Request<RequestKind>],
+    body: &Value,
+) -> Result<Batched, FetchError> {
     let results = api_result(body, "sparql", "results")?;
     let Some(rows) = results.get("bindings").and_then(Value::as_array) else {
         return Err(FetchError::Failed(format!(
@@ -430,7 +448,10 @@ fn answers_from_sparql(requests: &[Request<Kind>], body: &Value) -> Result<Batch
 
 impl Wire {
     /// SPARQL over `VALUES`: the batched label and handle lookups.
-    pub(super) async fn sparql(&self, requests: &[Request<Kind>]) -> Result<Batched, FetchError> {
+    pub(super) async fn sparql(
+        &self,
+        requests: &[Request<RequestKind>],
+    ) -> Result<Batched, FetchError> {
         let Some(first) = requests.first() else {
             return Ok(Vec::new());
         };
@@ -460,14 +481,14 @@ impl Wire {
 /// The wire, as the door sees it: which kinds can share a call, and how one call is shaped.
 #[async_trait::async_trait]
 impl Transport for Wire {
-    type Kind = Kind;
+    type Kind = RequestKind;
     type Payload = Vec<Candidate>;
 
     /// The search endpoint takes one query per call; only SPARQL batches.
     fn batch_size(&self, kind: &Self::Kind) -> usize {
         match kind {
-            Kind::Search => 1,
-            Kind::Title => 50,
+            RequestKind::Search => 1,
+            RequestKind::Title => 50,
             _ => BATCH,
         }
     }
@@ -475,7 +496,7 @@ impl Transport for Wire {
     /// A title lookup reads the page, then the items it names; a search reads its hits the same way.
     fn cost(&self, kind: &Self::Kind) -> usize {
         match kind {
-            Kind::Title | Kind::Search => 2,
+            RequestKind::Title | RequestKind::Search => 2,
             _ => 1,
         }
     }
@@ -488,15 +509,15 @@ impl Transport for Wire {
             return Ok(Vec::new());
         };
         match first.kind {
-            Kind::Title => return self.titles(requests).await,
-            Kind::Search => {
+            RequestKind::Title => return self.titles(requests).await,
+            RequestKind::Search => {
                 let mut answers = Vec::with_capacity(requests.len());
                 for request in requests {
                     answers.push((request.query.clone(), self.search(&request.query).await?));
                 }
                 return Ok(answers);
             }
-            Kind::Label | Kind::Handle(_) => {}
+            RequestKind::Label | RequestKind::Handle(_) => {}
         }
         self.sparql(requests).await
     }
@@ -589,10 +610,10 @@ mod tests {
         assert_eq!(items.len(), 1, "{items:?}");
     }
 
-    fn labels(query: &str) -> Request<Kind> {
+    fn labels(query: &str) -> Request<RequestKind> {
         Request {
             provider: "wikidata",
-            kind: Kind::Label,
+            kind: RequestKind::Label,
             shape: "test".to_string(),
             query: query.to_string(),
         }

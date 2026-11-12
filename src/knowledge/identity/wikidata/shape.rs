@@ -9,18 +9,18 @@
 //! `search` moved from `wbsearchentities` to MediaWiki full text, hence v3; `label` is v3 because
 //! the query now asks for `P31` alongside the label.
 
-use super::{Kind, LANGUAGE, SEARCH_LIMIT};
+use super::{LANGUAGE, RequestKind, SEARCH_LIMIT};
 
-pub(super) fn of(kind: &Kind) -> String {
+pub(super) fn of(kind: &RequestKind) -> String {
     match kind {
         // `@en` in the `VALUES` and the label service pinned to the same language.
-        Kind::Label => format!("wikidata/v3-label|lang={LANGUAGE}"),
+        RequestKind::Label => format!("wikidata/v3-label|lang={LANGUAGE}"),
         // The site is English Wikipedia, and the items are read back in the same language.
-        Kind::Title => format!("wikidata/v2-title|lang={LANGUAGE}"),
+        RequestKind::Title => format!("wikidata/v2-title|lang={LANGUAGE}"),
         // The property *is* the kind (`handle:P2002`), and this query reads no labels.
-        Kind::Handle(_) => "wikidata/v2-handle".to_string(),
+        RequestKind::Handle(_) => "wikidata/v2-handle".to_string(),
         // Full text, with the result count as part of the question.
-        Kind::Search => format!("wikidata/v3-search|lang={LANGUAGE}|limit={SEARCH_LIMIT}"),
+        RequestKind::Search => format!("wikidata/v3-search|lang={LANGUAGE}|limit={SEARCH_LIMIT}"),
     }
 }
 
@@ -35,10 +35,10 @@ mod tests {
     /// answer for nothing — a cache miss that looks like a rate-limit problem.
     #[test]
     fn each_kind_owns_its_shape() {
-        let label = of(&Kind::Label);
-        let title = of(&Kind::Title);
-        let search = of(&Kind::Search);
-        let handle = of(&Kind::Handle("P2002"));
+        let label = of(&RequestKind::Label);
+        let title = of(&RequestKind::Title);
+        let search = of(&RequestKind::Search);
+        let handle = of(&RequestKind::Handle("P2002"));
 
         assert!(search.contains("limit="), "{search}");
         for (kind, shape) in [("label", &label), ("title", &title), ("handle", &handle)] {
@@ -49,7 +49,7 @@ mod tests {
             "a handle query reads no labels: {handle}"
         );
         assert_eq!(
-            of(&Kind::Handle("P2003")),
+            of(&RequestKind::Handle("P2003")),
             handle,
             "another property is another kind, not another shape"
         );

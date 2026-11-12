@@ -199,7 +199,7 @@ That shape is internal to the provider, not vocabulary the engine knows about. `
 resolver is free to make one request or a dozen.
 
 The one thing a resolver cannot do is fetch. Its only route to the world is
-`Gateway::resolve_requests`, which consults the cache first, charges the budget and paces the call —
+`Gateway::answers_for`, which consults the cache first, charges the budget and paces the call —
 which is why a resolver can own its own strategy without being able to bypass any of them. The door
 is `crate::fetch` and knows nothing about knowledge entities at all; see `src/fetch/fetch.md`. (An
 agentic resolver, whose tool calls happen inside a provider's runtime, is the one exception: it uses
@@ -212,7 +212,7 @@ authority before projecting the entity. Confidence is the best annotation's scor
 score contributes nothing. An abstention is not an answer: an entity the resolver returned nothing for
 keeps its old annotations.
 
-`plan` and `parse` inside `Wikidata` are pure, so its whole decision can be re-run over cached
+`plan` and `interpret` inside `Wikidata` are pure, so its whole decision can be re-run over cached
 payloads for free — that is what the resolver's tests and `identity inspect` do.
 
 ## Evidence: why we believe it
@@ -340,7 +340,7 @@ one.
 | `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `Basis` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `auto_merge.rs` folds what it can on its own and leaves the rest. Both take the connection and the `Scoring` as arguments |
 | `verdicts/` | the register: the modification log and the standing vetoes, held by `KnowledgeGraph`. `store.rs` is the type, its connection, `record` (the one write that takes the caller's transaction, so a merge's row commits with the fold) and the reads the replay and `stats` share; `veto.rs` holds `veto`/`unveto`/`vetoed`; `origin.rs` turns an origin into the entity it names now. Applying the log is the graph's command (`graph/replay.rs`), exposed as `KnowledgeGraph::replay_verdicts`; `pair_key` is shared with `stats` |
 |`identity/`|`mod.rs` (module declarations) · `resolution` (the `Resolver` trait a provider implements, the run loop, candidate selection, vetoes) · `wikidata/` (today's only authority). The identities it returns, and where they become rows, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
-| `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the ladder in `resolver.rs` · request planning in `plan.rs` · query text in `query.rs` · a platform link turned into the property and value form to ask (`property_query.rs`) · shape keys in `shape.rs` · a decided candidate turned into the stored annotation, and the menu rule (`answer.rs`) · the gates and their order in `policy.rs` · one answer's candidates decided rung by rung in `parse.rs` · candidate scoring in `ranking.rs`, as the graph's `Rank` verb · class filtering in `types.rs` · HTTP in `transport.rs` |
+| `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the ladder in `resolver.rs` · request planning in `plan.rs` · query text in `query.rs` · a platform link turned into the property and value form to ask (`property_query.rs`) · shape keys in `shape.rs` · a decided candidate turned into the stored annotation, and the menu rule (`answer.rs`) · the gates and their order in `policy.rs` · one answer decided rung by rung in `interpret.rs` · candidate scoring in `ranking.rs`, as the graph's `Rank` verb · class filtering in `types.rs` · HTTP in `transport.rs` |
 |`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, and their TTLs) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
 | `identity/inspect.rs` | `identity inspect`: walks one entity through blocking, ranking and the ladder, read-only |
 | `eval/` | offline diagnostics: `eval blocker` measures recall |

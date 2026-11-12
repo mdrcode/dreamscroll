@@ -3,7 +3,7 @@
 One door to every third party, and one rule: **a provider cannot fetch, only ask for answers.**
 
 ```
-caller ──resolve_requests(requests)──▶ Gateway ──▶ cache ──hit──▶ answers
+caller ──answers_for(requests)──▶ Gateway ──▶ cache ──hit──▶ answers
                                             │
                                             └──miss──▶ Transport::fetch ──▶ cache ──▶ answers
 ```

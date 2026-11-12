@@ -1,26 +1,30 @@
 //! What an answer means: the gates every candidate passes, and the rung that speaks for it.
 //!
-//! Pure: the same entity plus the same answer yields the same identities, so the whole decision can
-//! be re-run over cached payloads with no transport. Nothing here knows which wire produced the
-//! answer.
+//! Pure: the same entity plus the same answer yields the same claim, so the whole decision can be
+//! re-run over cached payloads with no transport. Nothing here knows which wire produced the answer
+//! — `transport` already parsed the JSON into [`Candidate`]s, which is why nothing here is called
+//! `parse`.
 
 use super::answer;
 use super::policy;
 use super::ranking::HANDLE_CONFIDENCE;
 use super::types;
-use super::{Candidate, Kind};
+use super::{Candidate, RequestKind};
 use crate::fetch::{Answer, Request};
 use crate::knowledge::evidence::Identity;
 use crate::model;
 
-/// Turn an answer into identities. Pure: same entity plus same answer, same identities.
-pub(crate) fn identities(
+/// The one claim this answer supports, if any. Pure: same entity plus same answer, same claim.
+///
+/// At most one, always — every rung answers about a single referent, so the `Vec` this used to
+/// return pretended the question was plural.
+pub(crate) fn claim(
     entity: &model::knowledge_entity::Model,
-    request: &Request<Kind>,
+    request: &Request<RequestKind>,
     raw: &Answer<Vec<Candidate>>,
-) -> Vec<Identity> {
+) -> Option<Identity> {
     let mut reason = "";
-    explained(entity, request, raw, &mut reason)
+    claim_explained(entity, request, raw, &mut reason)
 }
 
 /// The gates every answer passes before a rung decides: a menu is not a referent, and the right
@@ -55,46 +59,46 @@ pub(crate) fn admit(
 /// The last resort: the article bearing this exact name, when every corroborating rung refused.
 ///
 /// Not a ranking decision — a surface this exact is better than nothing — which is why it is a
-/// separate entry point rather than an arm of [`explained`].
+/// separate entry point rather than an arm of [`claim_explained`].
 pub(crate) fn surface_only(
     entity: &model::knowledge_entity::Model,
     candidates: &[Candidate],
-    request: &Request<Kind>,
+    request: &Request<RequestKind>,
 ) -> Option<Identity> {
     policy::surface_only(entity, candidates, request)
 }
 
-/// [`identities`], and *why* it refused. `reason` is empty when an identity came back.
+/// [`claim`], and *why* it refused. `reason` is empty when a claim came back.
 ///
 /// The refusal is recorded where it happens rather than inferred afterwards: an inspector that
 /// guessed at the gate would be a second implementation of the gates.
-pub(crate) fn explained(
+pub(crate) fn claim_explained(
     entity: &model::knowledge_entity::Model,
-    request: &Request<Kind>,
+    request: &Request<RequestKind>,
     raw: &Answer<Vec<Candidate>>,
     reason: &mut &'static str,
-) -> Vec<Identity> {
+) -> Option<Identity> {
     // `admit` is the one gate, and it already refuses an answer that carried nothing — the reason
     // it records is the reason reported here.
     let candidates = match admit(entity, raw) {
         Ok(candidates) => candidates,
         Err(gate) => {
             *reason = gate;
-            return Vec::new();
+            return None;
         }
     };
     match request.kind {
         // A property match *is* the identity: an item claiming this handle is the account itself.
-        Kind::Handle(property) => match candidates.first() {
-            Some(candidate) => vec![answer::identity(candidate, property, HANDLE_CONFIDENCE)],
+        RequestKind::Handle(property) => match candidates.first() {
+            Some(candidate) => Some(answer::identity(candidate, property, HANDLE_CONFIDENCE)),
             None => {
                 *reason = "the handle answer carried no item";
-                Vec::new()
+                None
             }
         },
-        Kind::Title => policy::parse_title(entity, &candidates, request, reason),
-        Kind::Search => policy::parse_search(entity, &candidates, request, reason),
+        RequestKind::Title => policy::parse_title(entity, &candidates, request, reason),
+        RequestKind::Search => policy::parse_search(entity, &candidates, request, reason),
         // A label is a ranking question.
-        Kind::Label => policy::decide(entity, &candidates, request, reason),
+        RequestKind::Label => policy::decide(entity, &candidates, request, reason),
     }
 }

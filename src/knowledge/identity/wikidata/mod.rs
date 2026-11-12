@@ -1,10 +1,10 @@
 //! One authority: its request kinds (`kind`) and the item it offers (`candidate`), what to ask
-//! (`plan`), what an answer means (`parse`, `policy`), and the wire it speaks through (`transport`).
+//! (`plan`), what an answer means (`interpret`, `policy`), and the wire it speaks through (`transport`).
 
 mod answer;
 mod candidate;
+pub(crate) mod interpret;
 mod kind;
-pub(crate) mod parse;
 pub(crate) mod plan;
 mod policy;
 mod property_query;
@@ -16,7 +16,7 @@ mod transport;
 mod types;
 
 pub use candidate::Candidate;
-pub use kind::Kind;
+pub use kind::RequestKind;
 pub use resolver::Wikidata;
 
 /// This authority's id: the `provider` on every request, the `scheme` on every identity, and what

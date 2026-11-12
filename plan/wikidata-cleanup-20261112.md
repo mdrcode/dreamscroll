@@ -192,6 +192,59 @@ Result of the 2026-11-12 pass: 484 tests green; both builds 2734 observations / 
 entities / 5392 requested / 5369 cache hits / 1677 identities / 5 vetoed; claim table keyed by
 observation, 2474 rows each, `diff` empty.
 
+## Review log (file by file)
+
+Walking the module top-down with the reviewer, in the order recorded here; each row gains findings
+and the fix that closed them. Status values: `pending`, `discussed`, `fixed`.
+
+| # | File | Status | Findings / decisions |
+| --- | --- | --- | --- |
+| 1 | `resolver.rs` | fixed | R1–R5 implemented, R6 kept and isolated as a labelled hack — see below |
+| 2 | `plan.rs` | pending | — |
+| 3 | `policy.rs` | pending | — |
+| 4 | `interpret.rs` | pending | — |
+| 5 | `ranking.rs` | pending | — |
+| 6 | `types.rs` | pending | — |
+| 7 | `transport.rs` | pending | — |
+| 8 | `property_query.rs` | pending | — |
+| 9 | `query.rs` | pending | — |
+| 10 | `shape.rs` | pending | — |
+| 11 | `answer.rs` | pending | — |
+| 12 | `kind.rs` | pending | — |
+| 13 | `candidate.rs` | pending | — |
+| 14 | `mod.rs` | pending | — |
+
+The order is spine-first (the ladder, its questions, its decisions), then the measures and the
+wire, then the leaves. Every later file is only meaningful in light of the ladder, and the leaves
+each hold at most one question.
+
+### 1. `resolver.rs` — discussed 2026-11-12
+
+| # | Finding | Fix | State |
+| --- | --- | --- | --- |
+| R1 | `USER_AGENT` and `Client::builder()` sat in `resolver.rs`, so the policy file named `reqwest`. `Wire`'s own doc claims "one client" but was handed one. Moved to `transport.rs`: `USER_AGENT`, the 30 s timeout and the builder; `Wire::new() -> anyhow::Result<Self>`; `Wikidata::new()` is now a wrapper. `resolver.rs` names no HTTP crate. | fixed |
+| R2 | `Kind` was one of **three** `Kind` enums in `crate::knowledge` (`snapshot::Kind`, `knowledge_verdicts::Kind`, `wikidata::Kind`), and it was `pub use`d at the module root. Renamed `RequestKind` — it matches `kind.rs`'s own doc and the field in `fetch::Request<K>`, and does not stutter the way `WikidataKind` would. (`Rung` was the alternative, matching the prose.) | fixed |
+| R3 | `collect` named the wrong half of the loop: it harvests one wave and arbitrates first-to-speak, into two `&mut` out-params. Renamed `harvest`, doc'd as the wave harvester. | fixed |
+| R4 | `parse` was misleading — parsing happens in `transport` (JSON → `Candidate`); this module decides what a candidate *means*. `identities` also returned `Vec` where every arm returns exactly one or none, and was sugar over `explained`. Now module `interpret`, entry `claim(...) -> Option<Identity>`, reason variant `claim_explained(...)`; `policy`'s four entry points return `Option` too, so no layer keeps the lie. | fixed |
+| R5 | `Gateway::resolve_requests` reused the domain verb — the lexicon defines **resolve** as "knowledge entities → evidence, network, cache-first". Renamed `Gateway::answers_for(...)`, which names its return type (`Answers<K, P>`). Deliberately not `fetch`: that is `Transport::fetch`, the network call, one layer down. | fixed |
+| R6 | `Step::SurfaceTitle` encodes a *decision* as a `Step`: it plans the identical `Request` as `Title`, then takes a different branch (`admit` + `surface_only`) in the step loop. Kept as a step (the deferral is visible as data), but now **labelled a hack**: documented as "a decision wearing a step's clothes", marked `HACK` in `plan.rs` with what it costs and what it wants to become, and extracted in `resolver` into a named `last_resort` pass with its own doc. The loop is one `if` and two calls. | kept |
+
+What R6 became, since it is the one we did not restructure: `Step::SurfaceTitle` is documented as
+a **decision wearing a step's clothes** and marked `HACK` in `plan.rs`, naming exactly what it
+costs (a branch in `resolver::ladder`, a matching one in `inspect`) and what it wants to become (a
+post-pass over the title answer). In `resolver` it is now a named pass — `last_resort` — with its
+own doc, instead of 15 lines inline in the ladder loop; the loop is one `if` and two calls.
+
+Verification of this pass: `cargo test --all-targets` 484 passed; full offline rebuild (2739
+observations, 458 linked, 2281 entities, 1677 identities) and a claim table keyed by observation
+that is **identical** to the pre-rename build — 2474 rows, 0 differ.
+
+Cross-cutting consequences, all applied:
+
+- `Kind` → `RequestKind`: `kind.rs`, `mod.rs` re-export, `plan.rs`, `shape.rs`, `parse.rs`, `policy.rs`, `transport.rs`, `resolver.rs`, and `inspect.rs`'s test import.
+- `parse` → `interpret`: `mod.rs`, `resolver.rs`, `inspect.rs` (three call sites), and `knowledge.md`.
+- `Gateway::resolve_requests` → `answers_for`: `fetch/gateway.rs` (definition + 2 test sites), `fetch/mod.rs`, `fetch/stats.rs`, `identity/mod.rs`, and `knowledge.md`.
+
 ## Open questions to settle before touching behaviour
 
 1. Two-fits: option A, B, or C?

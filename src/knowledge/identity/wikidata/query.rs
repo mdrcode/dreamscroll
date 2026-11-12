@@ -5,9 +5,9 @@
 use crate::fetch::Request;
 
 use super::LANGUAGE;
-use super::Kind;
+use super::RequestKind;
 
-pub(super) fn for_labels(requests: &[Request<Kind>]) -> String {
+pub(super) fn for_labels(requests: &[Request<RequestKind>]) -> String {
     let values = requests
         .iter()
         .map(|request| format!("\"{}\"@{LANGUAGE}", escape(&request.query)))
@@ -29,7 +29,7 @@ pub(super) fn for_labels(requests: &[Request<Kind>]) -> String {
          }}"
     )
 }
-pub(super) fn for_handles(requests: &[Request<Kind>], property: &str) -> String {
+pub(super) fn for_handles(requests: &[Request<RequestKind>], property: &str) -> String {
     let values = requests
         .iter()
         .map(|request| format!("\"{}\"", escape(&request.query)))
@@ -50,9 +50,9 @@ pub(super) fn escape(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::knowledge::identity::wikidata::Kind;
+    use crate::knowledge::identity::wikidata::RequestKind;
 
-    fn request(kind: Kind, query: &str) -> Request<Kind> {
+    fn request(kind: RequestKind, query: &str) -> Request<RequestKind> {
         Request {
             provider: "wikidata",
             kind,
@@ -70,14 +70,14 @@ mod tests {
 
     #[test]
     fn a_label_query_asks_for_every_label_in_one_values_block() {
-        let query = for_labels(&[request(Kind::Label, "Train Dreams")]);
+        let query = for_labels(&[request(RequestKind::Label, "Train Dreams")]);
         assert!(query.contains("\"Train Dreams\"@en"), "{query}");
         assert!(query.contains("rdfs:label"), "{query}");
     }
 
     #[test]
     fn a_handle_query_asks_about_the_property_that_holds_the_account() {
-        let query = for_handles(&[request(Kind::Handle("P2002"), "tsoding")], "P2002");
+        let query = for_handles(&[request(RequestKind::Handle("P2002"), "tsoding")], "P2002");
         assert!(query.contains("wdt:P2002"), "{query}");
         assert!(query.contains("\"tsoding\""), "{query}");
     }
