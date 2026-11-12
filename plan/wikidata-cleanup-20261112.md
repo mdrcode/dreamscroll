@@ -195,30 +195,29 @@ observation, 2474 rows each, `diff` empty.
 ## Review log (file by file)
 
 Walking the module top-down with the reviewer, in the order recorded here; each row gains findings
-and the fix that closed them. Status values: `pending`, `discussed`, `fixed`.
+and the fix that closed them. Status values: `pending`, `done`.
 
 | # | File | Status | Findings / decisions |
 | --- | --- | --- | --- |
-| 1 | `resolver.rs` | fixed | R1–R5 implemented, R6 kept and isolated as a labelled hack — see below |
-| 2 | `plan.rs` | done | P1 naming (three `ladder`s), P2 query normalisation measured; P3 `Handle(&str)` left open |
-| 3 | `decision.rs` | in progress | M1 method vocabulary de-duplicated, M2 renamed from `policy` |
-| 4 | `interpret.rs` | pending | — |
-| 5 | `ranking.rs` | pending | — |
-| 6 | `types.rs` | pending | — |
-| 7 | `transport.rs` | pending | — |
-| 8 | `property_query.rs` | pending | — |
-| 9 | `query.rs` | pending | — |
-| 10 | `shape.rs` | pending | — |
-| 11 | `answer.rs` | pending | — |
-| 12 | `kind.rs` | pending | — |
-| 13 | `candidate.rs` | pending | — |
-| 14 | `mod.rs` | pending | — |
+| 1 | `resolver.rs` | done | R1–R11: free functions, `accumulate` / `last_resort`, the vocabulary sweep. Open: no precedence test, the `Canned` footgun |
+| 2 | `plan.rs` | done | P1 `plan::all_steps`, P2 `trim()` measured. Open: `Handle(&'static str)` drops `PropertyId` |
+| 3 | `decision.rs` | done | M1–M6: one entry, `choose` private, dead guards, method vocabulary, name tests measured. Open: three scorers / two axes, the `reason` out-param |
+| 4 | `ranking.rs` | pending | the two-fits defect (options A/B/C), `terse_and_rare`, hand-rolled `stem`, 4 tests for 347 lines |
+| 5 | `types.rs` | pending | best quality-per-line; arms enumerate forbidden families inline |
+| 6 | `transport.rs` | pending | `search` mixes three concerns; `sparql` picks its query from `first.kind`; no degraded-branch test |
+| 7 | `property_query.rs` | pending | clean; only its coupling to `WikidataKind::Handle` |
+| 8 | `query.rs` | pending | `escape` coverage; a comment block inside `format!` |
+| 9 | `shape.rs` | pending | maintained by hand, not derived from the builder it must agree with |
+| 10 | `answer.rs` | pending | `is_menu`'s description signal is a convention, not a rule |
+| 11 | `kind.rs` | pending | `property()` has one caller; carries a bare `&'static str` |
+| 12 | `candidate.rs` | pending | `classes` empty meaning "not asked" is load-bearing |
+| 13 | `mod.rs` | pending | declarations plus three constants |
 
 The order is spine-first (the ladder, its questions, its decisions), then the measures and the
 wire, then the leaves. Every later file is only meaningful in light of the ladder, and the leaves
 each hold at most one question.
 
-### 1. `resolver.rs` — discussed 2026-11-12
+### 1. `resolver.rs` — done 2026-11-12
 
 | # | Finding | Fix | State |
 | --- | --- | --- | --- |
@@ -233,6 +232,45 @@ each hold at most one question.
 | R9 | Considered returning a map from `Resolver::resolve` instead of `Vec<(i32, Identity)>`. Rejected: the engine needs entity -> resolver -> identities (`proposed: BTreeMap<i32, Vec<(usize, Identity)>>`) and validates every id against the batch it sent, so the grouping moves rather than disappears; a map would cost one `Vec` per entity and lose production order. Shape kept. | kept |
 | R10 | `interpret::claim` reintroduced the word the lexicon retired when the identity annotations replaced the old model. Renamed `identify` / `identify_explained`, locals and the module's comments swept with it; the only `claims` left are Wikidata's own JSON field, backticked where it appears in prose. | fixed |
 | R11 | Three functions were named `ladder`: the resolver's wave driver, a pure per-entity projection in `plan`, and `inspect`'s diagnostic traversal. Only the driver climbs; the other two are a view and a walk. Renamed `plan::all_steps` and `inspect::walk`, leaving one `ladder` in the tree that means what the word means. | fixed |
+
+Left open on purpose when `resolver.rs` was signed off:
+
+- **Handle > title > label precedence has no test.** The file's job is first-to-speak-wins; the
+  tests pin the *ordering of requests* and that a title resolution suppresses the label wave, but
+  nothing asserts that a handle answer beats a title answer when both arrive.
+- **The `Canned` fake answers `Empty` for any unseeded request**, so a typo in a seeded query looks
+  identical to a provider with nothing to say. `asked()` guards only the assertions that call it.
+- **`accumulate` and `last_resort` stay near-twins** (same guard, same lookup, different decision).
+  That is the price of keeping R6 as a step; we decided the `identify_for` dispatch was a lateral
+  move that would hide the anomaly from the file where it is visible.
+
+What R6 became, since it is the one we did not restructure: `Step::SurfaceTitle` is documented as
+a **decision wearing a step's clothes** and marked `HACK` in `plan.rs`, naming exactly what it
+costs (a branch in `resolver::ladder`, a matching one in `inspect`) and what it wants to become (a
+post-pass over the title answer). In `resolver` it is now a named pass — `last_resort` — with its
+own doc, instead of 15 lines inline in the ladder loop; the loop is one `if` and two calls.
+
+### 2. `plan.rs` — done 2026-11-12
+
+- **P1 — three functions named `ladder`.** The resolver's wave driver, a pure per-entity projection
+  in `plan`, and `inspect`'s diagnostic traversal. Only the driver climbs; the other two are a view
+  and a walk. Now `plan::all_steps` (a flattening, not a one-to-one map: a platform link asks a
+  query per value) and `inspect::walk`, with one `ladder` left in the tree. `plan_flat` was
+  considered and dropped: it names the mechanism, stutters as `plan::plan_flat`, and "projection"
+  already means the graph's derived columns.
+- **P2 — `trim()` is the whole query-boundary policy, and that is right.** Measured over 2,281
+  entities: no leading/trailing whitespace, no non-NFC text, no invisible characters, no doubled
+  inner spaces. The label rung is an exact match, so folding would *cause* misses; the title API
+  normalises itself; search is tokenised. The tripwire (silent duplicate entity if a future
+  illuminator emits ZWSP/NFD) is recorded in `plan/backlog.md`.
+
+Left open on purpose when `plan.rs` was signed off:
+
+- **`WikidataKind::Handle(&'static str)` drops `PropertyId`.** The newtype exists because "a typo is
+  invisible" in a query, and it is the only source of the value today, so nothing is broken — but the
+  type no longer stops a future caller from minting a handle kind from an arbitrary string. Not worth
+  churn now; revisit if a second producer of handle kinds appears.
+
 ### 3. `decision.rs` (was `policy.rs`) — in progress 2026-11-12
 
 - **M1 — the method vocabulary had four producers.** `method_for` mapped rung+exactness to a name,
@@ -280,43 +318,29 @@ each hold at most one question.
   while the *item label* is not, and a text-search result set carries no such guarantee. Code
   unchanged; the file header now states the reason with the measurement behind it.
 
-### 2. `plan.rs` — done 2026-11-12
+Left open on purpose when `decision.rs` was reviewed:
 
-- **P1 — three functions named `ladder`.** The resolver's wave driver, a pure per-entity projection
-  in `plan`, and `inspect`'s diagnostic traversal. Only the driver climbs; the other two are a view
-  and a walk. Now `plan::all_steps` (a flattening, not a one-to-one map: a platform link asks a
-  query per value) and `inspect::walk`, with one `ladder` left in the tree. `plan_flat` was
-  considered and dropped: it names the mechanism, stutters as `plan::plan_flat`, and "projection"
-  already means the graph's derived columns.
-- **P2 — `trim()` is the whole query-boundary policy, and that is right.** Measured over 2,281
-  entities: no leading/trailing whitespace, no non-NFC text, no invisible characters, no doubled
-  inner spaces. The label rung is an exact match, so folding would *cause* misses; the title API
-  normalises itself; search is tokenised. The tripwire (silent duplicate entity if a future
-  illuminator emits ZWSP/NFD) is recorded in `plan/backlog.md`.
+- **Three scorers, two axes.** `choose` ranks by IDF-weighted description `fit` then `blend`; `by_hint`
+  ranks by the proportion of hint tokens a description accounts for. M5 documented that they are
+  different quantities and that `HINT_CEILING` keeps them from competing — but both still land on the
+  same `Identity.confidence` axis, and nothing stops a future edit from treating them as comparable.
+  Reconciling them means scoring the hint through the same machinery, which moves the corpus and needs
+  a labelled sample.
+- **`reason: &mut &'static str` threads through six functions** (`decide`, `handle`, `title`, `search`,
+  `choose`, `by_hint`). It is the cheapest "why not" that allocates nothing, but it lengthens every
+  signature and forces `resolver` to carry a scratch variable it ignores (`&mut ignored`). An
+  `Outcome { identity, reason }` return would read better and allocate nothing extra; not done because
+  it touches every call site for no behaviour change.
+- **The lone-label shortcut lives in `choose`**, the shared tail — the only place the tail reads
+  `kind` for a *decision* rather than a name. Moving it into `label()` would put it where its rung is,
+  but `choose` still needs `kind` for `method_for`, so the parameter would not disappear.
+- **The file is 1,040 lines** (392 impl / 648 test). Accepted as the price of one entry plus four
+  sibling rungs (M4); the thing to watch if it keeps growing.
 
-Left open on purpose when `plan.rs` was signed off:
+Left open when `decision.rs` was reviewed, and deliberately declined:
 
-- **`WikidataKind::Handle(&'static str)` drops `PropertyId`.** The newtype exists because "a typo is
-  invisible" in a query, and it is the only source of the value today, so nothing is broken — but the
-  type no longer stops a future caller from minting a handle kind from an arbitrary string. Not worth
-  churn now; revisit if a second producer of handle kinds appears.
-Left open on purpose when `resolver.rs` was signed off:
-
-- **Handle > title > label precedence has no test.** The file's job is first-to-speak-wins; the
-  tests pin the *ordering of requests* and that a title resolution suppresses the label wave, but
-  nothing asserts that a handle answer beats a title answer when both arrive.
-- **The `Canned` fake answers `Empty` for any unseeded request**, so a typo in a seeded query looks
-  identical to a provider with nothing to say. `asked()` guards only the assertions that call it.
-- **`accumulate` and `last_resort` stay near-twins** (same guard, same lookup, different decision).
-  That is the price of keeping R6 as a step; we decided the `identify_for` dispatch was a lateral
-  move that would hide the anomaly from the file where it is visible.
-
-
-What R6 became, since it is the one we did not restructure: `Step::SurfaceTitle` is documented as
-a **decision wearing a step's clothes** and marked `HACK` in `plan.rs`, naming exactly what it
-costs (a branch in `resolver::ladder`, a matching one in `inspect`) and what it wants to become (a
-post-pass over the title answer). In `resolver` it is now a named pass — `last_resort` — with its
-own doc, instead of 15 lines inline in the ladder loop; the loop is one `if` and two calls.
+- `admit`'s doc describes what it rejects but not what it returns ("the surviving candidates, or why
+  the answer was refused"). Reviewer's call: leave it.
 
 Verification of this pass: `cargo test --all-targets` 484 passed; full offline rebuild (2739
 observations, 458 linked, 2281 entities, 1677 identities) and a claim table keyed by observation
