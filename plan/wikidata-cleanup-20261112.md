@@ -269,6 +269,16 @@ each hold at most one question.
   `search`). The file header finally states the per-rung invariant: each rung has exactly one early
   exit, matched to what its query guarantees, which is also why `title` admits generously and
   `search` strictly.
+- **M6 — the two name tests: measured, and *not* unified.** The hypothesis was that `title`'s
+  any-shared-word rule and `search`'s containment rule diverged for no reason. Both directions were
+  rebuilt and diffed against the baseline:
+  tightening `title` to the search rule lost 17 claims, 16 of them correct (`Colonel Sanders` →
+  *Harland Sanders*, `Ray Kurzweil` → *Raymond Kurzweil*, `Ali Khamraev` → *Ali Hamroyev*,
+  `20th Century Fox` → *20th Century Studios*, `Google Colaboratory` → *Google Colab*);
+  loosening `search` to the title rule netted six claims but **reassigned twelve referents**.
+  So the divergence is load-bearing in both directions: a Wikipedia *article title* can be our name
+  while the *item label* is not, and a text-search result set carries no such guarantee. Code
+  unchanged; the file header now states the reason with the measurement behind it.
 
 ### 2. `plan.rs` — done 2026-11-12
 

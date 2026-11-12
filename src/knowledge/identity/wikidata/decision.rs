@@ -19,6 +19,18 @@
 //! `Orthodoxy` cannot claim on its article alone. `handle` needs no decision: the property match is
 //! the identity.
 //!
+//! The two name tests differ, and the difference is measured rather than accidental. A title's query
+//! is an exact page title, so the *article* can be our name while the *item* is labelled something
+//! else: `Colonel Sanders` is the article and `Harland Sanders` the item; `Ali Khamraev` and `Ali
+//! Hamroyev` are one director; `20th Century Fox` became `20th Century Studios`. Any shared content
+//! word therefore has to be enough there — tightening `title` to the search rule cost 17 claims, 16 of
+//! them correct (measured 2026-11-12).
+//!
+//! A search hit has no such guarantee: its result set is text search, where a shared word is not
+//! evidence. Loosening `search` to the title rule nets six claims but *reassigns twelve referents*,
+//! which is a change to judge against a labelled sample, not a tidy-up. So `title` admits generously
+//! and `search` strictly, on purpose.
+//!
 //! Admission follows the same logic. `title` admits on any shared content word because its query is
 //! already our exact name; `search` demands near-surface, a qualifier suffix or a content-word subset
 //! because its result set is text search and will happily embed our name in something else
