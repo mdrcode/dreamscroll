@@ -1,6 +1,6 @@
 # Testing philosophy
 
-**Status:** living document. Last updated 2026-11-05.
+**Status:** living document. Last updated 2026-11-12.
 
 > **See also:** `plan/archive/task-status.md` (the framework these tests cover),
 > `plan/pragmatism.md` (tolerated trade-offs), `plan/archive/sse.md` (implemented SSE delivery),
@@ -187,49 +187,42 @@ a line count while catching nothing. Each one is worth checking for by name:
 The failure mode these share: **the test would still pass if the behaviour it
 names were deleted.** Ask that question of every test you keep.
 
-## Deferred coverage gaps — SSE/task ecosystem (updated 2026-10-08)
+## Open coverage gaps — SSE/task (rewritten 2026-11-12)
 
-The current SSE/task tests cover core serialization, DB lifecycle, and stream
-helpers, but these end-to-end seams still need coverage. Prioritize in this
-order; keep each as a focused unit or isolated-schema DB test:
+Six of the nine gaps recorded on 2026-10-08 now have tests that fail if the behaviour is deleted;
+they are listed at the end rather than kept as gaps. What remains is what breaks *silently* — a
+render nobody looks at, a stream that stays open while nothing drives it, a refetch contract
+nothing pins — which is why it is still open:
 
-1. **Authenticated partial routes:** test capture-card and detail partial
-  rendering, missing/inaccessible capture behavior, and that ownership is not
-  leaked.
-2. **TaskMaster notification lifecycle:** assert `Queued`, `InProgress`,
-  retry/final outcome, and enqueue-failure notifications include the expected
-  user/entity/task/run/attempt fields through a real Postgres listener.
-3. **SSE catch-up endpoint:** DB-backed coverage for selected captures, owner
-  scope, all latest task types/statuses, and subscribe-before-snapshot handoff;
-  retain the unit tests for the pure stream ordering/filter/shutdown helpers.
-4. **Browser SSE lifecycle:** exercise the two-minute inactivity close,
-  native EventSource reconnection after transport failure and normal response
-  closure, heartbeat receipt and stale recovery (including the foreground
-  check), and the single EventSource/timer invariant. This will need a browser
-  test harness or lightweight frontend tooling; avoid adding Node solely for
-  this until the behavior is worth the dependency.
-5. **Listener/process lifecycle:** ensure a Postgres listener failure becomes
-  observable to SSE clients instead of leaving streams apparently open, and
-  cover WebUI-enabled startup plus graceful shutdown propagation.
-6. **Task edge cases:** cover missing-run `begin_attempt` semantics, successful
-  submissions for each task type, and ensure enqueue failures both persist the
-  terminal status and allow a later run.
-7. **SSE catch-up fan-out:** the catch-up currently emits one event per latest
-  entity after coalescing multiple logical-task rows to the newest snapshot
-  event. Add/retain a contract test that distinct task types or runs sharing an
-  entity cause only one initial refresh hint, while live task updates remain
-  individually delivered.
-8. **Duplicate worker deliveries:** add isolated-DB coverage for redelivery of the
-  same run while `InProgress`. First settle the intended claim/overlap policy;
-  then verify attempt accounting and that a late attempt cannot overwrite a
-  newer terminal status or raw output for a TaskRun.
-9. **Illumination HTTP boundary:** a DB-backed test with a fake inference client
-  exercises a failed attempt, successful retry, raw lookup by `run_id`, and a
-  later TaskRun with a distinct `run_id`. The service insertion test separately
-  verifies raw and relational upserts replace prior output for the same TaskRun.
-  The HTTP test calls the authenticated lookup function with an auth context, not
-  through REST/JWT middleware; add router-level coverage if that boundary changes.
+1. **Authenticated partial routes.** Nothing renders a capture card or the detail partial against a
+   real session, so a missing or another user's capture, and ownership leakage, are checked by hand
+   (`plan/smoke.md`). The web tests today are parsing and helper tests (`r_events`) plus one
+   redirect check (`r_capture`). Gate: the backlog's deferred table names this as "next change to
+   auth or route-level authorization".
+2. **Listener fan-out death.** `sse/listener.rs` logs and exits when `recv` fails, and says so: *"a
+   dead fan-out looks like an idle stream until restart"*. Heartbeats keep coming from the stream
+   loop, so a client cannot tell it from an idle page either, and the only recovery is a reload.
+   Needs a test that kills the listener and asserts the stream ends (or the client is told to
+   reconnect), then the liveness fix. This is also where the real `NOTIFY → PgListener → stream`
+   seam would be covered: today the publisher is tested through a recording notifier, and the
+   decoder by feeding it rows.
+3. **Catch-up fan-out.** `StatusCatchup` collapses to the latest run per `(entity, task type)`, but
+   nothing asserts that two task types on one entity produce a single initial refresh hint while
+   live updates stay per-event — nor the subscribe-before-snapshot handoff. Cheap as a contract
+   test, and the refetch cost the design trades on is what it protects.
 
-These items are deferred coverage work; existing passing tests do not imply these
-seams are fully exercised. Items 8–9 were added during the 2026-10-08 task/result
-review; item 9 now records the remaining HTTP-boundary gap.
+Closed since 2026-10-08, kept so they are not rediscovered as gaps: the notification lifecycle
+(`successful_status_writes_publish_events_but_conflicts_and_missing_updates_do_not`, plus the
+enqueue-failure and attempt-lifecycle tests in `taskruntracker`/`taskmaster`), the catch-up endpoint
+(`catchup_replays_latest_status_with_an_estimate_only_while_running`,
+`stream_emits_catchup_then_user_wide_live_events`, the `r_events` cap/dedupe/skip tests), task edge
+cases (`first_attempt_of_unknown_task_is_one`, `submit_after_completion_starts_a_new_run`,
+`submit_spark_requires_at_least_one_capture`), duplicate deliveries
+(`duplicate_submit_while_in_flight_is_refused`,
+`concurrent_duplicate_submissions_enqueue_exactly_one_run`,
+`completed_task_is_not_resurrected_in_db`, `set_status_touches_only_its_own_run`), and the
+illumination retry path (`insert_persists_v1_raw_only_and_v2_projection`, which asserts that a
+retry replaces the previous result).
+
+The browser-lifecycle gap had no coverage to close: it moved to
+`plan/archive/testing-js-and-browser.md`, gated on a client bug that unit tests miss.
