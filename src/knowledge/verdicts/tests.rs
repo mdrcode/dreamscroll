@@ -423,3 +423,28 @@ async fn replay_reports_sides_that_are_gone() {
     assert_eq!(report.gone, 1, "{report:?}");
     assert_eq!(report.applied, 0, "{report:?}");
 }
+
+/// A chain the schema cannot refuse — only self-reference is a `CHECK` — is an error, not erosion.
+/// Reporting `None` would drop the decision as if the entity had vanished.
+#[tokio::test]
+async fn a_merge_cycle_fails_loudly() {
+    db_or_skip!(db);
+    let first = fixtures::knowledge_entity_with_member(&db, "Cycle A").await;
+    let second = fixtures::knowledge_entity_with_member(&db, "Cycle B").await;
+    for (id, target) in [(first, second), (second, first)] {
+        model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
+            id: Set(id),
+            merged_into_id: Set(Some(target)),
+            ..Default::default()
+        })
+        .exec(&db.conn)
+        .await
+        .unwrap();
+    }
+
+    let error = super::VerdictStore::from_handle(&db)
+        .canonical(first)
+        .await
+        .expect_err("a cycle must not read as erosion");
+    assert!(error.to_string().contains("cycle"), "{error}");
+}

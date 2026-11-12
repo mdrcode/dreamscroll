@@ -18,11 +18,16 @@ impl VerdictStore {
             .await?)
     }
 
-    /// Follow tombstones to the live entity a row ends at. Bounded: a cycle is not expressible in
-    /// the schema, but the reader must not spin if one somehow appears.
+    /// Follow tombstones to the live entity a row ends at.
+    ///
+    /// `Ok(None)` means the chain names no row at all: erosion, which the caller reports and drops.
+    /// A chain longer than [`MAX_MERGE_HOPS`] is a **cycle** — the schema refuses only
+    /// self-reference, so a hand-edited `A → B → A` is expressible — and that is an error, not
+    /// erosion: reporting `None` there would drop a person's decision as if the entity had
+    /// vanished.
     pub(crate) async fn canonical(&self, id: i32) -> anyhow::Result<Option<i32>> {
         let mut current = id;
-        for _ in 0..8 {
+        for _ in 0..MAX_MERGE_HOPS {
             let Some(row) = model::knowledge_entity::Entity::find_by_id(current)
                 .one(&self.conn)
                 .await?
@@ -34,6 +39,14 @@ impl VerdictStore {
                 None => return Ok(Some(current)),
             }
         }
-        Ok(None)
+        anyhow::bail!(
+            "merged_into_id chain from knowledge entity {id} exceeds {MAX_MERGE_HOPS} hops, so it \
+             is a cycle the schema cannot refuse"
+        )
     }
 }
+
+/// How far a tombstone chain may be followed before it is called a cycle. Merges chain — a replay
+/// folds a pair a later merge already folded — but not this far; a real corpus stops at two or
+/// three hops.
+const MAX_MERGE_HOPS: usize = 8;
