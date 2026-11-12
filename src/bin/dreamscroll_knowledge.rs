@@ -930,7 +930,7 @@ async fn main() -> anyhow::Result<()> {
                         );
                         for row in rows {
                             let score = row.score.map_or("-".to_string(), |s| format!("{s:.2}"));
-                            let status = row.status.as_str();
+                            let status = row.status.filter_name();
                             let why = match (row.status, row.why) {
                                 (stats::proximities::Status::Merged, Some(why)) => why.as_str(),
                                 (stats::proximities::Status::Merged, None) => "?",

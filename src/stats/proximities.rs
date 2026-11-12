@@ -29,16 +29,7 @@ pub enum Status {
 }
 
 impl Status {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Merged => "merged",
-            Self::MergePending => "merge_pending",
-            Self::KeptApart => "kept_apart",
-            Self::Open => "",
-        }
-    }
-
-    /// The wire word for filters; `open` is explicit here even though the text column is blank.
+    /// The wire word for filters, and the column the text listing prints.
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "merged" => Some(Self::Merged),
@@ -103,12 +94,7 @@ impl ProximityRow {
     pub fn to_json(&self) -> serde_json::Value {
         serde_json::json!({
             "row": self.id,
-            "status": match self.status {
-                Status::Merged => "merged",
-                Status::MergePending => "merge_pending",
-                Status::KeptApart => "kept_apart",
-                Status::Open => "open",
-            },
+            "status": self.status.filter_name(),
             "why": self.why.map(|why| why.as_str()),
             "score": self.score,
             "type_note": self.type_note,
