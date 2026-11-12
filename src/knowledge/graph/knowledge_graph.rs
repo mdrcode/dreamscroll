@@ -225,7 +225,7 @@ impl KnowledgeGraph {
         loser: i32,
         winner: i32,
     ) -> anyhow::Result<super::merge::Preview> {
-        super::merge::preview(&self.db.conn, loser, winner).await
+        super::merge::preview(&self.db.conn, &self.verdicts, loser, winner).await
     }
 
     /// Fold `loser` into `winner`: the loser's observations re-point, the loser becomes a tombstone.

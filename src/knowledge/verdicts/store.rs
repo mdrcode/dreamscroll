@@ -49,6 +49,7 @@ impl VerdictStore {
             return Ok(());
         };
         let existing = model::knowledge_verdicts::Entity::find()
+            .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Merge.as_str()))
             .filter(model::knowledge_verdicts::Column::Cause.eq(cause.as_str()))
             .filter(model::knowledge_verdicts::Column::Generation.eq(generation))
             .filter(model::knowledge_verdicts::Column::WinnerOrigin.eq(winner_origin))
@@ -94,6 +95,31 @@ impl VerdictStore {
             .await?)
     }
 
+    /// Whether a `distinct` verdict names this unordered pair of origins.
+    ///
+    /// The register's one definition of "these two are apart": `distinct` asks it to stay
+    /// idempotent, `merge` to refuse a fold a person forbade, and the proximity listing to label a
+    /// candidate. Compared by origin, like every verdict.
+    pub(crate) async fn kept_apart<C: ConnectionTrait>(
+        &self,
+        conn: &C,
+        a: i32,
+        b: i32,
+    ) -> anyhow::Result<bool> {
+        let pair = pair_key(a, b);
+        Ok(model::knowledge_verdicts::Entity::find()
+            .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Distinct.as_str()))
+            .all(conn)
+            .await?
+            .iter()
+            .any(|verdict| {
+                matches!(
+                    (verdict.winner_origin, verdict.loser_origin),
+                    (Some(a), Some(b)) if pair_key(a, b) == pair
+                )
+            }))
+    }
+
     /// Record that two entities are deliberately separate. Standing like a veto: matched by the
     /// pair's origins, independent of generation; it has no effect on the graph by itself.
     pub(crate) async fn distinct(
@@ -125,17 +151,7 @@ impl VerdictStore {
         };
         let pair = pair_key(origin_a, origin_b);
 
-        let existing = model::knowledge_verdicts::Entity::find()
-            .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Distinct.as_str()))
-            .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
-            .all(&self.conn)
-            .await?;
-        if existing.iter().any(|verdict| {
-            matches!(
-                (verdict.winner_origin, verdict.loser_origin),
-                (Some(a), Some(b)) if pair_key(a, b) == pair
-            )
-        }) {
+        if self.kept_apart(&self.conn, origin_a, origin_b).await? {
             return Ok(false);
         }
         // A pair that is already queued for a person's fold must not also be marked apart.

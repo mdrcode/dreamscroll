@@ -108,6 +108,9 @@ pub async fn auto_merge(
             Outcome::AlreadyMerged => report.moot += 1,
             // A question, not an error: the pair stays in the batch for a person to answer.
             Outcome::RefusedSharedIllumination => report.refused += 1,
+            // The batch check above should have caught it; a standing decision keeps them apart
+            // whichever path sees it first.
+            Outcome::RefusedVerdict => report.kept_apart += 1,
         }
     }
     Ok(report)

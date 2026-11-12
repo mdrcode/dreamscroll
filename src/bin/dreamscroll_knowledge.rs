@@ -726,6 +726,7 @@ async fn main() -> anyhow::Result<()> {
                 "observations": preview.observations,
                 "evidence": preview.evidence,
                 "shared_illuminations": preview.shared_illuminations,
+                "standing_verdict": preview.standing_verdict,
                 "outcome": "dry_run",
                 "note": args.note,
             });
@@ -738,6 +739,19 @@ async fn main() -> anyhow::Result<()> {
                     preview.evidence,
                     preview.shared_illuminations
                 );
+            }
+            if preview.standing_verdict {
+                report["outcome"] = serde_json::json!("refused");
+                report["reason"] = serde_json::json!("standing_verdict");
+                if args.json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!(
+                        "refused: a standing verdict says these two are separate; lift it to \
+                         merge them"
+                    );
+                }
+                exit_with(2);
             }
             if preview.shared_illuminations > 0 {
                 report["outcome"] = serde_json::json!("refused");
@@ -780,6 +794,19 @@ async fn main() -> anyhow::Result<()> {
                     } else {
                         println!("already merged; nothing to do");
                     }
+                }
+                knowledge::graph::merge::Outcome::RefusedVerdict => {
+                    report["outcome"] = serde_json::json!("refused");
+                    report["reason"] = serde_json::json!("standing_verdict");
+                    if args.json {
+                        println!("{}", serde_json::to_string_pretty(&report)?);
+                    } else {
+                        println!(
+                            "refused — a standing verdict says these two are separate; lift it to \
+                             merge them"
+                        );
+                    }
+                    exit_with(3);
                 }
                 knowledge::graph::merge::Outcome::RefusedSharedIllumination => {
                     report["outcome"] = serde_json::json!("refused");

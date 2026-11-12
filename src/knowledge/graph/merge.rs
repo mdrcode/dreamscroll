@@ -28,6 +28,10 @@ pub enum Outcome {
     /// Both entities have observations in one illumination. One extraction emitting both is its own
     /// statement that they are two things; folding them would contradict it, so this is reported.
     RefusedSharedIllumination,
+    /// A standing `distinct` verdict names this pair. A person's "these are two things" is the
+    /// opposite statement to a merge, so the fold is refused rather than quietly overriding it —
+    /// the verdict has to be lifted before the pair can be joined.
+    RefusedVerdict,
 }
 
 /// What a merge would do, without doing it.
@@ -37,6 +41,8 @@ pub struct Preview {
     pub evidence: u64,
     /// Illuminations both entities appear in. Nonzero means the merge is refused.
     pub shared_illuminations: i64,
+    /// A `distinct` verdict names this pair, so the merge is refused in either direction.
+    pub standing_verdict: bool,
 }
 
 /// How many illuminations both entities appear in.
@@ -87,6 +93,7 @@ pub(super) async fn merge_into(
 /// What a merge would do. Free because [`merge_in_transaction`] and the facade both use it.
 pub(super) async fn preview<C: ConnectionTrait>(
     conn: &C,
+    verdicts: &VerdictStore,
     loser: i32,
     winner: i32,
 ) -> anyhow::Result<Preview> {
@@ -99,10 +106,31 @@ pub(super) async fn preview<C: ConnectionTrait>(
         .count(conn)
         .await?;
     let shared_illuminations = shared_illuminations(conn, loser, winner).await?;
+
+    // The dry run says what apply will do, including a standing decision. An entity without an
+    // origin cannot be named by a verdict, so there is nothing to honour.
+    let origins = entity::Entity::find()
+        .filter(entity::Column::Id.is_in([loser, winner]))
+        .all(conn)
+        .await?;
+    let origin = |id: i32| {
+        origins
+            .iter()
+            .find(|row| row.id == id)
+            .and_then(|row| row.origin_observation_id)
+    };
+    let standing_verdict = match (origin(loser), origin(winner)) {
+        (Some(loser_origin), Some(winner_origin)) => {
+            verdicts.kept_apart(conn, loser_origin, winner_origin).await?
+        }
+        _ => false,
+    };
+
     Ok(Preview {
         observations,
         evidence: claim_count,
         shared_illuminations,
+        standing_verdict,
     })
 }
 
@@ -188,6 +216,22 @@ async fn merge_in_transaction<C: ConnectionTrait>(
         live(winner) == Some(true),
         "knowledge entity {winner} is a tombstone; merge into its canonical entity"
     );
+
+    // A person's `distinct` is a standing decision and a merge is the opposite statement, so the
+    // fold is refused rather than quietly overriding it. Checked before the illumination heuristic:
+    // the decision is the more informative refusal, and it is the one someone can lift.
+    let origin = |id: i32| {
+        rows.iter()
+            .find(|row| row.id == id)
+            .and_then(|row| row.origin_observation_id)
+    };
+    if let (Some(loser_origin), Some(winner_origin)) = (origin(loser), origin(winner))
+        && verdicts
+            .kept_apart(conn, loser_origin, winner_origin)
+            .await?
+    {
+        return Ok(Outcome::RefusedVerdict);
+    }
 
     if shared_illuminations(conn, loser, winner).await? > 0 {
         return Ok(Outcome::RefusedSharedIllumination);
@@ -492,6 +536,60 @@ mod tests {
         assert_eq!(survivor.merged_into_id, None, "and nobody was tombstoned");
     }
 
+    /// A person's `distinct` is a standing decision and a merge states the opposite, so the fold is
+    /// refused in either direction — by the preview as well as by the write — and nothing moves.
+    #[tokio::test]
+    async fn a_standing_verdict_refuses_the_merge_in_both_directions() {
+        db_or_skip!(db);
+        let store = VerdictStore::from_handle(&db);
+        let first = entity_with(&db, "Sten").await;
+        let second = entity_with(&db, "Sten Mk III").await;
+        assert!(store.distinct(1, first, second, None).await.unwrap());
+
+        for (loser, winner) in [(second, first), (first, second)] {
+            let preview = super::preview(&db.conn, &store, loser, winner)
+                .await
+                .expect("preview");
+            assert!(
+                preview.standing_verdict,
+                "the dry run reports what apply will do"
+            );
+
+            assert_eq!(
+                merge(
+                    &db.conn,
+                    &Evidence::from_handle(&db),
+                    &store,
+                    loser,
+                    winner,
+                    Cause::Repair
+                )
+                .await
+                .expect("merge"),
+                Outcome::RefusedVerdict,
+                "a decided pair is not a candidate for a fold"
+            );
+        }
+
+        for id in [first, second] {
+            let row = entity::Entity::find_by_id(id)
+                .one(&db.conn)
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(row.merged_into_id, None, "nobody was folded");
+        }
+        assert_eq!(
+            verdicts::Entity::find()
+                .filter(verdicts::Column::Kind.eq("merge"))
+                .count(&db.conn)
+                .await
+                .unwrap(),
+            0,
+            "and no merge was logged"
+        );
+    }
+
     /// The count is illuminations, not rows. Two of the loser's members in one shared illumination
     /// made the join return two rows, so the number a person reads in `merge --dry-run` was the
     /// pair count dressed up as an illumination count — and the refusal only needs "any".
@@ -506,7 +604,9 @@ mod tests {
         fixtures::attached(&db, &capture, 1, "Corduroy", None, "book", loser).await;
         fixtures::attached(&db, &capture, 2, "Corduroy", None, "book", winner).await;
 
-        let preview = super::preview(&db.conn, loser, winner).await.expect("preview");
+        let preview = super::preview(&db.conn, &VerdictStore::from_handle(&db), loser, winner)
+            .await
+            .expect("preview");
         assert_eq!(preview.observations, 2, "the loser's members");
         assert_eq!(
             preview.shared_illuminations, 1,

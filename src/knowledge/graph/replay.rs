@@ -18,7 +18,7 @@ pub struct ReplayReport {
     pub already: usize,
     /// Verdicts whose sides no longer name a live entity each.
     pub gone: usize,
-    /// Pairs the shared-illumination rule refused.
+    /// Pairs a rule refused: the shared-illumination rule, or a standing `distinct` verdict.
     pub refused: usize,
     /// Live claims withdrawn because an entity was vetoed out of an identity.
     pub withdrawn: usize,
@@ -74,6 +74,7 @@ pub(crate) async fn replay(graph: &KnowledgeGraph) -> anyhow::Result<ReplayRepor
         match graph.merge(loser, winner, Cause::Replayed).await? {
             Outcome::Merged => report.applied += 1,
             Outcome::AlreadyMerged => report.already += 1,
+            Outcome::RefusedVerdict => report.refused += 1,
             Outcome::RefusedSharedIllumination => report.refused += 1,
         }
     }
