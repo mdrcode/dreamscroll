@@ -35,7 +35,7 @@ pub enum Outcome {
 pub struct Preview {
     pub observations: u64,
     pub evidence: u64,
-    /// Observations the two entities have in one illumination. Nonzero means the merge is refused.
+    /// Illuminations both entities appear in. Nonzero means the merge is refused.
     pub shared_illuminations: i64,
 }
 
@@ -48,7 +48,7 @@ async fn shared_illuminations<C: ConnectionTrait>(
     let row = conn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT count(*) FROM user_observed_entities l \
+            "SELECT count(DISTINCT l.illumination_id) FROM user_observed_entities l \
              JOIN user_observed_entities w ON w.illumination_id = l.illumination_id \
              WHERE l.knowledge_entity_id = $1 AND w.knowledge_entity_id = $2",
             [loser.into(), winner.into()],
@@ -490,6 +490,42 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(survivor.merged_into_id, None, "and nobody was tombstoned");
+    }
+
+    /// The count is illuminations, not rows. Two of the loser's members in one shared illumination
+    /// made the join return two rows, so the number a person reads in `merge --dry-run` was the
+    /// pair count dressed up as an illumination count — and the refusal only needs "any".
+    #[tokio::test]
+    async fn the_shared_count_is_illuminations_not_member_pairs() {
+        db_or_skip!(db);
+        let winner = entity_with(&db, "Corduroy").await;
+        let loser = entity_with(&db, "Corduroy").await;
+
+        let capture = fixtures::Capture::new(&db, "merge_shared_count").await;
+        fixtures::attached(&db, &capture, 0, "Corduroy", None, "book", loser).await;
+        fixtures::attached(&db, &capture, 1, "Corduroy", None, "book", loser).await;
+        fixtures::attached(&db, &capture, 2, "Corduroy", None, "book", winner).await;
+
+        let preview = super::preview(&db.conn, loser, winner).await.expect("preview");
+        assert_eq!(preview.observations, 2, "the loser's members");
+        assert_eq!(
+            preview.shared_illuminations, 1,
+            "two member pairs, one illumination"
+        );
+
+        assert_eq!(
+            merge(
+                &db.conn,
+                &Evidence::from_handle(&db),
+                &VerdictStore::from_handle(&db),
+                loser,
+                winner,
+                Cause::Repair
+            )
+            .await
+            .expect("merge"),
+            Outcome::RefusedSharedIllumination
+        );
     }
 
     #[tokio::test]
