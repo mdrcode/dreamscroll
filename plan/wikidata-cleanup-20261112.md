@@ -219,7 +219,7 @@ observation, 2474 rows each, `diff` empty.
 ## Review log (file by file)
 
 Walking the module top-down with the reviewer, in the order recorded here; each row gains findings
-and the fix that closed them. Status values: `pending`, `done`.
+and the fix that closed them. Status values: `pending`, `in progress`, `done`, `accepted`.
 
 | # | File | Status | Findings / decisions |
 | --- | --- | --- | --- |
@@ -227,7 +227,7 @@ and the fix that closed them. Status values: `pending`, `done`.
 | 2 | `plan.rs` | done | P1 `plan::all_steps`, P2 `trim()` measured; `Handle` now carries `PropertyId` (2026-11-13) |
 | 3 | `decision.rs` | done | M1–M8: one entry, `choose` private, dead guards, method vocabulary, `Result` refusals, both score questions measured. Open: file size only |
 | 4 | `ranking.rs` | done | S1 scoring contract, two-fits (option A shipped, measured), `terse_and_rare` kept, comment pass S5 |
-| 5 | `types.rs` | pending | best quality-per-line; arms enumerate forbidden families inline |
+| 5 | `types.rs` | accepted | best quality-per-line; arms enumerate forbidden families inline. Two findings measured and declined 2026-11-13: the gate reads one of the entity's types (`alt_types` unread), and nine of twenty types are unmapped — mapping them refused four wrong referents but enabled two new ones, reverted |
 | 6 | `transport.rs` | pending | `search` mixes three concerns; `sparql` picks its query from `first.kind`; no degraded-branch test |
 | 7 | `property_query.rs` | pending | clean; its `WikidataKind::Handle` coupling is closed (2026-11-13), the file is still unreviewed |
 | 8 | `query.rs` | pending | `escape` coverage; a comment block inside `format!` |
