@@ -6,15 +6,15 @@
 //! expiry rule, and it applies the same standing vetoes. That is the point: if the inspector and
 //! the run disagreed, the inspector would be lying.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
 use crate::fetch::cache::{FetchCache, State};
-use crate::fetch::{Answer, Outcome};
+use crate::fetch::{Answer, Outcome, Request};
 use crate::knowledge::blocker::SqlBlocker;
-use crate::knowledge::identity::wikidata::{WikidataCandidate, decision, plan};
+use crate::knowledge::identity::wikidata::{WikidataCandidate, WikidataKind, plan, pool};
 use crate::knowledge::linker::heuristic::Heuristic;
 use crate::knowledge::text;
 use crate::model;
@@ -29,6 +29,14 @@ pub struct Report {
     /// Candidates `Rank` would choose, best first, with the score it gave them.
     pub ranked: Vec<(i32, String, f32)>,
     pub steps: Vec<Step>,
+    /// The pooled ranking: every candidate, best first, with the numbers that put it there.
+    pub pool: Vec<PoolRow>,
+    /// The identity the pool supports, when it supports one.
+    pub decision: Option<PoolDecision>,
+    /// Why it did not, when it did not — recorded by the resolver, not inferred here.
+    pub refusal: Option<&'static str>,
+    /// The decided identity is refused by a standing veto, so the engine would not write it.
+    pub vetoed: bool,
     /// What the graph currently holds for this entity.
     pub identity: Option<StoredIdentity>,
 }
@@ -53,17 +61,33 @@ pub struct Step {
     pub cache: State,
     /// What the stored answer said it was, when there is a row to read.
     pub outcome: Option<Outcome>,
-    /// The candidates the answer carried, for display: the first four, plus the one the rung decided
-    /// on when it fell outside them. `(id, label, description)`.
+    /// The first candidates the answer carried, for display: `(id, label, description)`.
     pub top: Vec<(String, String, String)>,
     /// Candidates the display does not show, so a truncated list is never read as the whole answer.
     pub hidden: usize,
-    /// `(qid, method)` when this rung produced an identity.
-    pub decision: Option<(String, String)>,
-    /// The rung's identity is refused by a standing veto, so the engine would not write it.
-    pub vetoed: bool,
-    /// Why it did not, when it did not — recorded by the resolver, not inferred here.
-    pub refusal: &'static str,
+}
+
+/// One candidate in the pooled ranking, with the score that placed it.
+#[derive(Debug)]
+pub struct PoolRow {
+    pub qid: String,
+    pub label: String,
+    pub description: String,
+    pub surface: f32,
+    pub fit: f32,
+    pub kind: Option<bool>,
+    pub head: Option<bool>,
+    pub year: i8,
+    pub score: f32,
+    pub chosen: bool,
+}
+
+/// What the pool decided, when it decided.
+#[derive(Debug)]
+pub struct PoolDecision {
+    pub qid: String,
+    pub method: String,
+    pub confidence: f32,
 }
 
 #[derive(Debug)]
@@ -124,7 +148,7 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
     };
 
     let vetoes = crate::knowledge::KnowledgeGraph::new(db).vetoed().await?;
-    let steps = walk(db, &entity, &vetoes).await?;
+    let walked = walk(db, &entity, &vetoes).await?;
     let identity = current_identity(db, entity.id).await?;
 
     Ok(Some(Report {
@@ -132,7 +156,11 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
         probe,
         candidates,
         ranked,
-        steps,
+        steps: walked.steps,
+        pool: walked.pool,
+        decision: walked.decision,
+        refusal: walked.refusal,
+        vetoed: walked.vetoed,
         identity,
     }))
 }
@@ -171,21 +199,28 @@ async fn index_keys(db: &DbHandle, id: i32) -> anyhow::Result<(Vec<String>, Vec<
         .unwrap_or_default())
 }
 
-/// Every rung the resolver would climb, in order, stopped at the first identity.
+/// Everything a walk produced: what each question answered, and what the pool made of it.
+struct Walked {
+    steps: Vec<Step>,
+    pool: Vec<PoolRow>,
+    decision: Option<PoolDecision>,
+    refusal: Option<&'static str>,
+    vetoed: bool,
+}
+
+/// Ask every question, then decide once — the same two calls the resolver makes.
 async fn walk(
     db: &DbHandle,
     entity: &model::knowledge_entity::Model,
     vetoes: &HashSet<(i32, String, String)>,
-) -> anyhow::Result<Vec<Step>> {
-    let mut steps = Vec::new();
+) -> anyhow::Result<Walked> {
     let cache = FetchCache::new(&db.conn);
-    for (rung, request) in plan::all_steps(entity) {
-        // The last resort asks the *same* title question again, so without a label the two steps
-        // would look like a duplicate.
-        let kind = match rung {
-            plan::Step::SurfaceTitle => format!("{} (surface)", request.kind),
-            _ => request.kind.to_string(),
-        };
+    let planned = plan::all_steps(entity);
+    let mut steps = Vec::with_capacity(planned.len());
+    let mut answers: HashMap<Request<WikidataKind>, Answer<Vec<WikidataCandidate>>> =
+        HashMap::new();
+
+    for (_, request) in &planned {
         let lookup = cache
             .lookup::<_, Vec<WikidataCandidate>>(
                 request.provider,
@@ -194,75 +229,89 @@ async fn walk(
                 &request.query,
             )
             .await?;
-
-        // An expired row is a miss to the resolver, so it renders no decision here either; an
-        // unreadable answered payload is the miss `get_many` makes of it.
-        let mut refusal = match (lookup.state, lookup.unreadable) {
-            (State::Missing, _) => "not asked",
-            (State::Expired, _) => "the cached answer is expired",
-            (State::Fresh, true) => "the cached payload no longer decodes",
-            _ => "",
-        };
-        let mut vetoed = false;
-        let (top, hidden);
-        let decision = if lookup.state == State::Fresh && refusal.is_empty() {
-            let raw = Answer {
-                outcome: lookup.outcome.expect("a present row has an outcome"),
-                body: lookup.body,
-            };
-            let identity = match rung {
-                // The last resort does not rank: it takes the article bearing this exact name.
-                plan::Step::SurfaceTitle => match decision::surface_only(entity, &raw) {
-                    Ok(identity) => Some(identity),
-                    Err(why) => {
-                        refusal = why;
-                        None
-                    }
+        let (top, hidden) = describe(lookup.body.as_deref().unwrap_or_default(), None);
+        // An expired or unreadable row is a miss, exactly as it is to the resolver.
+        if lookup.state == State::Fresh
+            && !lookup.unreadable
+            && let Some(outcome) = lookup.outcome
+        {
+            answers.insert(
+                request.clone(),
+                Answer {
+                    outcome,
+                    body: lookup.body,
                 },
-                _ => match decision::decide(entity, request.kind, &raw) {
-                    Ok(identity) => Some(identity),
-                    Err(why) => {
-                        refusal = why;
-                        None
-                    }
-                },
-            };
-            let decision = identity.map(|identity| {
-                vetoed = vetoes.contains(&(
-                    entity.id,
-                    identity.scheme.clone(),
-                    identity.external_id.clone(),
-                ));
-                // Every provider identity names its method; `None` is the stored type's allowance for a
-                // capture's own handle annotation, not something a resolver can return.
-                (identity.external_id, identity.method.unwrap_or_default())
-            });
-            (top, hidden) = describe(
-                raw.body.as_deref().unwrap_or_default(),
-                decision.as_ref().map(|(qid, _)| qid.as_str()),
             );
-            decision
-        } else {
-            (top, hidden) = describe(lookup.body.as_deref().unwrap_or_default(), None);
-            None
-        };
-
+        }
         steps.push(Step {
-            kind,
+            kind: request.kind.to_string(),
             query: request.query.clone(),
             cache: lookup.state,
             outcome: lookup.outcome,
             top,
             hidden,
-            decision: decision.clone(),
-            vetoed,
-            refusal,
         });
-        if decision.is_some() {
-            break;
-        }
     }
-    Ok(steps)
+
+    let candidates = pool::gather(&planned, &answers, Outcome::Found);
+    let (decision, refusal, vetoed) = if let Some(identity) = pool::by_handle(&planned, &answers) {
+        let vetoed = vetoes.contains(&(
+            entity.id,
+            identity.scheme.clone(),
+            identity.external_id.clone(),
+        ));
+        let decision = PoolDecision {
+            qid: identity.external_id,
+            method: identity.method.unwrap_or_default(),
+            confidence: identity.confidence.unwrap_or_default(),
+        };
+        (Some(decision), None, vetoed)
+    } else {
+        match pool::decide(entity, &candidates) {
+            Ok(identity) => {
+                let vetoed = vetoes.contains(&(
+                    entity.id,
+                    identity.scheme.clone(),
+                    identity.external_id.clone(),
+                ));
+                let decision = PoolDecision {
+                    qid: identity.external_id,
+                    method: identity.method.unwrap_or_default(),
+                    confidence: identity.confidence.unwrap_or_default(),
+                };
+                (Some(decision), None, vetoed)
+            }
+            Err(why) => (None, Some(why), false),
+        }
+    };
+
+    let chosen = decision.as_ref().map(|decision| decision.qid.as_str());
+    let pool = pool::rank(entity, &candidates)
+        .into_iter()
+        .map(|ranked| {
+            let candidate = &candidates[ranked.index].candidate;
+            PoolRow {
+                qid: candidate.id.clone(),
+                label: candidate.label.clone().unwrap_or_default(),
+                description: candidate.description.clone().unwrap_or_default(),
+                surface: ranked.surface,
+                fit: ranked.fit,
+                kind: ranked.kind,
+                head: ranked.head,
+                year: ranked.year,
+                score: pool::score(&ranked),
+                chosen: chosen == Some(candidate.id.as_str()),
+            }
+        })
+        .collect();
+
+    Ok(Walked {
+        steps,
+        pool,
+        decision,
+        refusal,
+        vetoed,
+    })
 }
 
 impl Report {
@@ -338,14 +387,31 @@ impl Report {
                         }))
                         .collect::<Vec<_>>(),
                     "hidden": step.hidden,
-                    "decision": step.decision.as_ref().map(|(qid, method)| serde_json::json!({
-                        "qid": qid,
-                        "method": method,
-                    })),
-                    "vetoed": step.vetoed,
-                    "refusal": step.refusal,
                 }))
                 .collect::<Vec<_>>(),
+            "pool": self
+                .pool
+                .iter()
+                .map(|row| serde_json::json!({
+                    "qid": row.qid,
+                    "label": row.label,
+                    "description": row.description,
+                    "surface": row.surface,
+                    "fit": row.fit,
+                    "kind": row.kind,
+                    "head": row.head,
+                    "year": row.year,
+                    "score": row.score,
+                    "chosen": row.chosen,
+                }))
+                .collect::<Vec<_>>(),
+            "decision": self.decision.as_ref().map(|decision| serde_json::json!({
+                "qid": decision.qid,
+                "method": decision.method,
+                "confidence": decision.confidence,
+            })),
+            "refusal": self.refusal,
+            "vetoed": self.vetoed,
             "identity": self.identity.as_ref().map(|identity| serde_json::json!({
                 "identity": identity.identity,
                 "label": identity.label,
@@ -407,8 +473,8 @@ mod tests {
     use crate::test_support::{db_or_skip, fixtures};
     use sea_orm::EntityTrait;
 
-    /// A veto is the engine's refusal, so the inspector must report it as one: the rung did produce
-    /// an identity, and the graph would not write it.
+    /// A veto is the engine's refusal, so the inspector must report it as one: the pool did decide,
+    /// and the graph would not write the identity.
     #[tokio::test]
     async fn a_standing_veto_is_not_reported_as_an_identity() {
         db_or_skip!(db);
@@ -419,11 +485,13 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+        // The title answer: an uncorroborated label is not eligible (a label is a name, not a
+        // fact), while a title answer vouches for its candidate on surface alone.
         let request = plan::all_steps(&entity)
             .into_iter()
             .map(|(_, request)| request)
-            .find(|request| request.kind == WikidataKind::Label)
-            .expect("the ladder asks for a label");
+            .find(|request| request.kind == WikidataKind::Title)
+            .expect("the ladder asks for a title");
         FetchCache::new(&db.conn)
             .put(
                 "wikidata",
@@ -451,16 +519,10 @@ mod tests {
             .await
             .unwrap()
             .expect("entity");
-        let label = report
-            .steps
-            .iter()
-            .find(|step| step.kind == "label")
-            .expect("label rung");
-        assert_eq!(
-            label.decision,
-            Some(("Q42".to_string(), "exact_label".to_string()))
-        );
-        assert!(label.vetoed);
+        let decision = report.decision.as_ref().expect("the pool decided");
+        assert_eq!(decision.qid, "Q42");
+        assert_eq!(decision.method, "wikipedia_title");
+        assert!(report.vetoed);
         assert!(
             report.identity.is_none(),
             "the veto left no identity to hold"

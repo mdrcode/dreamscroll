@@ -397,7 +397,7 @@ fn print_inspection(report: &knowledge::identity::inspect::Report) {
         println!("  {id:>7}  {name:<38} {score:.3}");
     }
 
-    println!("\n-- resolve ladder --");
+    println!("\n-- answers --");
     for step in &report.steps {
         let cache = match step.cache {
             dreamscroll::fetch::cache::State::Fresh => "cached",
@@ -412,13 +412,44 @@ fn print_inspection(report: &knowledge::identity::inspect::Report) {
         if step.hidden > 0 {
             println!("      … {} more", step.hidden);
         }
-        match &step.decision {
-            Some((qid, method)) if step.vetoed => {
-                println!("      ⊘ vetoed {qid} via {method} (standing verdict)")
-            }
-            Some((qid, method)) => println!("      → identified {qid} via {method}"),
-            None => println!("      ✗ {}", step.refusal),
-        }
+    }
+
+    println!("\n-- pool (ranked) --");
+    println!(
+        "  {:>6} {:>5} {:>5} {:>5} {:>4}  {:<12} {}",
+        "score", "surf", "fit", "kind", "year", "qid", "label"
+    );
+    for row in report.pool.iter().take(10) {
+        let kind = match row.kind {
+            Some(true) => "+",
+            Some(false) => "-",
+            None => "?",
+        };
+        println!(
+            "  {:>6.3} {:>5.2} {:>5.2} {:>5} {:>4}  {:<12} {}{}",
+            row.score,
+            row.surface,
+            row.fit,
+            kind,
+            row.year,
+            row.qid,
+            row.label,
+            if row.chosen { "  <=" } else { "" }
+        );
+    }
+    if report.pool.len() > 10 {
+        println!("  … {} more", report.pool.len() - 10);
+    }
+    match (&report.decision, report.vetoed) {
+        (Some(decision), true) => println!(
+            "  ⊘ vetoed {} via {} (standing verdict)",
+            decision.qid, decision.method
+        ),
+        (Some(decision), false) => println!(
+            "  → identified {} via {} ({:.3})",
+            decision.qid, decision.method, decision.confidence
+        ),
+        (None, _) => println!("  ✗ {}", report.refusal.unwrap_or("no candidate")),
     }
 
     println!("\n-- held now --");

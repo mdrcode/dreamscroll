@@ -42,28 +42,17 @@ pub(crate) enum Step {
     SearchHint,
     /// Full-text search over the bare label.
     SearchLabel,
-    /// **Not a question — a decision wearing a step's clothes.** It plans the *identical* `Request`
-    /// as [`Title`](Self::Title), so it asks nothing new: the cached answer is decided a second way,
-    /// taking the article bearing this exact name without ranking. It is a step only so the
-    /// deferral is visible as data; a `Step` should not decide anything, and this one does.
-    ///
-    /// HACK, kept deliberately until the ladder's shape is settled: it costs a branch in
-    /// `resolver::ladder` and a matching one in `inspect`. The shape it wants to become is a
-    /// post-pass over the title answer after every real question has been asked — see R6 in
-    /// `plan/wikidata-cleanup-20261112.md`. Identifies through [`super::decision::surface_only`], not
-    /// through the ranking the other steps use.
-    SurfaceTitle,
 }
 
 impl Step {
-    /// The ladder's order. `SurfaceTitle` reuses the title answer after every other step refused.
-    pub(crate) const ORDER: [Self; 6] = [
+    /// The ladder's order. The resolver asks all of them; the order documents what each question can
+    /// prove, cheapest first.
+    pub(crate) const ORDER: [Self; 5] = [
         Self::Handle,
         Self::Title,
         Self::Label,
         Self::SearchHint,
         Self::SearchLabel,
-        Self::SurfaceTitle,
     ];
 }
 
@@ -93,7 +82,7 @@ pub(crate) fn step(
 ) -> Vec<Request<WikidataKind>> {
     match step {
         Step::Handle => handle(entity),
-        Step::Title | Step::SurfaceTitle => title(entity).into_iter().collect(),
+        Step::Title => title(entity).into_iter().collect(),
         Step::Label => label(entity).into_iter().collect(),
         Step::SearchHint => search_hint(entity).into_iter().collect(),
         Step::SearchLabel => search_label(entity).into_iter().collect(),
@@ -201,11 +190,6 @@ mod tests {
                 (
                     Step::SearchLabel,
                     WikidataKind::Search,
-                    "Alexey Kutepov".to_string()
-                ),
-                (
-                    Step::SurfaceTitle,
-                    WikidataKind::Title,
                     "Alexey Kutepov".to_string()
                 ),
             ]

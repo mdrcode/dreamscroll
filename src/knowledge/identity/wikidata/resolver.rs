@@ -13,16 +13,15 @@
 //! cached payloads for free. Only `fetch` touches the network, and nothing here calls it directly:
 //! it goes through `Gateway::answers_for`, which keeps the cache, the pace and the budget.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
-use crate::fetch::{Answers, Gateway, Outcome, Request, Transport};
+use crate::fetch::{Gateway, Outcome, Request, Transport};
 use crate::knowledge::evidence::Identity;
 use crate::knowledge::identity::Resolver;
 use crate::model;
 
-use super::ranking::HANDLE_CONFIDENCE;
 use super::transport::Wire;
-use super::{WikidataCandidate, WikidataKind, answer, decision, plan, pool};
+use super::{WikidataCandidate, WikidataKind, plan, pool};
 
 /// One authority: its decisions, and the wire it speaks through.
 pub struct Wikidata {
@@ -87,17 +86,17 @@ async fn ladder<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataCandidat
             continue;
         };
         // A property match *is* the identity, so nothing is pooled against it.
-        if let Some(identity) = by_handle(steps, &answers) {
+        if let Some(identity) = pool::by_handle(steps, &answers) {
             identities.push((entity.id, identity));
             continue;
         }
-        match pool::decide(entity, &gather(steps, &answers, Outcome::Found)) {
+        match pool::decide(entity, &pool::gather(steps, &answers, Outcome::Found)) {
             Ok(identity) => identities.push((entity.id, identity)),
             Err(_) => {
                 // A degraded answer may have held the claim we are discarding. Deciding the
                 // degraded pool only to report it is the same rule as `decision::trusted`.
                 if let Ok(identity) =
-                    pool::decide(entity, &gather(steps, &answers, Outcome::Degraded))
+                    pool::decide(entity, &pool::gather(steps, &answers, Outcome::Degraded))
                 {
                     tracing::warn!(
                         entity = %entity.name,
@@ -110,68 +109,6 @@ async fn ladder<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataCandidat
         }
     }
     identities
-}
-
-/// The handle answer, when there is one: the item asserting this property value is the account
-/// itself, and no other candidate can outrank a property match.
-fn by_handle(
-    steps: &[(plan::Step, Request<WikidataKind>)],
-    answers: &Answers<WikidataKind, Vec<WikidataCandidate>>,
-) -> Option<Identity> {
-    let (_, request) = steps.iter().find(|(step, _)| *step == plan::Step::Handle)?;
-    let raw = answers.get(request)?;
-    if raw.outcome != Outcome::Found {
-        return None;
-    }
-    let property = request.kind.property()?;
-    let candidates = decision::referents(raw).ok()?;
-    let first = candidates.first()?;
-    Some(answer::identity(
-        first,
-        property.as_str(),
-        HANDLE_CONFIDENCE,
-    ))
-}
-
-/// One entity's pool from every answer of one outcome, deduplicated by QID.
-///
-/// `admit` still gates what is not a referent at all — a menu, a category, an impossible kind — but
-/// no rung's *name* rule applies: which candidate is ours is the ranking's question now.
-fn gather(
-    steps: &[(plan::Step, Request<WikidataKind>)],
-    answers: &Answers<WikidataKind, Vec<WikidataCandidate>>,
-    outcome: Outcome,
-) -> Vec<pool::Pooled> {
-    let mut by_id: BTreeMap<String, pool::Pooled> = BTreeMap::new();
-    for (step, request) in steps {
-        // The handle is claimed whole, and `SurfaceTitle` asks the title's question again.
-        if matches!(step, plan::Step::Handle | plan::Step::SurfaceTitle) {
-            continue;
-        }
-        let Some(raw) = answers.get(request) else {
-            continue;
-        };
-        if raw.outcome != outcome {
-            continue;
-        }
-        let Ok(candidates) = decision::referents(raw) else {
-            continue;
-        };
-        for (position, candidate) in candidates.into_iter().enumerate() {
-            by_id
-                .entry(candidate.id.clone())
-                .or_insert_with(|| pool::Pooled {
-                    candidate,
-                    sources: Vec::new(),
-                })
-                .sources
-                .push(pool::Source {
-                    step: *step,
-                    position,
-                });
-        }
-    }
-    by_id.into_values().collect()
 }
 
 #[cfg(test)]

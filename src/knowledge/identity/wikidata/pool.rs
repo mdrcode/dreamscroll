@@ -26,17 +26,16 @@
 //! fixed 100-row labelled set they bought no precision and cost identities, so they were removed.
 //! `plan/eval/identity-labels.tsv` is that set, and every change is scored against it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
+use crate::fetch::{Answers, Outcome, Request};
 use crate::knowledge::evidence::Identity;
 use crate::knowledge::text;
 use crate::knowledge::text::{content_tokens, near_surface};
 use crate::model;
 
-use super::WikidataCandidate;
-use super::answer;
-use super::plan;
-use super::ranking::{self, Weights};
+use super::ranking::{self, HANDLE_CONFIDENCE, Weights};
+use super::{WikidataCandidate, WikidataKind, answer, decision, plan};
 
 /// What a candidate from a guessing question must look like at minimum: a prefix, not a
 /// rearrangement. Exact queries (handle, title, label) are held to a lower bar — one shared word —
@@ -67,39 +66,39 @@ const YEAR_DISAGREES: f32 = 0.20;
 
 /// Where one candidate was seen: which question produced it, and where the answer put it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Source {
-    pub(super) step: plan::Step,
-    pub(super) position: usize,
+pub(crate) struct Source {
+    pub(crate) step: plan::Step,
+    pub(crate) position: usize,
 }
 
 /// A candidate and every question that produced it. One QID from two answers is one item with two
 /// pieces of provenance, not two candidates.
 #[derive(Debug, Clone)]
-pub(super) struct Pooled {
-    pub(super) candidate: WikidataCandidate,
-    pub(super) sources: Vec<Source>,
+pub(crate) struct Pooled {
+    pub(crate) candidate: WikidataCandidate,
+    pub(crate) sources: Vec<Source>,
 }
 
 /// One candidate's place in the order, with the numbers that put it there.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Ranked {
-    pub(super) index: usize,
+pub(crate) struct Ranked {
+    pub(crate) index: usize,
     /// 0 for a property or article-title match, 1 for an exact label, 2 for a search hit. The
     /// question's authority outranks the surface: a title answer is about *this* name, a search
     /// answer merely mentions it.
-    pub(super) tier: u8,
-    pub(super) surface: f32,
-    pub(super) fit: f32,
-    pub(super) label_less: bool,
+    pub(crate) tier: u8,
+    pub(crate) surface: f32,
+    pub(crate) fit: f32,
+    pub(crate) label_less: bool,
     /// Whether the candidate's classes can be what the entity is; `None` when none is recognised.
-    pub(super) kind: Option<bool>,
+    pub(crate) kind: Option<bool>,
     /// Whether the description's head noun names a kind the entity can be; `None` when it states
     /// no recognised kind.
-    pub(super) head: Option<bool>,
+    pub(crate) head: Option<bool>,
     /// `1` when the descriptions agree on a year, `-1` when they carry disjoint years, `0` when
     /// either side has none.
-    pub(super) year: i8,
-    pub(super) step: plan::Step,
+    pub(crate) year: i8,
+    pub(crate) step: plan::Step,
 }
 
 /// How strongly a surface bears a name: 1.0 is the same name, 0.0 is a different one.
@@ -145,7 +144,7 @@ fn word_prefix(short: &str, long: &str) -> bool {
 
 /// The pool in order: the score, then surface, then description fit. Stable, so the provider's own
 /// ordering breaks what is left.
-pub(super) fn rank(entity: &model::knowledge_entity::Model, pool: &[Pooled]) -> Vec<Ranked> {
+pub(crate) fn rank(entity: &model::knowledge_entity::Model, pool: &[Pooled]) -> Vec<Ranked> {
     let candidates: Vec<WikidataCandidate> = pool.iter().map(|p| p.candidate.clone()).collect();
     let weights = Weights::over(&candidates);
     let ours = ranking::our_tokens(entity);
@@ -214,7 +213,7 @@ pub(super) fn rank(entity: &model::knowledge_entity::Model, pool: &[Pooled]) -> 
 }
 
 /// The one identity the pool supports, or the reason there is none.
-pub(super) fn decide(
+pub(crate) fn decide(
     entity: &model::knowledge_entity::Model,
     pool: &[Pooled],
 ) -> Result<Identity, &'static str> {
@@ -265,7 +264,7 @@ pub(super) fn decide(
 }
 
 /// The question's authority, the surface it bears, the description evidence, and the kind opinion.
-fn score(ranked: &Ranked) -> f32 {
+pub(crate) fn score(ranked: &Ranked) -> f32 {
     let kind = match ranked.kind {
         Some(true) => TYPE_AGREES,
         Some(false) => -TYPE_DISAGREES,
@@ -293,7 +292,7 @@ fn score(ranked: &Ranked) -> f32 {
 /// is unique where a label is not, an exact label is a name, and search is a guess.
 fn tier_of(step: plan::Step) -> u8 {
     match step {
-        plan::Step::Handle | plan::Step::Title | plan::Step::SurfaceTitle => 0,
+        plan::Step::Handle | plan::Step::Title => 0,
         plan::Step::Label => 1,
         plan::Step::SearchHint | plan::Step::SearchLabel => 2,
     }
@@ -303,7 +302,7 @@ fn tier_of(step: plan::Step) -> u8 {
 fn method(step: plan::Step, surface: f32) -> &'static str {
     match step {
         plan::Step::Handle => "handle",
-        plan::Step::Title | plan::Step::SurfaceTitle => "wikipedia_title",
+        plan::Step::Title => "wikipedia_title",
         plan::Step::Label => "exact_label",
         // An exact surface found by search is the shortcut's old `search_lookup`.
         plan::Step::SearchHint | plan::Step::SearchLabel if surface >= 1.0 => "search_lookup",
@@ -537,6 +536,68 @@ fn head_agrees(entity_types: &[&str], theirs: &[String]) -> Option<bool> {
             .any(|(_, heads)| heads.contains(&token.as_str()))
     })?;
     Some(expected.iter().any(|heads| heads.contains(&head.as_str())))
+}
+
+/// One entity's pool from every answer of one outcome, deduplicated by QID.
+///
+/// `decision::referents` still gates what is not a referent at all — a menu — but no rung's name
+/// rule applies: which candidate is ours is the ranking's question.
+pub(crate) fn gather(
+    steps: &[(plan::Step, Request<WikidataKind>)],
+    answers: &Answers<WikidataKind, Vec<WikidataCandidate>>,
+    outcome: Outcome,
+) -> Vec<Pooled> {
+    let mut by_id: BTreeMap<String, Pooled> = BTreeMap::new();
+    for (step, request) in steps {
+        // A handle is claimed whole; it is not scored against the pool.
+        if *step == plan::Step::Handle {
+            continue;
+        }
+        let Some(raw) = answers.get(request) else {
+            continue;
+        };
+        if raw.outcome != outcome {
+            continue;
+        }
+        let Ok(candidates) = decision::referents(raw) else {
+            continue;
+        };
+        for (position, candidate) in candidates.into_iter().enumerate() {
+            by_id
+                .entry(candidate.id.clone())
+                .or_insert_with(|| Pooled {
+                    candidate,
+                    sources: Vec::new(),
+                })
+                .sources
+                .push(Source {
+                    step: *step,
+                    position,
+                });
+        }
+    }
+    by_id.into_values().collect()
+}
+
+/// The handle answer, when there is one: the item asserting this property value is the account
+/// itself, and no other candidate can outrank a property match.
+pub(crate) fn by_handle(
+    steps: &[(plan::Step, Request<WikidataKind>)],
+    answers: &Answers<WikidataKind, Vec<WikidataCandidate>>,
+) -> Option<Identity> {
+    let (_, request) = steps.iter().find(|(step, _)| *step == plan::Step::Handle)?;
+    let raw = answers.get(request)?;
+    if raw.outcome != Outcome::Found {
+        return None;
+    }
+    let property = request.kind.property()?;
+    let candidates = decision::referents(raw).ok()?;
+    let first = candidates.first()?;
+    Some(answer::identity(
+        first,
+        property.as_str(),
+        HANDLE_CONFIDENCE,
+    ))
 }
 
 /// Whether every type the entity wears is `social_media_account`. An entity that is also a person
