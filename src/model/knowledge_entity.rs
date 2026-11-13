@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
-/// How well substantiated an entity is: has any authority claimed it?
+/// How well substantiated an entity is: has any identity resolver asserted it?
 ///
 /// Two values on purpose. Whether an entity shares an identity with another is a proximity, at pair
 /// granularity — a third status conflated the two and had to be re-projected on every scan.
@@ -13,7 +13,7 @@ pub enum Status {
     /// A cluster the blocker built that nobody has identified.
     #[sea_orm(string_value = "provisional")]
     Provisional,
-    /// At least one live claim survives.
+    /// At least one live identity annotation survives.
     #[sea_orm(string_value = "identified")]
     Identified,
 }
@@ -27,9 +27,9 @@ impl Status {
         }
     }
 
-    /// The projection's rule: one live claim is enough.
-    pub fn of(claims: usize) -> Self {
-        if claims == 0 {
+    /// The projection's rule: one live annotation is enough.
+    pub fn of(identities: usize) -> Self {
+        if identities == 0 {
             Self::Provisional
         } else {
             Self::Identified

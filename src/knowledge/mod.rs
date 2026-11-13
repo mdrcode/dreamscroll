@@ -1,7 +1,7 @@
 //! The knowledge graph: observations, the knowledge entities they link to, and the evidence.
 //!
 //! Design: `plan/knowledge-canonical-entities.md`; vocabulary: `plan/lexicon.md`.
-//! `illuminate` writes observations, `link` clusters them, `resolve` asks the authorities.
+//! `illuminate` writes observations, `link` clusters them, `resolve` asks the identity resolvers.
 //!
 //! Clusters, by the question each answers. Each is a module file named for the thing it defines,
 //! with its parts beneath it:

@@ -4,7 +4,7 @@
 //! [`ResolutionEngine::resolve`] knows only about a collection of entities. Everything that knows they
 //! arrive one illumination at a time lives here: the batch is one illumination's observations, a
 //! capture's identities are written after its entities exist, and the entities are then offered to
-//! the authorities.
+//! the identity resolvers.
 //!
 //! [`link_all_pending`] and [`resolve_all_pending`] are the same compositions over the whole
 //! outstanding set — the rebuild steps, and the only places that decide what a corpus run touches.
@@ -174,7 +174,7 @@ pub async fn resolve_all_pending(
     let mut pending: BTreeMap<i32, model::knowledge_entity::Model> = BTreeMap::new();
     for provider in engine.providers() {
         for entity in selection
-            .awaiting_authority(&[provider], None, newest_first)
+            .awaiting_resolver(&[provider], None, newest_first)
             .await?
         {
             pending.entry(entity.id).or_insert(entity);
@@ -237,7 +237,7 @@ mod tests {
     use crate::knowledge::identity::{Options, Resolver};
     use crate::test_support::{db_or_skip, fixtures};
 
-    /// An authority that answers nothing: the helper tests are about scope, not identities.
+    /// An identity resolver that answers nothing: the helper tests are about scope, not identities.
     struct Empty;
 
     #[async_trait::async_trait]

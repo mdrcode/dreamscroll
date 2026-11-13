@@ -28,7 +28,7 @@ $sync$;
 "#;
 
 /// One provider annotates one entity with one key once. The provider is part of the key so two
-/// authorities may corroborate one identity without overwriting each other.
+/// identity resolvers may corroborate one identity without overwriting each other.
 const IDENTITIES_UNIQUE: &str = r#"
 CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_identities_entity_provider_identity"
     ON knowledge_identities (knowledge_entity_id, provider, scheme, external_id)

@@ -11,7 +11,7 @@
 //! A pair that fails the conjunction still reports its total, so "same name, different type: 0.74"
 //! stays visible on the proximity list even though it will never be folded.
 //!
-//! Not here: the confidence scale for authority answers (that is the authority's own calibration,
+//! Not here: the confidence scale for resolver answers (that is the identity resolver's own calibration,
 //! in `identity/wikidata/ranking.rs`), the best identity over a set (`best_confidence`), and the order
 //! of two confidences (`scoring::TotalCmp`).
 

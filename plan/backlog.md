@@ -17,7 +17,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `television_series` silently disabled a whole rule for 23 series, and `types.rs` deliberately leaves
   `product`, `publication`, `place`, `organization` and `event` **unmapped** because mapping them rejected
   correct claims (`Rotten Tomatoes` is a business, the `Locarno Film Festival` an organization).
-  **Wikidata is one authority provider, so `P31` must not be the arbiter.** A provider's classification
+  **Wikidata is one identity resolver provider, so `P31` must not be the arbiter.** A provider's classification
   is evidence *scoped to that provider*; the entity's type is ours. Today `types::incompatible` compares
   the two directly, which means the second provider (IMDb, OpenLibrary, MusicBrainz) has no place to
   stand: it would need its own N×M table of our types against its vocabulary, maintained by hand and
@@ -278,7 +278,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   a claim count.
 
 - [ ] **Fetch enrichment for an identity.** `enrichment` is reserved vocabulary on
-  `knowledge_identities` (label, description, classes) and an authority fills them on the way past,
+  `knowledge_identities` (label, description, classes) and an identity resolver fills them on the way past,
   but nothing reads them and no pass fetches them by identity alone. Decide whether it is a request
   kind in the resolver ladder or a separate pass over identified entities. `project` is where a
   reader would appear.

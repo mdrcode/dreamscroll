@@ -70,16 +70,16 @@ pub struct KnowledgeStats {
     /// provider/scheme breakdown: what the illuminator actually saw, before linking collapses
     /// repeated handles into identities.
     pub platforms: Vec<PlatformGroup>,
-    /// How many identity annotations a live entity holds. The shape a second authority changes.
+    /// How many identity annotations a live entity holds. The shape a second identity resolver changes.
     pub identity_counts: IdentityCounts,
     /// The projected confidence over live entities, and how many have none.
     pub confidence: ConfidenceSpread,
-    /// Entities with an authority identity annotation — the number `resolve` moves.
+    /// Entities with an identity resolver identity annotation — the number `resolve` moves.
     pub with_identity: u64,
     /// Identity annotations grouped by who supplied them and in which scheme. `provider` is the
     /// source (a resolver id, `illuminator`, `model`); `scheme` is the namespace the identifier
-    /// lives in. Both halves are needed: one authority may answer in several schemes, and one
-    /// scheme may be supplied by more than one authority.
+    /// lives in. Both halves are needed: one identity resolver may answer in several schemes, and one
+    /// scheme may be supplied by more than one identity resolver.
     pub identities_by: Vec<IdentityGroup>,
     /// Entities whose projected platform presence is set. A member had one and `project` kept it.
     pub with_platform: u64,
@@ -241,7 +241,7 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
         max: row.try_get_by_index::<Option<f64>>(3)?,
     };
 
-    // An authority annotation is one an authority answered for — not the illuminator that produced
+    // An identity resolver annotation is one an identity resolver answered for — not the illuminator that produced
     // the observation, and not a model guess.
     let with_identity: Vec<(i32,)> = sea_orm::ConnectionTrait::query_all_raw(
         &db.conn,

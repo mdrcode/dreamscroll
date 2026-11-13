@@ -45,7 +45,7 @@ The rule of thumb:
 
 > Does the page **name the referent**, or does it merely **mention the referent**?
 
-Profiles, official presences, and authority entries name the referent. Articles, blog posts, and
+Profiles, official presences, and identity-resolver entries name the referent. Articles, blog posts, and
 threads mention it.
 
 ## Proposed model

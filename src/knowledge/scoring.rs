@@ -21,7 +21,7 @@ use crate::model;
 
 /// The graph's own side of a comparison.
 pub(crate) type Entity = model::knowledge_entity::Model;
-/// What a capture asserted: one claim, no alternatives.
+/// What a capture asserted: one observation, no alternatives.
 pub(crate) type Observation = model::user_observed_entity::Model;
 
 /// How strongly the evidence says these two are one thing, in `[0, 1]`.
@@ -40,7 +40,7 @@ pub trait Similarity<A, B>: Send + Sync {
 /// Three methods because they are three views of one policy, not three policies: the components that
 /// decide qualification are the same components the order key is built from.
 pub trait Policy<A, B>: Send + Sync {
-    /// The policy's own components — `Features` for the graph, `fit` and its blend for an authority.
+    /// The policy's own components — `Features` for the graph, `fit` and its blend for an identity resolver.
     type Evidence;
 
     /// The evidence for every candidate, in candidate order. Corpus-aware by construction: the slice
@@ -57,7 +57,7 @@ pub trait Policy<A, B>: Send + Sync {
 /// A candidate's place in the order: one number that decides, one that only separates equals.
 ///
 /// Two fields because two policies need two kinds of separation: the graph's judgement is a single
-/// total, while an authority orders by evidence and uses its price to break ties — otherwise two
+/// total, while an identity resolver orders by evidence and uses its price to break ties — otherwise two
 /// candidates with identical evidence would fall back on the order the caller happened to supply.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Order {
@@ -136,7 +136,7 @@ impl TotalCmp for Option<f32> {
 /// questions — a capture against entities, two entities as a verdict, two entities as a number.
 #[derive(Clone)]
 pub struct Scoring {
-    /// A capture's claim against the graph's entities: empty means start a new entity.
+    /// A capture's observation against the graph's entities: empty means start a new entity.
     pub link: Arc<dyn Rank<Observation, Entity>>,
     /// Two entities, as a verdict. A set of one is the pair question.
     pub merge: Arc<dyn Rank<Entity, Entity>>,

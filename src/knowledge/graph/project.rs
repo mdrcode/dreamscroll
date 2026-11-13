@@ -89,7 +89,7 @@ pub(super) async fn project<C: ConnectionTrait>(
     let (name, alt_names) = select(origin.map(|member| member.name.trim()), &surfaces);
     let (entity_type, alt_types) = select(origin.map(|member| member.entity_type.trim()), &types);
 
-    // When no member offers text, keep what is there: an authority-sourced description must not be
+    // When no member offers text, keep what is there: an identity resolver-sourced description must not be
     // wiped by a member list that says nothing.
     let (description, alt_descriptions) = match select(
         origin.and_then(|member| member.description.as_deref()),

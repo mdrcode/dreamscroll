@@ -46,7 +46,7 @@ impl TryFrom<&PlatformLink> for IdentityKey {
 /// One provider's annotation of one entity with one identity.
 ///
 /// The entity and the provider are supplied by the writer, not carried here: a resolver cannot
-/// attribute its answer to another authority, and a capture always writes
+/// attribute its answer to another identity resolver, and a capture always writes
 /// [`super::PLATFORM_LINK_PROVIDER_ID`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct Identity {

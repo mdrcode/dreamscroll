@@ -227,8 +227,8 @@ each hold at most one question.
 | R4 | `parse` was misleading — parsing happens in `transport` (JSON → `Candidate`); this module decides what a candidate *means*. `identities` also returned `Vec` where every arm returns exactly one or none, and was sugar over `explained`. Now module `interpret`, entry `identify(...) -> Option<Identity>`, reason variant `identify_explained(...)`; `policy`'s four entry points return `Option` too, so no layer keeps the lie. | fixed |
 | R5 | `Gateway::resolve_requests` reused the domain verb — the lexicon defines **resolve** as "knowledge entities → evidence, network, cache-first". Renamed `Gateway::answers_for(...)`, which names its return type (`Answers<K, P>`). Deliberately not `fetch`: that is `Transport::fetch`, the network call, one layer down. | fixed |
 | R6 | `Step::SurfaceTitle` encodes a *decision* as a `Step`: it plans the identical `Request` as `Title`, then takes a different branch (`admit` + `surface_only`) in the step loop. Kept as a step (the deferral is visible as data), but now **labelled a hack**: documented as "a decision wearing a step's clothes", marked `HACK` in `plan.rs` with what it costs and what it wants to become, and extracted in `resolver` into a named `last_resort` pass with its own doc. The loop is one `if` and two calls. | kept |
-| R7 | `accumulate`, `last_resort` and `ladder` took no `self`, yet lived in `impl Wikidata`. Residue: they were methods when the loop was written against authority state, and after R1/R3 that state is gone — `Wikidata` holds one field and `ladder` takes the transport as a parameter. Moved to module-level free functions; the impl now holds only `new()`. | fixed |
-| R8 | `Candidate` was ambiguous across modules: `inspect` has its own `Candidate` (a *blocking* candidate) and imported the authority's as `Candidate as Offered` purely to avoid the clash, so nobody could tell which one a signature meant. Both authority types now carry the provider's name — `WikidataKind`, `WikidataCandidate` — and the `Offered` alias is gone. | fixed |
+| R7 | `accumulate`, `last_resort` and `ladder` took no `self`, yet lived in `impl Wikidata`. Residue: they were methods when the loop was written against resolver state, and after R1/R3 that state is gone — `Wikidata` holds one field and `ladder` takes the transport as a parameter. Moved to module-level free functions; the impl now holds only `new()`. | fixed |
+| R8 | `Candidate` was ambiguous across modules: `inspect` has its own `Candidate` (a *blocking* candidate) and imported the identity resolver's as `Candidate as Offered` purely to avoid the clash, so nobody could tell which one a signature meant. Both identity resolver types now carry the provider's name — `WikidataKind`, `WikidataCandidate` — and the `Offered` alias is gone. | fixed |
 | R9 | Considered returning a map from `Resolver::resolve` instead of `Vec<(i32, Identity)>`. Rejected: the engine needs entity -> resolver -> identities (`proposed: BTreeMap<i32, Vec<(usize, Identity)>>`) and validates every id against the batch it sent, so the grouping moves rather than disappears; a map would cost one `Vec` per entity and lose production order. Shape kept. | kept |
 | R10 | `interpret::claim` reintroduced the word the lexicon retired when the identity annotations replaced the old model. Renamed `identify` / `identify_explained`, locals and the module's comments swept with it; the only `claims` left are Wikidata's own JSON field, backticked where it appears in prose. | fixed |
 | R11 | Three functions were named `ladder`: the resolver's wave driver, a pure per-entity projection in `plan`, and `inspect`'s diagnostic traversal. Only the driver climbs; the other two are a view and a walk. Renamed `plan::all_steps` and `inspect::walk`, leaving one `ladder` in the tree that means what the word means. | fixed |
@@ -275,12 +275,12 @@ Left open on purpose when `plan.rs` was signed off:
 
 - **S1 — the shared scoring contract, before the file.** `Rank` promised "ordering *and* the
   threshold that turns a candidate into an answer — an empty list means nothing here is this". True
-  for the graph's conjunction; false for an authority, whose gate is a margin and whose answer also
+  for the graph's conjunction; false for an identity resolver, whose gate is a margin and whose answer also
   carries a method and a confidence that `(usize, f32)` cannot hold. So the promise moved into a verb
   that can keep it: `Policy` authors `evaluate` / `qualifies` / `order`, while `Rank` became its
   object-safe projection written once as a blanket impl. `Similarity` is now corpus-free *by rule*,
-  which is the distinction whose absence produced the authority's two incompatible fits. `Order`
-  names the two-part key; each side's evidence is named (`Features` owns its judgement, the authority
+  which is the distinction whose absence produced the identity resolver's two incompatible fits. `Order`
+  names the two-part key; each side's evidence is named (`Features` owns its judgement, the identity resolver
   has `Fit { fit, blend }`). Behaviour identical: rebuild reproduces the identity table row for row.
 
 ### 3. `decision.rs` (was `policy.rs`) — in progress 2026-11-12

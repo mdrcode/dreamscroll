@@ -6,7 +6,7 @@
 //! - an [`IdentityKey`] is the durable name — `(scheme, external_id)`, both folded — that survives a
 //!   rebuild.
 //! - an [`Identity`] is one provider's annotation of one entity with that key: the metadata an
-//!   authority answered with, and the observation that carried it when a capture showed it.
+//!   identity resolver answered with, and the observation that carried it when a capture showed it.
 //!
 //! The store is [`Evidence`]. A resolver's run replaces its provider's complete annotation set for
 //! an entity; a capture appends one; a veto deletes one. Nothing brokers the relation.

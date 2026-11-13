@@ -41,7 +41,7 @@ async fn relax_verdict_columns<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr
 
 /// Schema 30 renames `knowledge_identities.source` to `asserted_by`.
 ///
-/// The column holds four kinds of asserter — a capture (`platform`), an authority, and eventually a
+/// The column holds four kinds of asserter — a capture (`platform`), an identity resolver, and eventually a
 /// model — so `source` named only one of them. The registry can only *add* a column, and
 /// `asserted_by` is `NOT NULL` with no default, which a populated table cannot take: the rename has
 /// to happen before it. Guarded, so a synced database is untouched.
@@ -202,7 +202,7 @@ async fn rename_blocking_index_table<C: ConnectionTrait>(conn: &C) -> Result<(),
 /// Schema 34 renames `knowledge_identities.asserted_by` to `provider`, and changes the value a
 /// capture-written identity carries from `platform` to `illuminator`.
 ///
-/// `provider` is the source of the row: an authority id, `illuminator` for a link a capture showed,
+/// `provider` is the source of the row: an identity resolver id, `illuminator` for a link a capture showed,
 /// or `model` for a guess. The old value named the platform, which answered nothing — the platform
 /// is the scheme. Runs before the registry, which would otherwise create a `provider` column beside
 /// the populated old one. Guarded, and the backfill is idempotent.
@@ -233,9 +233,9 @@ async fn rename_identity_provider<C: ConnectionTrait>(conn: &C) -> Result<(), Db
 
 /// Schema 35 puts provenance on the claim: `provider` and `method`.
 ///
-/// Existing capture claims become `illuminator` / `capture`; authority claims inherit the identity's
+/// Existing capture claims become `illuminator` / `capture`; resolver claims inherit the identity's
 /// provider and method, which was the only place the answer's provenance lived before. The unique
-/// index then gains `provider`, so two authorities may assert one identity.
+/// index then gains `provider`, so two identity resolvers may assert one identity.
 async fn add_claim_provenance<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(
         "DO $sync$ \

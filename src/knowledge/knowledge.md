@@ -170,7 +170,7 @@ That is what makes a second policy possible without a second graph: implement `P
 pairs the graph asks about plus `Similarity` for the stored number, build a `Scoring`, and hand it to
 the `HeuristicLinker` and the passes that measure.
 
-## Resolving: what can the authorities tell us?
+## Resolving: what can the identity resolvers tell us?
 
 Resolving is the opposite kind of work: network, cached, and only ever through one door.
 
@@ -198,7 +198,7 @@ How a resolver gets to its identities is its own business. `Wikidata` climbs one
 title, label, search hint, search label, surface title — and each step asks only the entities still
 unresolved, batched across them. A title that resolves an entity drops its label and search questions.
 That shape is internal to the provider, not vocabulary the engine knows about. `Kind` is the
-*provider's* enum, so **adding an authority means writing one `Resolver` plus one `Transport`**, and a
+*provider's* enum, so **adding an identity resolver means writing one `Resolver` plus one `Transport`**, and a
 resolver is free to make one request or a dozen.
 
 The one thing a resolver cannot do is fetch. Its only route to the world is
@@ -209,9 +209,9 @@ agentic resolver, whose tool calls happen inside a provider's runtime, is the on
 the same gateway by convention, and it is expected to fail at that rather than to pretend.)
 
 Identities **accumulate**. Wikidata supplies a QID, a capture's handle sits beside it as a separate
-annotation, and a second authority may assert the same or another key. The engine selects candidates
+annotation, and a second identity resolver may assert the same or another key. The engine selects candidates
 per resolver, replaces that provider's set for every entity it answered about, and applies every
-authority before projecting the entity. Confidence is the best annotation's score; one without a
+identity resolver before projecting the entity. Confidence is the best annotation's score; one without a
 score contributes nothing. An abstention is not an answer: an entity the resolver returned nothing for
 keeps its old annotations.
 
@@ -342,8 +342,8 @@ one.
 | `graph/merge.rs` | fold one entity into another |
 | `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `Basis` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `auto_merge.rs` folds what it can on its own and leaves the rest. Both take the connection and the `Scoring` as arguments |
 | `verdicts/` | the register: the modification log and the standing vetoes, held by `KnowledgeGraph`. `store.rs` is the type, its connection, `record` (the one write that takes the caller's transaction, so a merge's row commits with the fold) and the reads the replay and `stats` share; `veto.rs` holds `veto`/`unveto`/`vetoed`; `origin.rs` turns an origin into the entity it names now. Applying the log is the graph's command (`graph/replay.rs`), exposed as `KnowledgeGraph::replay_verdicts`; `pair_key` is shared with `stats` |
-|`identity/`|`mod.rs` (module declarations) · `resolution` (the `Resolver` trait a provider implements, the run loop, candidate selection, vetoes) · `wikidata/` (today's only authority). The identities it returns, and where they become rows, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
-| `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the ladder in `resolver.rs` · request planning in `plan.rs` · query text in `query.rs` · a platform link turned into the property and value form to ask (`property_query.rs`) · shape keys in `shape.rs` · a decided candidate turned into the stored annotation, and the menu rule (`answer.rs`) · the single entry, the gates and the per-rung admission in `decision.rs` · candidate scoring in `ranking.rs`, as a `Policy` over the answer's candidates · class filtering in `types.rs` · HTTP in `transport.rs` |
+|`identity/`|`mod.rs` (module declarations) · `resolution` (the `Resolver` trait a provider implements, the run loop, candidate selection, vetoes) · `wikidata/` (today's only identity resolver). The identities it returns, and where they become rows, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
+| `identity/wikidata/` | one identity resolver, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the ladder in `resolver.rs` · request planning in `plan.rs` · query text in `query.rs` · a platform link turned into the property and value form to ask (`property_query.rs`) · shape keys in `shape.rs` · a decided candidate turned into the stored annotation, and the menu rule (`answer.rs`) · the single entry, the gates and the per-rung admission in `decision.rs` · candidate scoring in `ranking.rs`, as a `Policy` over the answer's candidates · class filtering in `types.rs` · HTTP in `transport.rs` |
 |`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, and their TTLs) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
 | `identity/inspect.rs` | `identity inspect`: walks one entity through blocking, ranking and the ladder, read-only |
 | `eval/` | offline diagnostics: `eval blocker` measures recall |

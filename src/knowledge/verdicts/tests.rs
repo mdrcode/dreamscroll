@@ -72,7 +72,7 @@ async fn a_veto_withdraws_only_the_pairing_it_names() {
 }
 
 /// A veto names a pairing, so it retracts the claim whatever route produced it — including an
-/// authority that reached it through a handle (P2002).
+/// identity resolver that reached it through a handle (P2002).
 #[tokio::test]
 async fn a_veto_retracts_a_claim_that_arrived_by_handle() {
     db_or_skip!(db);

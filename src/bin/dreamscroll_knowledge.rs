@@ -307,7 +307,7 @@ struct CompareArgs {
 #[derive(FromArgs)]
 #[argh(subcommand, name = "resolve")]
 #[argh(
-    description = "ask evidence providers about entities with no authority identity (cache first)"
+    description = "ask evidence providers about entities with no identity annotation (cache first)"
 )]
 struct ResolveArgs {
     #[argh(option)]
@@ -483,7 +483,7 @@ fn print_entity(detail: &stats::entity::Detail) {
     }
 }
 
-/// Ask the authorities what a thing is, cache first.
+/// Ask the identity resolvers what a thing is, cache first.
 async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow::Result<()> {
     // A budget of zero makes no transport calls, which reads like a successful run that resolved
     // nothing. That is a mode, not a number.
@@ -1238,7 +1238,7 @@ async fn main() -> anyhow::Result<()> {
                 stats.confidence.unknown
             );
             println!("resolution");
-            println!("  with authority identity {:>5}", stats.with_identity);
+            println!("  with identity annotation {:>5}", stats.with_identity);
             println!("  identities by provider / scheme");
             println!(
                 "    {:<16} {:<18} {:>10} {:>9}",

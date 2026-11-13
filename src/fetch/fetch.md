@@ -53,7 +53,7 @@ Four decisions worth naming:
 - **`shape` is in the key.** It fingerprints *how* the request is built (endpoint, language, limit,
   properties). Change the construction and every old answer — including negatives — is bypassed
   rather than silently wrong.
-- **`provider` is `text`, not an enum.** Adding an authority is not a migration.
+- **`provider` is `text`, not an enum.** Adding an identity resolver is not a migration.
 - **A payload that no longer decodes is a miss.** Not an empty answer. A changed payload shape has to
   be re-asked, or a caller would be handed a body nothing can use for the rest of the TTL.
 

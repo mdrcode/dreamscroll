@@ -10,7 +10,12 @@ that were considered and rejected — read that before proposing a rename.
 ## The sentence
 
 > A **capture** is illuminated into **observations**; **linking** clusters observations into
-> **knowledge entities**; **resolution** asks the authorities about them and records the answers as
+> **Naming:** outside `src/knowledge/identity/`, the thing that answers a resolution is an
+> **identity resolver**; inside that module the same actor is called *the authority*, because there it
+> is the only one and the short word reads better. Use the long name anywhere a reader may not have
+> the module open.
+>
+> **knowledge entities**; **resolution** asks the identity resolvers about them and records the answers as
 > **evidence**.
 
 Everything the graph does is a clause of that sentence. A verb that is not in it is an implementation
@@ -66,7 +71,7 @@ annotations may carry, and a **snapshot** is what `reset` saves and `compare` di
 ## Two verbs that both mean "connect"
 
 > **Link** asks *are these the same thing?* — it clusters observations into one knowledge entity.
-> **Resolve** asks *what can the authorities tell us about this thing?* — it records the answers as
+> **Resolve** asks *what can the identity resolvers tell us about this thing?* — it records the answers as
 > evidence.
 
 Resolution writes identity annotations, and the graph records two things that are **about the graph
@@ -92,12 +97,12 @@ per-kind index.
 
 | Table | Is | Written by |
 | --- | --- | --- |
-| `knowledge_identities` | a fact about the world: this entity is named `(scheme, external_id)` by this provider | `link` (a capture's handle), `resolve` (an authority's complete answer) |
+| `knowledge_identities` | a fact about the world: this entity is named `(scheme, external_id)` by this provider | `link` (a capture's handle), `resolve` (an identity resolver's complete answer) |
 | `knowledge_proximities` | a judgement about our data: two entities looked close enough to ask about at the last scan, and the score that pass gave them — one scan's batch, replaced wholesale | `proximity::scan`, and nothing else |
 | `knowledge_verdicts` | a mutation of our data: one thing folded into another (`kind` = `merge`), an entity declared not an identity (`veto_identity`), or two origins declared separate (`distinct`) — what decided it (`repair`, `proximity_auto`, `replayed`), and which generation; a log, keyed by origin so it survives a rebuild | `proximity auto-merge`, `merge`, the veto commands, and `verdicts replay` |
 
 `enrichment` and `rejection` remain reserved kinds in the vocabulary, not tables: enrichment is the
-authority's answer about an identity — its `label`, `description`, and `classes` — and it lives on
+identity resolver's answer about an identity — its `label`, `description`, and `classes` — and it lives on
 `knowledge_identities`. `project` does not read it yet.
 
 An identity annotation is owned by one provider. Its metadata is that provider's answer, not a
@@ -125,7 +130,7 @@ against the codebase first; this table is the record.
 | *mention* | implies a string whose meaning is fixed by its referent; an observation can be wrong and still be a faithful record |
 | *core* / *CoreEntity* | a cluster has a core; entities are not derived from clusters, and "core" names a mechanism that no longer exists |
 | *CoreKnowledgeEvidence* / *evidence* | one table with a `kind` discriminator for three different statements; split into claims, collisions and merges |
-| *knowledge_evidence* (for the identity table, schema 23) | a QID is the referent, not a statement about it, and half of the identities are platform handles read off a capture — neither has an external assertion to be evidence *of*. `identity` is already this lexicon's word for `(scheme, external_id)`, so the table adds no vocabulary. Reconsider only as a fourth, statement-level table (`knowledge_evidence` = one row per authority answer, with identities derived), which is a different and larger model |
+| *knowledge_evidence* (for the identity table, schema 23) | a QID is the referent, not a statement about it, and half of the identities are platform handles read off a capture — neither has an external assertion to be evidence *of*. `identity` is already this lexicon's word for `(scheme, external_id)`, so the table adds no vocabulary. Reconsider only as a fourth, statement-level table (`knowledge_evidence` = one row per resolver answer, with identities derived), which is a different and larger model |
 | *label* / *alt_labels* | technical jargon for the same idea; `name`/`alt_names` is plain and keeps the singular/plural pattern |
 | *identify* | presupposes success, and resolution abstains often; also too narrow — it names only one of the kinds |
 | *related_core_id* | one column with two meanings selected by `kind`; deleted, the role lives in the payload |
@@ -136,7 +141,7 @@ against the codebase first; this table is the record.
 Schema 34 renamed `knowledge_identities.asserted_by` to `provider` and changed the capture value from
 `platform` to `illuminator`. The old objection to `provider` was the *value* `platform`: the platform
 answered nothing. `provider` is now the source of the row and a **superset** of `Request::provider` —
-for an authority it is the same id; `illuminator` and `model` never appear in `fetch_cache`. The
+for an identity resolver it is the same id; `illuminator` and `model` never appear in `fetch_cache`. The
 reserved ids are `illuminator`, `platform`, `model`, `operator` and `user`; the engine refuses a
 resolver that takes one.
 

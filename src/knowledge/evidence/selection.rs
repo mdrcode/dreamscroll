@@ -23,14 +23,14 @@ impl<'a> IdentitySelection<'a> {
         Self::from_connection(&db.conn)
     }
 
-    /// Entities no configured authority has annotated yet, in the order a run should ask them.
+    /// Entities no configured identity resolver has annotated yet, in the order a run should ask them.
     ///
-    /// The filter is *authority*, not *any evidence* — an entity identified only by a platform
+    /// The filter is *identity resolver*, not *any evidence* — an entity identified only by a platform
     /// handle is still a candidate, because a QID is what corroboration needs.
     ///
     /// Ordering and limit are the caller's policy, passed in: ascending is a rebuild, descending is
     /// "what just arrived", and a finite budget has to reach one of them deterministically.
-    pub async fn awaiting_authority(
+    pub async fn awaiting_resolver(
         &self,
         sources: &[&str],
         limit: Option<usize>,
@@ -38,7 +38,7 @@ impl<'a> IdentitySelection<'a> {
     ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
         use model::knowledge_entity as entity;
 
-        // Asked already: holds an annotation a configured authority made, rather than only the
+        // Asked already: holds an annotation a configured identity resolver made, rather than only the
         // observation's handle.
         let annotated = Query::select()
             .distinct()
@@ -80,7 +80,7 @@ impl<'a> IdentitySelection<'a> {
 
     /// The entities in `entity_ids` this provider already annotated.
     ///
-    /// A resolver may still be asked about an entity another authority answered; only its own prior
+    /// A resolver may still be asked about an entity another identity resolver answered; only its own prior
     /// annotation removes it.
     pub async fn annotated_by(
         &self,
