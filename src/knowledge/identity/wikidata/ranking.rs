@@ -1,10 +1,10 @@
 //! Scoring: which of a query's candidates, if any, is the entity we meant.
 
-use super::WikidataCandidate;
-use crate::knowledge::text;
 use crate::knowledge::scoring::{Order, Policy};
-use crate::knowledge::text::{content_tokens, grams};
+use crate::knowledge::text::{self, content_tokens, grams};
 use crate::model;
+
+use super::WikidataCandidate;
 
 // The authority's calibration. Not the graph's: every number below prices a *Wikidata answer*, on a
 // scale produced by `fit` and the blend above — so it lives with the measure that produces them, and

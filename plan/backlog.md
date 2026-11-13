@@ -8,11 +8,23 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 - [ ] **Overhaul `entity_type`, driven by data.** It is capture vocabulary — the illuminator names a type
   in free text — and it currently acts as a *veto* in three places: `types::incompatible` (rejecting
-  candidates by `P31`), the link decision (declining an attachment), and `merge`. Measured cost on the
-  live graph: **three duplicate entities exist solely because their types disagree** — `The Criterion
-  Collection` (`organization`/`brand`), `Pokémon Pokopia` (`software`/`product`), `Lucifer`
-  (`fictional_character`/`religious_figure`) — and the same shape blocks a person from their own account
-  (`Andra` `real_person` vs `@bioavailablend` `social_media_account`).
+  candidates by `P31`), the link decision (declining an attachment), and `merge`.
+
+  What the veto actually costs, measured on the rebuilt graph 2026-11-13: two of the three cases it was
+  cited for are **not** stranded. `Pokémon Pokopia` (`software`/`product`) is raised by `proximity scan`
+  at 0.85 and folded by `auto-merge` — a happy case, recorded here so it stops being cited as damage.
+  `The Criterion Collection` (`organization`/`brand`) is repaired by the verdict log instead, because the
+  scorer will not fold two surface texts that differ that much. Both are one live entity afterwards.
+
+  `Lucifer` is **not a duplicate**: the two captures resolved to different items — `Q185498`, the
+  name/concept, and `Q11689748`, the `Supernatural` character — and the type difference is what correctly
+  kept them apart. They share no identity, so no proximity is raised, and none should be.
+
+  So the cost is a *transient* duplicate the reconciler repairs, not three permanent ones. The design
+  argument below stands without a body count: the veto still gives a second provider nowhere to stand,
+  and still blocks a person from their own account (`Andra` `real_person` vs `@bioavailablend`
+  `social_media_account`).
+
   The vocabulary is 20 values assigned by hand-in-prompt, so it drifts: `television_show` vs
   `television_series` silently disabled a whole rule for 23 series, and `types.rs` deliberately leaves
   `product`, `publication`, `place`, `organization` and `event` **unmapped** because mapping them rejected
