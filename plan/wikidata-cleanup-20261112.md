@@ -125,7 +125,9 @@ module's one-line claim about the corpus gets rewritten to match.
    else refused. The cost is two special cases in two consumers (`resolver::ladder`'s
    `if step == SurfaceTitle`, `inspect`'s two arms) for what is really "the last rule of the title
    question, deferred". The ladder conflates *what we ask* with *how we decide*.
-2. **`inspect` re-implements the ladder loop.** It walks `plan::ladder`, does its own cache lookup,
+2. **`inspect` re-implements the ladder loop** *(partly eased 2026-11-13: it now calls
+   `decision::surface_only(entity, raw)`, so the answer's outcome is visible there; the loop itself
+   is still a second implementation)*. It walks `plan::ladder`, does its own cache lookup,
    its own `admit`/`surface_only`/`explained` dispatch, and its own stop-at-first-claim. The steps
    are shared (which is what `plan` was fixed for); the *loop semantics* are not. `plan::Step`'s doc
    claims "used by the resolver and by the eval replay" — **`eval` does not touch this module at
@@ -141,18 +143,17 @@ module's one-line claim about the corpus gets rewritten to match.
    `evidence` sorts entities by it. Either it becomes an enum (and consumers stop ranking on it) or
    it gets calibrated against a labelled sample, which does not exist. `types.rs` is the model for
    the second: it is the one place here where measured corpus evidence decided a rule.
-5. **A `Degraded` answer can claim.** `admit` accepts `outcome.answered()`, which includes
-   `Degraded` — the state produced when CirrusSearch never reached its backend and returned a
-   prefix-only result set. That payload is "possibly useful"; for *claims* it is exactly the
-   circumstance that produces a wrong QID. Worth a deliberate decision: a degraded search should
-   probably be able to answer *empty* and not able to answer *claim*.
+5. ~~**A `Degraded` answer can claim.**~~ **Fixed 2026-11-13** — a degraded answer is decided and
+   then refused (`decision::trusted`), and the claim it would have made is logged as a warning. See
+   "Degraded answers never claim" below.
 6. **`Kind::Handle(&'static str)` defeats `PropertyId`.** `property_query` introduces a newtype
    "because the number is otherwise a bare string in a query, where a typo is invisible", then
    `Kind` carries the property as a raw `&'static str` across the transport boundary.
 7. **The ladder is budget-blind.** `Resolver::resolve` receives the `Gateway` and can observe a
    refusal, but not how much allowance is left, so it cannot prefer cheap rungs when a run is
    short. Ordering rungs by value per call is the resolver's business and it has no input.
-8. **Test topology is archaeology, not specification.** ~25 single-case tests, most documenting a
+8. **Test topology is archaeology, not specification** *(partly addressed: `decision.rs`'s gates and
+   choice are now a `Case` table, and `ranking.rs` carries one test per rule)*. ~25 single-case tests, most documenting a
    historical bug, several pinning exact confidences (0.75, 0.80). Valuable as history; fragile as
    regression protection, and duplicative (three `Dune` tests for one tie-break rule). What is
    missing is one table test per *gate* — menu, incompatible class, name-relatedness of each kind,
@@ -287,7 +288,7 @@ Left open on purpose when `plan.rs` was signed off:
   type no longer stops a future caller from minting a handle kind from an arbitrary string. Not worth
   churn now; revisit if a second producer of handle kinds appears.
 
-### 4. `ranking.rs` — in progress 2026-11-13
+### 4. `ranking.rs` — done 2026-11-13
 
 - **S1 — the shared scoring contract, before the file.** `Rank` promised "ordering *and* the
   threshold that turns a candidate into an answer — an empty list means nothing here is this". True
@@ -347,7 +348,7 @@ Left open on purpose when `plan.rs` was signed off:
   `unicode-normalization` as its own project (`norm_fingerprint` and an index rebuild), not a
   drive-by; skip `unicode-segmentation` until the corpus asks for it.
 
-### 3. `decision.rs` (was `policy.rs`) — in progress 2026-11-12
+### 3. `decision.rs` (was `policy.rs`) — done 2026-11-13
 
 - **M1 — the method vocabulary had four producers.** `method_for` mapped rung+exactness to a name,
   while `parse_search` and `surface_only` wrote `"search_lookup"` and `"wikipedia_title"` as their
