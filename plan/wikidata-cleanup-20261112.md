@@ -166,6 +166,12 @@ module's one-line claim about the corpus gets rewritten to match.
   Both are documented at the site and were measured.
 - `types.rs`'s family table. Every QID there was checked against Wikidata (2026-11-07) and the
   unmapped entity types are deliberate — mapping them rejected correct claims.
+- **The stemmer's plural disagreement — accepted 2026-11-13.** `carbines` stems to `carbin` while
+  `carbine` does not stem. Trimming the trailing `e` was implemented and measured: 23 decisions
+  moved, one gain and one improvement, but merging `force`/`forces` let a *painting* ("Royal Air
+  Force Museum") outrank the B-17 whose description is thin. A one-word stemmer fix is not worth a
+  wrong referent; the pair stays split until the thin-description/margin problem is solved for its
+  own reasons.
 
 ## Verifying a change here
 

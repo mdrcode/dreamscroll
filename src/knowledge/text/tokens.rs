@@ -50,7 +50,8 @@ fn length(token: &str) -> usize {
 /// Known disagreement, left in place on purpose: `carbines` stems to `carbin` while `carbine` does
 /// not stem. Trimming the trailing `e` fixes it and was measured — 23 decisions moved, and merging
 /// `force`/`forces` let a *painting* ("Royal Air Force Museum") outrank the aircraft whose
-/// description is thin. The pair waits on the margin problem; see `plan/backlog.md`.
+/// description is thin. Accepted 2026-11-13: the pair stays split rather than cost a referent
+/// (`plan/wikidata-cleanup-20261112.md`, "Deliberately not changed").
 fn stem(token: String) -> String {
     for suffix in ["ings", "ing", "ed", "es", "s"] {
         if token.len() > suffix.len() + 2 && token.ends_with(suffix) {

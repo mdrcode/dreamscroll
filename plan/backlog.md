@@ -15,10 +15,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 - [x] **`content_tokens` cannot see short tokens.** Two-character runs that carry a digit (`M4`,
   `5G`) are now words; general two-letter runs stay dropped. Measured: `M4 carbine` resolves to
   Q214688, 7 confidences move, nothing lost.
-- [ ] **The stemmer disagrees with itself on plurals.** `carbines` → `carbin` while `carbine` →
-  `carbine`. A trailing-`e` trim fixes it and was **measured then reverted**: 23 decisions moved,
-  and merging `force`/`forces` let a *painting* ("Royal Air Force Museum") outrank the B-17 whose
-  description is thin. Blocked on the thin-description/margin problem, not on the stem.
 - [x] **`identity inspect` truncates each rung to four candidates.** The decided candidate is now
   always shown and the rest are counted (`… 5 more`), in text and JSON.
 
