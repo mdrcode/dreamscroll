@@ -42,7 +42,9 @@ fn stem(token: String) -> String {
         }
     }
     // Agent nouns only when enough of the word remains: `painter` → `paint` is the case this exists
-    // for, while `water` → `wat` and `filmmaker` → `filmak` are damage.
+    // for, and the guard stops a short word losing its only syllable (`water` → `wat`). It cannot
+    // stop every bad stem — `filmmaker` still becomes `filmmak`, pinned below — which is one reason
+    // a real stemmer is on the table.
     if token.len() > 6 && (token.ends_with("ers") || token.ends_with("er")) {
         let trimmed = if token.ends_with("ers") {
             &token[..token.len() - 3]
@@ -147,6 +149,9 @@ mod tests {
     fn stems_meet_without_mangling() {
         assert_eq!(content_tokens("painting"), content_tokens("painter"));
         assert_ne!(content_tokens("water"), content_tokens("watch"));
+        // Not a claim that this is right: it is the known damage a suffix rule does, recorded so a
+        // replacement stemmer's effect here is visible.
+        assert_eq!(content_tokens("filmmaker"), vec!["filmmak"]);
         assert_eq!(content_tokens("the and for"), Vec::<String>::new());
     }
 
