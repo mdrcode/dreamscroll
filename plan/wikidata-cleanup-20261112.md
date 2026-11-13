@@ -101,12 +101,22 @@ Options:
 | | change | behaviour | cost |
 | --- | --- | --- | --- |
 | **A** | corpus = the answer everywhere; `decide` passes the full set for weighting, the admitted set for selection | confidence moves on `search_ranked` and on title; no accept/refuse flips unless `df` crosses 1 | `Rank`'s trait signature survives; `Ranking` needs a corpus, and `fit_within`/`blend_within` collapse into it |
-| **B** | corpus = admitted everywhere; admit first, then let the shortcut measure over `admitted` | same direction as A; removes the second `Weights` construction | the exact-surface candidate always survives admission, so ordering is nearly free — but it makes a rung that exists to bypass the name rules consult them |
+| **B** | corpus = admitted everywhere; admit first, then let the shortcut measure over `admitted` | same direction as A; one corpus | **the corpus is usually 1–3 candidates, where IDF is inert**: with `N <= 2` every `N/(1+df)` is `<= 1`, the floor applies, and `fit` collapses to `matched/(matched+3)` — 0.25, 0.40, 0.50 for one, two, three matched grams, whatever the words are. Search would measure with a statistic that has stopped measuring; confidence drops correspondingly |
 | **C** | the shortcut stops using `fit`: lone exact surface + plain token overlap | narrowest blast radius; no second corpus to synchronise | a third notion of "corroboration" |
 
-Preference: **A** — the only option that makes the doc true, and it deletes two helpers rather than
-adding a third notion of fit. B removes a concept but re-consults the name rule the shortcut exists
-to bypass.
+Correction to an earlier claim: the shortcut does **not** bypass admission — `near_surface` accepts an
+equal surface (`text/surface.rs:17`), so its candidate always survives `admit`. What it bypasses is
+the *margin* and the blend pricing: it claims at `LOOKUP_CONFIDENCE` with method `search_lookup`
+rather than competing. B does not make it consult rules it avoids; B changes the corpus it is weighed
+against.
+
+Preference: **A**, on corpus quality rather than documentation — IDF needs a retrieval set to have
+frequency to read, and the answer is the only set that exists before the decision it informs. B's
+corpus is conditioned on that decision and is too small for the statistic to work. A also lets one
+`Weights` per answer serve the shortcut, `choose`, and the title rung, deleting both `*_within`
+helpers. Its cost is real: `Ranking` becomes per-answer (`Ranking::over(&answer)`) instead of a unit
+struct, so `Scoring` becomes "score these against that corpus". Whichever option lands, the ranking
+module's one-line claim about the corpus gets rewritten to match.
 
 ## Other findings, by severity
 
