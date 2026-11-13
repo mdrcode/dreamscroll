@@ -17,7 +17,6 @@ use crate::knowledge::blocker::SqlBlocker;
 use crate::knowledge::identity::wikidata::{WikidataCandidate, decision, plan};
 use crate::knowledge::linker::heuristic::Heuristic;
 use crate::knowledge::normalize;
-use crate::knowledge::scoring::Scoring;
 use crate::model;
 
 /// One entity, and everything the pipeline did with it.
@@ -111,11 +110,10 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
     }
 
     // The same `Scoring` the linker asks, so "would it attach" here means what it means there.
-    let scoring: Scoring = Heuristic::scoring();
+    let scoring = Heuristic::scoring();
     let ranked = match &probe {
         Some(observation) => scoring
-            .link
-            .rank(observation, &found)
+            .link(observation, &found)
             .into_iter()
             .map(|(index, score)| (found[index].id, found[index].name.clone(), score))
             .collect(),

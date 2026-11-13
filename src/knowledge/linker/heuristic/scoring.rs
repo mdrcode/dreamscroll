@@ -42,13 +42,13 @@ const TYPE_UNKNOWN_MATCH: f32 = 0.5;
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Heuristic;
 
+/// The one instance: a unit struct has nothing to own, so borrowing it costs nothing.
+static HEURISTIC: Heuristic = Heuristic;
+
 impl Heuristic {
-    /// This policy in the shape a store holds: the three questions, boxed.
-    ///
-    /// Public because a caller that runs a batch pass passes the policy to it directly, rather than
-    /// reading it back off the store.
-    pub fn scoring() -> Scoring {
-        Scoring::new(std::sync::Arc::new(Self))
+    /// This policy as the graph's three questions. Stateless, so one instance serves every caller.
+    pub fn scoring() -> &'static dyn Scoring {
+        &HEURISTIC
     }
 }
 

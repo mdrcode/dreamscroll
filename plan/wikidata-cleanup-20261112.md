@@ -282,6 +282,13 @@ Left open on purpose when `plan.rs` was signed off:
   which is the distinction whose absence produced the identity resolver's two incompatible fits. `Order`
   names the two-part key; each side's evidence is named (`Features` owns its judgement, the identity resolver
   has `Fit { fit, blend }`). Behaviour identical: rebuild reproduces the identity table row for row.
+- **S2 — the bundle became a view instead of three trait objects.** `Scoring` was a struct of three
+  `Arc<dyn …>` fields, because a trait object fixes its type parameters — so one policy had to be
+  stored three times and `Scoring::new` repeated the bounds. `Rank` already solved that shape with a
+  blanket impl, so `Scoring` is now a trait with the graph's three questions, blanket-implemented for
+  any policy that answers them. The heuristic is stateless, so `Heuristic::scoring()` hands out one
+  `&'static dyn Scoring`; `HeuristicLinker` borrows it and proximity takes `&dyn Scoring`.
+  `with_scoring` was deleted — defined, documented, never called.
 
 ### 3. `decision.rs` (was `policy.rs`) — in progress 2026-11-12
 

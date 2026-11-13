@@ -4,9 +4,7 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 
 use sea_orm::sea_query::{NullOrdering, Order};
-use sea_orm::{
-    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
-};
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 
 use crate::knowledge::graph::KnowledgeGraph;
 use crate::knowledge::graph::merge::Outcome;
@@ -38,7 +36,7 @@ pub struct AutoMergeReport {
 pub async fn auto_merge(
     conn: &DatabaseConnection,
     graph: &KnowledgeGraph,
-    scoring: &Scoring,
+    scoring: &dyn Scoring,
     apply: bool,
 ) -> anyhow::Result<AutoMergeReport> {
     let mut report = AutoMergeReport::default();
@@ -84,8 +82,7 @@ pub async fn auto_merge(
         };
         // A set of one is the pair question: is there a candidate that is this thing?
         if scoring
-            .merge
-            .rank(&loser, std::slice::from_ref(&winner))
+            .merge(&loser, std::slice::from_ref(&winner))
             .is_empty()
         {
             report.undecided += 1;

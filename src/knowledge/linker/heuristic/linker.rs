@@ -3,8 +3,8 @@
 //! A procedure, not a policy. It asks one question —
 //! [`Rank::rank`](crate::knowledge::scoring::Rank::rank) — and applies the answer: the
 //! best qualifying candidate is where the observation attaches, and no qualifying candidate is a
-//! new entity. The bar lives in the policy's `rank`, because it is a conjunction over what was
-//! compared and a number cannot carry that.
+//! new entity. The bar lives in the policy's `qualifies`, because it is a conjunction over what
+//! was compared and a number cannot carry that.
 
 use crate::model;
 
@@ -17,11 +17,10 @@ use super::Heuristic;
 /// Take the highest-scoring candidate that clears the bar; otherwise start a new entity.
 ///
 /// The procedure is fixed; the policy is a member, because a linker decides with one and nothing
-/// else. `new` uses the heuristic's own, [`Self::with_scoring`] puts the same procedure over a
-/// different one.
+/// else.
 #[derive(Clone)]
 pub struct HeuristicLinker {
-    scoring: Scoring,
+    scoring: &'static dyn Scoring,
 }
 
 impl std::fmt::Debug for HeuristicLinker {
@@ -37,11 +36,6 @@ impl HeuristicLinker {
         Self {
             scoring: Heuristic::scoring(),
         }
-    }
-
-    /// The same procedure over a different policy.
-    pub fn with_scoring(scoring: Scoring) -> Self {
-        Self { scoring }
     }
 }
 
@@ -104,7 +98,7 @@ impl Linker for HeuristicLinker {
             }
 
             let candidates = blocker.candidates(&observation).await;
-            let ranked = self.scoring.link.rank(&observation, &candidates);
+            let ranked = self.scoring.link(&observation, &candidates);
 
             // The best candidate that qualifies. An empty ranking is a decision too: nothing here
             // is this observation, so it starts a new entity.

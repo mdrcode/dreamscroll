@@ -15,7 +15,6 @@
 //! Ordering of confidences is [`TotalCmp`].
 
 use std::cmp::Ordering;
-use std::sync::Arc;
 
 use crate::model;
 
@@ -130,37 +129,34 @@ impl TotalCmp for Option<f32> {
     }
 }
 
-/// The verbs, from one policy, for the pairs the graph asks about.
+/// The three questions the graph asks its policy, answered by one object.
 ///
-/// Three fields because a trait object fixes its type parameters: the same policy is asked three
-/// questions — a capture against entities, two entities as a verdict, two entities as a number.
-#[derive(Clone)]
-pub struct Scoring {
+/// A view of a [`Policy`], not a second policy: anything that can answer all three questions gets
+/// this for free, so a caller holds one trait object instead of three — the same arrangement as
+/// [`Rank`]. The questions are the graph's (a linker's, a merge's, a proximity row's), which is why
+/// an identity resolver does not implement this: its candidates are not entities.
+pub trait Scoring: Send + Sync {
     /// A capture's observation against the graph's entities: empty means start a new entity.
-    pub link: Arc<dyn Rank<Observation, Entity>>,
+    fn link(&self, observation: &Observation, candidates: &[Entity]) -> Vec<(usize, f32)>;
     /// Two entities, as a verdict. A set of one is the pair question.
-    pub merge: Arc<dyn Rank<Entity, Entity>>,
+    fn merge(&self, subject: &Entity, candidates: &[Entity]) -> Vec<(usize, f32)>;
     /// Two entities, as the number a proximity row stores.
-    pub pair: Arc<dyn Similarity<Entity, Entity>>,
+    fn pair(&self, a: &Entity, b: &Entity) -> f32;
 }
 
-impl Scoring {
-    /// One policy, asked the three questions the store needs answered.
-    ///
-    /// Generic over the policy rather than taking a choice of implementation: whoever composes the
-    /// store picks the concrete type, and this module stays a contract. The bounds are the whole
-    /// requirement — a policy that cannot answer one of the three does not compile here.
-    pub fn new<P>(policy: Arc<P>) -> Self
-    where
-        P: Policy<Observation, Entity>
-            + Policy<Entity, Entity>
-            + Similarity<Entity, Entity>
-            + 'static,
-    {
-        Self {
-            link: policy.clone(),
-            merge: policy.clone(),
-            pair: policy,
-        }
+impl<P> Scoring for P
+where
+    P: Policy<Observation, Entity> + Policy<Entity, Entity> + Similarity<Entity, Entity>,
+{
+    fn link(&self, observation: &Observation, candidates: &[Entity]) -> Vec<(usize, f32)> {
+        <P as Rank<Observation, Entity>>::rank(self, observation, candidates)
+    }
+
+    fn merge(&self, subject: &Entity, candidates: &[Entity]) -> Vec<(usize, f32)> {
+        <P as Rank<Entity, Entity>>::rank(self, subject, candidates)
+    }
+
+    fn pair(&self, a: &Entity, b: &Entity) -> f32 {
+        <P as Similarity<Entity, Entity>>::score(self, a, b)
     }
 }
