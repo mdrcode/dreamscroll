@@ -409,6 +409,9 @@ fn print_inspection(report: &knowledge::identity::inspect::Report) {
         for (id, label, description) in &step.top {
             println!("      {id:<12} {label:<34} {description}");
         }
+        if step.hidden > 0 {
+            println!("      … {} more", step.hidden);
+        }
         match &step.decision {
             Some((qid, method)) if step.vetoed => {
                 println!("      ⊘ vetoed {qid} via {method} (standing verdict)")

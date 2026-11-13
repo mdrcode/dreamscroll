@@ -17,8 +17,8 @@
 
 use crate::model;
 
-use crate::knowledge::text;
 use crate::knowledge::scoring::{Entity, Observation, Order, Policy, Scoring, Similarity};
+use crate::knowledge::text;
 
 pub const WEIGHT_NAME: f32 = 0.60;
 pub const WEIGHT_DESCRIPTION: f32 = 0.30;
@@ -362,9 +362,17 @@ fn tokens(surface: &str) -> Vec<String> {
 }
 
 /// The words of a surface already in its comparable form, so a caller that has one does not
-/// fold it twice.
+/// fold it twice. Stopwords are dropped with `text::is_noise`, the resolver's own definition: `the`
+/// and `of` never name a thing, and `The Big Short` must block against `Big Short`.
+///
+/// Deliberately *not* the full `content_tokens` yet: stemming and the short-run floor would move
+/// link decisions much further, so they are a separate step.
 fn tokens_of(comparable: &str) -> Vec<String> {
-    comparable.split_whitespace().map(str::to_string).collect()
+    comparable
+        .split_whitespace()
+        .filter(|token| !text::is_noise(token))
+        .map(str::to_string)
+        .collect()
 }
 
 #[cfg(test)]

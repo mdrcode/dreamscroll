@@ -43,7 +43,8 @@ pub trait Policy<A, B>: Send + Sync {
     type Evidence;
 
     /// The evidence for every candidate, in candidate order. Corpus-aware by construction: the slice
-    /// *is* the corpus, which is what separates this from [`Similarity`].
+    /// is the corpus, or the policy carries one, and either way it sees more than a pair — which is
+    /// what separates this from [`Similarity`].
     fn evaluate(&self, subject: &A, candidates: &[B]) -> Vec<Self::Evidence>;
 
     /// Is this evidence enough to answer with? The conjunction lives here.

@@ -163,10 +163,7 @@ fn last_resort(
         };
         // `admit` runs again on an answer the title wave already gated. It is pure, so the
         // cost is a clone — the alternative is threading gated candidates between waves.
-        let Ok(candidates) = decision::admit(entity, raw) else {
-            continue;
-        };
-        if let Some(identity) = decision::surface_only(entity, &candidates) {
+        if let Ok(identity) = decision::surface_only(entity, raw) {
             resolved.insert(entity.id);
             identities.push((entity.id, identity));
         }

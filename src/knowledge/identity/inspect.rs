@@ -53,8 +53,11 @@ pub struct Step {
     pub cache: State,
     /// What the stored answer said it was, when there is a row to read.
     pub outcome: Option<Outcome>,
-    /// The first candidates the answer carried: `(id, label, description)`.
+    /// The candidates the answer carried, for display: the first four, plus the one the rung decided
+    /// on when it fell outside them. `(id, label, description)`.
     pub top: Vec<(String, String, String)>,
+    /// Candidates the display does not show, so a truncated list is never read as the whole answer.
+    pub hidden: usize,
     /// `(qid, method)` when this rung produced an identity.
     pub decision: Option<(String, String)>,
     /// The rung's identity is refused by a standing veto, so the engine would not write it.
@@ -191,7 +194,6 @@ async fn walk(
                 &request.query,
             )
             .await?;
-        let top = describe(lookup.body.as_deref().unwrap_or_default());
 
         // An expired row is a miss to the resolver, so it renders no decision here either; an
         // unreadable answered payload is the miss `get_many` makes of it.
@@ -202,6 +204,7 @@ async fn walk(
             _ => "",
         };
         let mut vetoed = false;
+        let (top, hidden);
         let decision = if lookup.state == State::Fresh && refusal.is_empty() {
             let raw = Answer {
                 outcome: lookup.outcome.expect("a present row has an outcome"),
@@ -209,10 +212,10 @@ async fn walk(
             };
             let identity = match rung {
                 // The last resort does not rank: it takes the article bearing this exact name.
-                plan::Step::SurfaceTitle => match decision::admit(entity, &raw) {
-                    Ok(candidates) => decision::surface_only(entity, &candidates),
-                    Err(gate) => {
-                        refusal = gate;
+                plan::Step::SurfaceTitle => match decision::surface_only(entity, &raw) {
+                    Ok(identity) => Some(identity),
+                    Err(why) => {
+                        refusal = why;
                         None
                     }
                 },
@@ -224,7 +227,7 @@ async fn walk(
                     }
                 },
             };
-            identity.map(|identity| {
+            let decision = identity.map(|identity| {
                 vetoed = vetoes.contains(&(
                     entity.id,
                     identity.scheme.clone(),
@@ -233,8 +236,14 @@ async fn walk(
                 // Every provider identity names its method; `None` is the stored type's allowance for a
                 // capture's own handle annotation, not something a resolver can return.
                 (identity.external_id, identity.method.unwrap_or_default())
-            })
+            });
+            (top, hidden) = describe(
+                raw.body.as_deref().unwrap_or_default(),
+                decision.as_ref().map(|(qid, _)| qid.as_str()),
+            );
+            decision
         } else {
+            (top, hidden) = describe(lookup.body.as_deref().unwrap_or_default(), None);
             None
         };
 
@@ -244,6 +253,7 @@ async fn walk(
             cache: lookup.state,
             outcome: lookup.outcome,
             top,
+            hidden,
             decision: decision.clone(),
             vetoed,
             refusal,
@@ -327,6 +337,7 @@ impl Report {
                             "description": description,
                         }))
                         .collect::<Vec<_>>(),
+                    "hidden": step.hidden,
                     "decision": step.decision.as_ref().map(|(qid, method)| serde_json::json!({
                         "qid": qid,
                         "method": method,
@@ -345,19 +356,29 @@ impl Report {
     }
 }
 
-/// The first few candidates an answer carried, as the inspection prints them.
-fn describe(candidates: &[WikidataCandidate]) -> Vec<(String, String, String)> {
-    candidates
-        .iter()
-        .take(4)
-        .map(|candidate| {
-            (
-                candidate.id.clone(),
-                candidate.label.clone().unwrap_or_default(),
-                candidate.description.clone().unwrap_or_default(),
-            )
-        })
-        .collect()
+/// The candidates the inspection prints: the first four, plus the one the rung decided on when the
+/// decision fell outside them — otherwise the report names a QID it never showed. `hidden` counts the
+/// rest.
+fn describe(
+    candidates: &[WikidataCandidate],
+    decided: Option<&str>,
+) -> (Vec<(String, String, String)>, usize) {
+    let row = |candidate: &WikidataCandidate| {
+        (
+            candidate.id.clone(),
+            candidate.label.clone().unwrap_or_default(),
+            candidate.description.clone().unwrap_or_default(),
+        )
+    };
+    let mut rows: Vec<(String, String, String)> = candidates.iter().take(4).map(row).collect();
+    if let Some(qid) = decided
+        && !rows.iter().any(|(id, _, _)| id == qid)
+        && let Some(candidate) = candidates.iter().find(|candidate| candidate.id == qid)
+    {
+        rows.push(row(candidate));
+    }
+    let hidden = candidates.len() - rows.len();
+    (rows, hidden)
 }
 
 async fn current_identity(db: &DbHandle, id: i32) -> anyhow::Result<Option<StoredIdentity>> {
@@ -444,5 +465,42 @@ mod tests {
             report.identity.is_none(),
             "the veto left no identity to hold"
         );
+    }
+
+    /// A decision can fall outside the four candidates the report prints — `M4 carbine` decided on a
+    /// candidate the inspection never showed. The decided one is always rendered, and the count of
+    /// the rest is stated so a truncated list is not read as the whole answer.
+    #[test]
+    fn the_decided_candidate_is_always_shown() {
+        let candidate = |id: &str| WikidataCandidate {
+            id: id.to_string(),
+            label: Some(id.to_string()),
+            description: None,
+            classes: Vec::new(),
+        };
+        let five = [
+            candidate("Q1"),
+            candidate("Q2"),
+            candidate("Q3"),
+            candidate("Q4"),
+            candidate("Q5"),
+        ];
+
+        let (rows, hidden) = describe(&five, None);
+        assert_eq!(rows.len(), 4);
+        assert_eq!(hidden, 1);
+
+        let (rows, hidden) = describe(&five, Some("Q5"));
+        assert_eq!(
+            rows.iter()
+                .map(|(id, _, _)| id.as_str())
+                .collect::<Vec<_>>(),
+            ["Q1", "Q2", "Q3", "Q4", "Q5"]
+        );
+        assert_eq!(hidden, 0, "everything shown is everything there was");
+
+        let (rows, hidden) = describe(&five, Some("Q2"));
+        assert_eq!(rows.len(), 4, "a shown decision adds no duplicate row");
+        assert_eq!(hidden, 1);
     }
 }

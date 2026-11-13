@@ -63,7 +63,43 @@ pub(super) const NAME_WEIGHT: f32 = 0.40;
 pub(super) const SUPPORT_WEIGHT: f32 = 0.60;
 
 /// The authority's one policy: the description evidence that orders, and the blend that prices it.
-pub(super) struct Ranking;
+///
+/// Carries the corpus — the whole answer — because that is what rarity is measured against, and a
+/// rung's selection set is a fraction of it. The lone-surface shortcut and [`choose`] share one
+/// instance, so a candidate has one fit per answer rather than one per path.
+pub(super) struct Ranking {
+    weights: Weights,
+}
+
+impl Ranking {
+    /// Measured over the answer the question returned, never over the set a decision is choosing
+    /// between: a corpus of one or two candidates makes the IDF floor swallow every term, and a set
+    /// filtered by name-relatedness makes the measure depend on the rule it feeds.
+    pub(super) fn over(candidates: &[WikidataCandidate]) -> Self {
+        Self {
+            weights: Weights::over(candidates),
+        }
+    }
+
+    /// One candidate's fit against the answer it arrived in: `decision::search` asks this before
+    /// accepting a lone same-surface candidate.
+    pub(super) fn fit(
+        &self,
+        entity: &model::knowledge_entity::Model,
+        candidate: &WikidataCandidate,
+    ) -> f32 {
+        fit(&our_tokens(entity), candidate, &self.weights)
+    }
+
+    /// The winner's blend against the answer it arrived in: the confidence `decision::choose` stores.
+    pub(super) fn blend(
+        &self,
+        entity: &model::knowledge_entity::Model,
+        candidate: &WikidataCandidate,
+    ) -> f32 {
+        blend(entity, candidate, self.fit(entity, candidate))
+    }
+}
 
 impl Policy<model::knowledge_entity::Model, WikidataCandidate> for Ranking {
     type Evidence = Fit;
@@ -74,11 +110,10 @@ impl Policy<model::knowledge_entity::Model, WikidataCandidate> for Ranking {
         candidates: &[WikidataCandidate],
     ) -> Vec<Fit> {
         let ours = our_tokens(entity);
-        let weights = Weights::over(candidates);
         candidates
             .iter()
             .map(|candidate| {
-                let fit = fit(&ours, candidate, &weights);
+                let fit = fit(&ours, candidate, &self.weights);
                 Fit {
                     fit,
                     blend: blend(entity, candidate, fit),
@@ -140,27 +175,6 @@ fn blend(entity: &model::knowledge_entity::Model, candidate: &WikidataCandidate,
         )
     };
     NAME_WEIGHT * name + SUPPORT_WEIGHT * fit
-}
-
-/// One candidate's fit against the answer it arrived in: `decision::search` asks this before accepting
-/// a lone same-surface candidate.
-pub(super) fn fit_within(
-    entity: &model::knowledge_entity::Model,
-    candidate: &WikidataCandidate,
-    candidates: &[WikidataCandidate],
-) -> f32 {
-    fit(&our_tokens(entity), candidate, &Weights::over(candidates))
-}
-
-/// The winner's blend against the answer it arrived in: the confidence `decision::choose` stores.
-pub(super) fn blend_within(
-    entity: &model::knowledge_entity::Model,
-    candidate: &WikidataCandidate,
-    candidates: &[WikidataCandidate],
-) -> f32 {
-    let weights = Weights::over(candidates);
-    let fit = fit(&our_tokens(entity), candidate, &weights);
-    blend(entity, candidate, fit)
 }
 
 /// The part of `search_query` that the label does not already say.

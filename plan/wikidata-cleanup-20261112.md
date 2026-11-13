@@ -311,10 +311,10 @@ Left open on purpose when `plan.rs` was signed off:
   stems, grams, `jaccard`) and `surface` (`near_surface`). `normalize.rs` is gone; its call sites
   name `text::`. `Cargo.toml` gains **`strsim` 0.11** (no transitive dependencies) for
   `levenshtein`, replacing the loop we wrote and tested ourselves.
-  *Tracked:* the **rust-stemmers experiment** (replace `tokens::stem` with Porter2 and measure the
-  corpus the way M6/M8 were measured) and **unifying the second tokenizer**
+  *Open work, tracked in `plan/backlog.md`* (the one list): unifying the second tokenizer
   (`linker/heuristic/scoring.rs` splits a folded surface on whitespace; `text::tokens` stems and
-  filters). *Foregone, with reasons:* `unicode-normalization` (would move `norm_fingerprint`, so a
+  filters), the stem's plural disagreement, the sub-three-character blind spot, and `inspect`'s
+  four-candidate truncation. *Foregone, with reasons:* `unicode-normalization` (would move `norm_fingerprint`, so a
   blocking-index rebuild — its own project) and `unicode-segmentation` (the corpus is ASCII-ish).
 - **S5 — `ranking.rs`'s own comment pass.** Behaviour was right; the prose had drifted. Two orphaned
   blocks left behind when `text/` took the string code (`NOISE`'s doc sitting on the `Ranking` struct;
@@ -327,20 +327,19 @@ Left open on purpose when `plan.rs` was signed off:
   343 → 333 lines, 86 comment lines, no behaviour change.
 
   While moving it: the stem's comment claimed a guard that does not exist (`filmmaker` → `filmmak`),
-  now corrected and pinned. That is one reason to stop owning a stemmer. Options, with crates.io
-  facts as of 2026-11-13:
+  now corrected and pinned. Options, with crates.io facts as of 2026-11-13:
 
   | crate | version | normal deps | replaces | behaviour |
   | --- | --- | --- | --- | --- |
   | `strsim` | 0.11.1 (2024, 1.27B dl) | none | `edit_distance` | identical — same Levenshtein |
-  | `rust-stemmers` | 1.2.0 (2019, 42M dl) | serde (already in tree) | `stem` | changes tokens, so the corpus |
   | `unicode-normalization` | 0.1.26 (2026) | tinyvec | `normalize`'s hand-written fold, and the NFD tripwire in `plan/backlog.md` | moves `norm_fingerprint`, so a blocking-index rebuild |
   | `unicode-segmentation` | 1.13.3 (2026) | none | the `split(!is_alphanumeric)` tokenizer | mild; the corpus is ASCII-ish |
 
   Recommendation: take `strsim` (no tradeoff: it deletes an algorithm we own and returns the same
-  numbers); measure `rust-stemmers` the way M6/M8 were measured, since a stemmer changes which
-  identities are reached; treat `unicode-normalization` as its own project (`norm_fingerprint` and an
-  index rebuild), not a drive-by; skip `unicode-segmentation` until the corpus asks for it.
+  numbers); keep the hand-rolled stem and fix its plural bug (tracked in the backlog) rather than
+  adopting `rust-stemmers` — decided 2026-11-13, the swap is not worth measuring; treat
+  `unicode-normalization` as its own project (`norm_fingerprint` and an index rebuild), not a
+  drive-by; skip `unicode-segmentation` until the corpus asks for it.
 
 ### 3. `decision.rs` (was `policy.rs`) — in progress 2026-11-12
 
@@ -422,12 +421,140 @@ Cross-cutting consequences, all applied:
 - `parse` → `interpret`: `mod.rs`, `resolver.rs`, `inspect.rs` (three call sites), and `knowledge.md`.
 - `Gateway::resolve_requests` → `answers_for`: `fetch/gateway.rs` (definition + 2 test sites), `fetch/mod.rs`, `fetch/stats.rs`, `identity/mod.rs`, and `knowledge.md`.
 
+## The two-fits defect: decided, and what it cost (2026-11-13)
+
+**Option A shipped.** `Ranking` carries the answer's `Weights`; the lone-surface shortcut and `choose`
+share one instance, so `fit_within`/`blend_within` are gone. Measured over the full 2281-entity
+rebuild, keyed by `origin_observation_id`:
+
+| | baseline | with A |
+| --- | --- | --- |
+| identities | 1677 | 1672 |
+| `wikipedia_title` | 1249 | 1249 (no change at all) |
+| `search_ranked` | 45 | 41 |
+| `search_lookup` | 20 | 19 |
+
+25 entity rows moved: 18 confidences up (max +0.049), 2 down, 5 refused. Judged case by case:
+
+| obs | old claim was | verdict |
+| --- | --- | --- |
+| 155 | the hardcover *edition* of the book, on `2024` alone | **win** — edition ≠ work |
+| 240 | Bushmaster M4 Type Carbine, a clone, on `carbine` | **win** — wrong referent |
+| 729 | *Rebel Country*, a 2024 documentary, on `american` | **win** — wrong referent |
+| 757 | Bell System — correct (label is 2 of our 3 name words) | **loss** |
+| 1784 | candied orange peel — correct, exact label | **loss** |
+
+All five were `choose` claims resting on one shared word, accepted only because `df <= 1` over an
+admitted set of 1–3. Over the answer corpus that word is carried by 2–7 candidates. **The gate was
+asking a competitor question while measuring a document-frequency fact.**
+
+Two reformulations were measured and **rejected**:
+
+- **Competitor-only** (`df` over the admitted set): restores all five, i.e. Bell and Candied return
+  *and so do* the edition, the clone and the documentary. Net: +2 right, +3 wrong.
+- **Ordered-label + non-year** (lone word counts only when the label is our name in order and the
+  word is not a bare year): `Bell Telephone System` and `Candied orange peel` still refused, and it
+  loses five more (`Westinghouse`, `Lexia Learning`, `Vodolazkin`, `Drafting Table`, …).
+
+Conclusion: keep the answer-corpus `df` gate. The two losses are the price of refusing the three
+wrong claims, and wrong identities are the more expensive error.
+
+### Two defects the comparison exposed, both fixed
+
+- **A short label was not a name.** `content_tokens` drops runs under three characters, so `M4`
+  tokenised to nothing and Q214688 (the actual M4) was never admissible for `M4 carbine`. `search`
+  now also admits when one folded surface is a whole-word prefix of the other (`M4` ⊂ `M4 carbine`),
+  with a boundary test so `roy` is not `royal`. Measured: **zero corpus change**, so no risk.
+- **A label-less candidate could not be the answer.** `search`'s admission refused any candidate
+  without a label, which excluded the *correct* item for `Gladiator` (Q128518), `The Big Short`
+  (Q19850715) and `The Talented Mr. Ripley` (Q390052) — after which `by_hint` claimed a sibling:
+  a soundtrack, a film festival, a 1955 novel. Blanket admission was measured first and **rejected**:
+  9 gains, 6 of them wrong (`2026 video game`, `book 2009`, `open source tank battle game`, the NPR
+  CEO, an xAI encyclopaedia). The rule kept requires **three substantive description words in common**
+  with us — a mention is not a naming.
+
+Measured result of the two kept fixes: 3 wrong referents corrected (festival→film, soundtrack→film,
+novel→film), 4 method upgrades (`search_hint` → `search_ranked` at the same QID, honest confidence),
+and no wrong gains.
+
+**Correction, found while working the backlog:** the three-word bar counted *tokens*, not distinct
+words, so `gaming` + `game` (both `gam`) counted twice and a two-word overlap passed. It now counts
+distinct words. Two claims did not survive that: `Nostalgic Gamer` (a 2026 video game) and
+`Eurail Pass` (a genuine 2-word match: `rail`, `pass`). The rule is stricter than intended and
+Eurail is the price; both are recorded rather than tuned away.
+
+Net against the baseline: 3 wrong claims corrected, 3 wrong claims refused, 1 correct claim gained,
+2 correct claims lost. `cargo test --lib`: 476 pass.
+
+### Found while measuring, not yet fixed
+
+- **`identity inspect` truncates each rung to four candidates** (`.take(4)` in `inspect.rs`), so a
+  decision can name a QID the report never showed. `M4 carbine` printed four of nine and decided on a
+  candidate outside the four. Diagnostic only — but it misled this review twice.
+- **`content_tokens` drops runs under three characters.** Admission now compensates with the
+  word-prefix rule (`M4` ⊂ `M4 carbine`), but the *measure* still cannot see `M4` inside a
+  description, so a short token contributes no evidence anywhere.
+- **The stemmer disagrees with itself on plurals here:** `carbines` → `carbin`, `carbine` →
+  `carbine`, so a label saying `carbines` never meets a description saying `carbine`.
+
+All three, and the tokenizer split with the linker, are tracked in `plan/backlog.md` — the single
+list to iterate against.
+
+## Degraded answers never claim (2026-11-13)
+
+`Outcome::answered()` includes `Degraded`, so before this change a prefix-only result set could claim
+— the exact circumstance that produces a plausible wrong QID. Now `decision` decides the answer and
+then refuses it (`trusted`), which is what lets the discarded claim be *reported* instead of dropped:
+
+```
+WARN a degraded answer would have claimed; discarded entity=… qid=… method=…
+```
+
+Both claim paths go through it: the ladder (`decide`) and the deferred surface pass
+(`surface_only`, which now takes the `Answer` rather than pre-admitted candidates, so it can see the
+outcome). The warning fires only when the answer *would* have produced an identity — a degraded
+answer that decides nothing was not discarded, it was empty.
+
+Why keep the refusal: the payload is a prefix-only set from a backend that never answered, and a
+wrong QID is more expensive than a missing one. Why log it: that log line is the evidence needed to
+revisit the rule, and a silent refusal is how "degraded may claim again" would slip back in.
+
+Measured: the local cache holds zero degraded answers, so the identity table is unchanged (1673).
+`a_degraded_answer_never_claims` pins both sides — the same payload claims when `Found` and is
+refused when `Degraded`.
+
+## The startable list, worked (2026-11-13)
+
+Four items from `plan/backlog.md`, each measured against the identity table keyed by
+`origin_observation_id`. Net against the baseline: **1677 → 1672** identities, made of 4 wrong
+referents corrected, 2 wrong claims refused, 2 correct claims lost, 1 duplicate entity folded
+(`Nintendo` × 2), 4 method upgrades, 27 confidence-only moves.
+
+- **`inspect` truncation — fixed.** The decided candidate is always printed (`.take(4)` used to hide
+  it: `M4 carbine` decided on a QID the report never showed) and the rest are counted as `… N more`.
+  Display only; a unit test pins both paths.
+- **Short tokens — fixed.** Two-character runs carrying a digit are words (`M4`, `5G`); other
+  two-letter runs stay dropped. `M4 carbine` had been unidentifiable because `M4` tokenised to
+  nothing; it now resolves to Q214688, with 7 confidence nudges and no loss.
+- **Plural stems — attempted, reverted.** Trimming a trailing `e` makes `carbine`/`carbines` meet,
+  and moved 23 decisions: one gain (`National Museum of Ancient Art`), one improvement
+  (`Hittitology` → `Hittites`) — and one wrong referent, because `force`/`forces` then match and a
+  *painting* ("Royal Air Force Museum") outranked the B-17. Reverted; the backlog entry now carries
+  this evidence instead of a plan.
+- **Tokenizer unification — step 1 shipped, step 2 measured.** The linker drops the resolver's
+  `NOISE` words (`text::is_noise`), which folds `Nintendo` × 2 and nothing else. Switching the
+  linker to the full `content_tokens` adds one more correct merge (`The Criterion Collection` × 2)
+  and no wrong ones; deferred as its own commit because it changes the linker's scale.
+
+**Bug found in my own rule:** the label-less admission counted matching *tokens*, not distinct
+words, so repeated stems inflated the count. Fixed; see the correction above.
+
 ## Open questions to settle before touching behaviour
 
-1. Two-fits: option A, B, or C?
+1. ~~Two-fits: option A, B, or C?~~ **A shipped** — see the measurement above; the lone-word gate stays on the answer corpus.
 2. Is `confidence` a rung label or a probability? This decides whether `project`/`evidence` should
    keep sorting on it.
-3. May a `Degraded` answer claim, or only answer empty?
+3. ~~May a `Degraded` answer claim, or only answer empty?~~ **No — and the discarded claim is logged.** See below.
 4. Does the title rung need its own name-relatedness rule, or is it the search rule with a
    different surface expectation?
 5. Should `SurfaceTitle` become a deferred *rule on the title question* rather than a pseudo-step —

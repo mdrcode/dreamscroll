@@ -40,17 +40,19 @@
 //! after every rung refused. Everything here is pure, a refusal records *which* stage closed so
 //! `identity inspect` reports it rather than guessing, and the numbers live in `ranking.rs`.
 
-use crate::fetch::Answer;
+use std::collections::BTreeSet;
+
+use crate::fetch::{Answer, Outcome};
 use crate::knowledge::evidence::Identity;
-use crate::knowledge::text;
 use crate::knowledge::scoring::Rank;
+use crate::knowledge::text;
 use crate::knowledge::text::{content_tokens, near_surface};
 use crate::model;
 
 use super::ranking::{
     CLAIM_BAR, CLAIM_MARGIN, FIT_MARGIN, HANDLE_CONFIDENCE, HINT_CEILING, HINT_MIN_SUPPORT,
     LONE_LABEL_CONFIDENCE, LOOKUP_CONFIDENCE, NAME_WEIGHT, Ranking, SUPPORT_WEIGHT,
-    answer_confidence, blend_within, exact_label, fit_within, hint_tokens,
+    answer_confidence, exact_label, hint_tokens,
 };
 use super::{WikidataCandidate, WikidataKind, answer, types};
 
@@ -72,18 +74,46 @@ fn method_for(kind: &WikidataKind, exact_label: bool) -> &'static str {
 /// Three stages, in order: [`admit`] (a menu is not a referent, the right name can be the wrong kind
 /// of thing), the rung's own admission, then [`choose`]. The `Err` is the refusal reason, recorded at
 /// the stage that closed so `identity inspect` reports it rather than guessing.
+///
+/// A degraded answer is decided and then refused, so the claim it would have made can be logged
+/// rather than silently dropped — see [`trusted`].
 pub(crate) fn decide(
     entity: &model::knowledge_entity::Model,
     kind: WikidataKind,
     raw: &Answer<Vec<WikidataCandidate>>,
 ) -> Result<Identity, &'static str> {
-    let candidates = admit(entity, raw)?;
-    match kind {
+    let decision = admit(entity, raw).and_then(|candidates| match kind {
         WikidataKind::Handle(property) => Ok(handle(&candidates, property)),
         WikidataKind::Label => label(entity, &candidates),
         WikidataKind::Title => title(entity, &candidates),
         WikidataKind::Search => search(entity, &candidates),
+    });
+    trusted(entity, raw, decision)
+}
+
+/// Refuse a degraded answer, logging the claim it would have produced.
+///
+/// Degraded means the provider answered without reaching its backend: a prefix-only result set that
+/// can hold the right item, and is exactly the circumstance that produces a plausible *wrong* QID.
+/// So it never claims. What it would have claimed is the evidence for revisiting that rule; a silent
+/// refusal is how a regression to "degraded may claim" would go unnoticed.
+fn trusted(
+    entity: &model::knowledge_entity::Model,
+    raw: &Answer<Vec<WikidataCandidate>>,
+    decision: Result<Identity, &'static str>,
+) -> Result<Identity, &'static str> {
+    if raw.outcome != Outcome::Degraded {
+        return decision;
     }
+    if let Ok(identity) = &decision {
+        tracing::warn!(
+            entity = %entity.name,
+            qid = %identity.external_id,
+            method = identity.method.as_deref().unwrap_or(""),
+            "a degraded answer would have claimed; discarded"
+        );
+    }
+    Err("the answer was degraded")
 }
 
 /// A property match *is* the identity: an item claiming this handle is the account itself. No
@@ -115,7 +145,12 @@ fn label(
             LONE_LABEL_CONFIDENCE,
         ));
     }
-    choose(entity, candidates, WikidataKind::Label)
+    choose(
+        entity,
+        candidates,
+        &Ranking::over(candidates),
+        WikidataKind::Label,
+    )
 }
 
 /// A title maps to one article. A disambiguation page maps to none: it is a menu, and taking
@@ -151,7 +186,12 @@ fn title(
     if titled.is_empty() {
         return Err("the title is about another subject");
     }
-    choose(entity, &titled, WikidataKind::Title)
+    choose(
+        entity,
+        &titled,
+        &Ranking::over(candidates),
+        WikidataKind::Title,
+    )
 }
 
 /// A search answer: one corroborated surface is identity, anything else is a ranker question.
@@ -160,6 +200,7 @@ fn search(
     candidates: &[WikidataCandidate],
 ) -> Result<Identity, &'static str> {
     let ours = text::comparable(&entity.name);
+    let ranking = Ranking::over(candidates);
     let same: Vec<&WikidataCandidate> = candidates
         .iter()
         .filter(|candidate| {
@@ -177,7 +218,7 @@ fn search(
     // spelling difference (`J.R.R.` vs `J. R. R.`), *several* is a shared title where only the
     // description can pick the referent.
     if let [candidate] = same.as_slice()
-        && fit_within(entity, candidate, candidates) > 0.0
+        && ranking.fit(entity, candidate) > 0.0
     {
         return Ok(answer::identity(
             candidate,
@@ -198,25 +239,42 @@ fn search(
     let admitted: Vec<WikidataCandidate> = candidates
         .iter()
         .filter(|candidate| {
+            // No label: the description has to stand in for the name test, and one shared word
+            // is a mention, not a naming (`AI-generated encyclopedia developed by xAI` for `xAI`).
+            // Three substantive words is the bar, and it reaches the cases this exists for:
+            // `Gladiator` → "2000 film directed by Ridley Scott" shares four.
             let Some(label) = candidate.label.as_deref() else {
-                return false;
+                // Distinct words, not tokens: `gaming` and `game` both stem to `gam`, and counting
+                // occurrences let a two-word overlap pass a three-word bar.
+                let theirs: BTreeSet<String> =
+                    content_tokens(candidate.description.as_deref().unwrap_or_default())
+                        .into_iter()
+                        .collect();
+                return entity
+                    .descriptions()
+                    .map(|ours| {
+                        let ours: BTreeSet<String> = content_tokens(ours).into_iter().collect();
+                        theirs.intersection(&ours).count()
+                    })
+                    .max()
+                    .unwrap_or(0)
+                    >= 3;
             };
             if near_surface(&text::comparable(label), &ours) {
                 return true;
             }
-            // Our name is the label plus a qualifier the authority keeps elsewhere: `Andriivka,
-            // Donetsk Oblast`, `Pennsylvania Station (1910–1963)`. The qualifier is ours to
-            // carry, not the authority's — and refusing here means the description never
-            // gets to separate the six villages that share one name.
-            let (name_flat, label_flat) = (
-                text::comparable(&entity.name),
-                text::comparable(label),
-            );
-            if let Some(rest) = name_flat.strip_prefix(&label_flat) {
-                let rest = rest.trim_start();
-                if rest.starts_with(',') || rest.starts_with('(') {
-                    return true;
-                }
+            // One name is the other plus a qualifier: `Andriivka, Donetsk Oblast`,
+            // `Pennsylvania Station (1910–1963)`, and `M4` for `M4 carbine` — a label too short
+            // to survive `content_tokens`, which drops runs under three characters. The qualifier
+            // is ours to carry, not the authority's.
+            //
+            // The boundary test is what keeps a *prefix* from being a name: `roy` is not `royal`.
+            let (name_flat, label_flat) = (text::comparable(&entity.name), text::comparable(label));
+            let ends_word = |rest: &str| rest.chars().next().is_none_or(|c| !c.is_alphanumeric());
+            if name_flat.strip_prefix(&label_flat).is_some_and(ends_word)
+                || label_flat.strip_prefix(&name_flat).is_some_and(ends_word)
+            {
+                return true;
             }
             // A one-word name is still a name: `Rare` against `Rare Ltd.`, `Bash` against
             // `GNU Bash`. Requiring both sides to carry two content words excluded exactly the
@@ -240,7 +298,7 @@ fn search(
         // test, so the hint path has to be reached before it turns the answer down.
         return by_hint(entity, candidates);
     }
-    choose(entity, &admitted, WikidataKind::Search)
+    choose(entity, &admitted, &ranking, WikidataKind::Search)
 }
 
 /// The gates every answer passes before a rung decides: a menu is not a referent, and the right
@@ -273,16 +331,19 @@ pub(crate) fn admit(
     Ok(candidates)
 }
 
-/// Choose a referent from the candidates, or say why none fits. Shared by every rung: the only
-/// difference between them is which candidates reach it, so `kind` is needed here only to name the
-/// method that won.
+/// Choose a referent from the candidates, or say why none fits. Shared by every rung: what differs
+/// is which candidates reach it — `title` and `search` pass a subset of the answer — so `kind` is
+/// needed here only to name the method that won.
+///
+/// Measured in `ranking`'s corpus, which is the full answer even when `candidates` is a subset of it.
 fn choose(
     entity: &model::knowledge_entity::Model,
     candidates: &[WikidataCandidate],
+    ranking: &Ranking,
     kind: WikidataKind,
 ) -> Result<Identity, &'static str> {
     // The verb: the candidates whose description corroborates, best fit first.
-    let ranked = Ranking.rank(entity, candidates);
+    let ranked = ranking.rank(entity, candidates);
     let Some(&(best, best_fit)) = ranked.first() else {
         return by_hint(entity, candidates);
     };
@@ -304,7 +365,7 @@ fn choose(
     Ok(answer::identity(
         best,
         method_for(&kind, exact_label(entity, best)),
-        answer_confidence(blend_within(entity, best, candidates)),
+        answer_confidence(ranking.blend(entity, best)),
     ))
 }
 
@@ -368,12 +429,13 @@ fn by_hint(
 /// `Orthodoxy` the concept.
 pub(crate) fn surface_only(
     entity: &model::knowledge_entity::Model,
-    candidates: &[WikidataCandidate],
-) -> Option<Identity> {
+    raw: &Answer<Vec<WikidataCandidate>>,
+) -> Result<Identity, &'static str> {
     // No rung check: the only caller is the deferred title step, whose request is a title request by
     // construction. A guard here would be a comment that cannot fail.
+    let candidates = admit(entity, raw)?;
     if candidates.len() != 1 {
-        return None;
+        return Err("the answer carried more than one candidate");
     }
     let candidate = &candidates[0];
     // The article has to be about our name: Wikipedia redirects otherwise (`The Bounty Hunter Wars`
@@ -381,13 +443,17 @@ pub(crate) fn surface_only(
     if let Some(label) = candidate.label.as_deref()
         && text::comparable(label) != text::comparable(&entity.name)
     {
-        return None;
+        return Err("the article does not bear our name");
     }
-    Some(answer::identity(
-        candidate,
-        method_for(&WikidataKind::Title, true),
-        LONE_LABEL_CONFIDENCE,
-    ))
+    trusted(
+        entity,
+        raw,
+        Ok(answer::identity(
+            candidate,
+            method_for(&WikidataKind::Title, true),
+            LONE_LABEL_CONFIDENCE,
+        )),
+    )
 }
 
 #[cfg(test)]
@@ -793,12 +859,7 @@ mod tests {
     #[test]
     fn the_surface_rule() {
         let entity = stub_entity(1, "Pokemon", "unknown");
-        let one = vec![WikidataCandidate {
-            id: "Q1".to_string(),
-            label: Some("Pokémon".to_string()),
-            description: None,
-            classes: Vec::new(),
-        }];
+        let one = found(json!([{ "id": "Q1", "label": "Pokémon" }]));
 
         let identity =
             surface_only(&entity, &one).expect("an accent is a spelling, not an article");
@@ -808,18 +869,138 @@ mod tests {
             "the surface path records the title rung's method"
         );
 
+        let two = found(json!([
+            { "id": "Q1", "label": "Pokémon" },
+            { "id": "Q2", "label": "Pokémon" }
+        ]));
         assert!(
-            surface_only(&entity, &[]).is_none(),
+            surface_only(&entity, &two).is_err(),
+            "several candidates are ambiguity, which this rule cannot resolve"
+        );
+        assert!(
+            surface_only(&entity, &found(json!([]))).is_err(),
             "no candidate, no surface"
         );
-        let two = [one[0].clone(), one[0].clone()];
+    }
+
+    /// A label shorter than three characters tokenises to nothing, so `M4` could never be a name
+    /// for `M4 carbine` — the search rung's subset test saw an empty word list and refused. The
+    /// word-prefix test is what admits it, and its boundary is what keeps `roy` from being `royal`.
+    #[test]
+    fn a_label_shorter_than_a_token_is_still_a_name() {
+        Case {
+            why: "`M4` is the first word of `M4 carbine`",
+            probe: probe("M4 carbine")
+                .described("A 5.56×45mm NATO gas-operated magazine-fed carbine")
+                .typed("product"),
+            answer: json!([{ "id": "Q214688", "label": "M4", "description": "carbine" }]),
+            claim: Some(ranked("Q214688", "search_ranked")),
+        }
+        .run(WikidataKind::Search);
+    }
+
+    /// A candidate with no label has no name to test, so its description has to stand in for one.
+    /// A single shared word is a mention (`AI-generated encyclopedia developed by xAI` for `xAI`),
+    /// not a naming; three substantive words is the bar that admits the right item and refuses the
+    /// encyclopaedia.
+    #[test]
+    fn a_label_less_candidate_must_name_us_in_three_words() {
+        for (why, probe, answer, claim) in [
+            (
+                "a film description naming the director and year is the same thing",
+                probe("Gladiator").described(
+                    "2000 historical epic drama directed by Ridley Scott that won five Academy Awards",
+                ),
+                json!([{ "id": "Q128518", "description": "2000 film directed by Ridley Scott" }]),
+                Some(ranked("Q128518", "search_ranked")),
+            ),
+            (
+                "a product of the company is not the company",
+                probe("xAI").described(
+                    "Artificial intelligence startup founded by Elon Musk focused on developing frontier AI models",
+                ),
+                json!([{
+                    "id": "Q136410803",
+                    "description": "AI-generated encyclopedia developed by xAI"
+                }]),
+                None,
+            ),
+        ] {
+            Case {
+                why,
+                probe: probe.typed("movie"),
+                answer,
+                claim,
+            }
+            .run(WikidataKind::Search);
+        }
+    }
+
+    /// A degraded answer can hold the right item — and it is still refused, because a prefix-only
+    /// set is exactly what produces a plausible wrong QID. The same payload claims when trusted, so
+    /// the refusal is the outcome's doing and not the fixture's.
+    #[test]
+    fn a_degraded_answer_never_claims() {
+        let entity = probe("Dogma")
+            .described("1999 American black comedy film written and directed by Kevin Smith")
+            .typed("movie")
+            .entity();
+        let body: Vec<WikidataCandidate> = serde_json::from_value(json!([
+            { "id": "Q1", "label": "Dogma", "description": "1999 film by Kevin Smith" }
+        ]))
+        .expect("fixture candidates");
+        let degraded = Answer {
+            outcome: Outcome::Degraded,
+            body: Some(body.clone()),
+        };
+        let trusted = Answer {
+            outcome: Outcome::Found,
+            body: Some(body),
+        };
+
+        assert_eq!(
+            decide(&entity, WikidataKind::Search, &degraded).unwrap_err(),
+            "the answer was degraded"
+        );
         assert!(
-            surface_only(&entity, &two).is_none(),
-            "several candidates are ambiguity, which this rule cannot resolve"
+            decide(&entity, WikidataKind::Search, &trusted).is_ok(),
+            "the same payload claims when the answer is trusted"
         );
     }
 
     // ---- the shared choice -------------------------------------------------------------------
+
+    /// The corpus is the answer, not the set a decision chooses between: a lone survivor keeps the
+    /// fit it earned among its competitors. The fixture is checked to distinguish the two corpora,
+    /// so rebuilding the `Ranking` from `choose`'s slice cannot pass.
+    #[test]
+    fn the_corpus_is_the_answer_not_the_selection() {
+        let entity = probe("Sunset Boulevard")
+            .described("1950 American film noir directed by Billy Wilder, about a fading star")
+            .typed("movie")
+            .entity();
+        let answer: Vec<WikidataCandidate> = serde_json::from_value(json!([
+            { "id": "Q1", "label": "Sunset Boulevard", "description": "1950 film by Billy Wilder" },
+            { "id": "Q2", "label": "Sunset Boulevard", "description": "thoroughfare in Beverly Hills and Los Angeles" },
+            { "id": "Q3", "label": "Sunset Boulevard", "description": "1993 musical by Andrew Lloyd Webber" }
+        ]))
+        .expect("fixture candidates");
+
+        let ranking = Ranking::over(&answer);
+        let expected = answer_confidence(ranking.blend(&entity, &answer[0]));
+        let alone = Ranking::over(&answer[..1]);
+        assert_ne!(
+            expected,
+            answer_confidence(alone.blend(&entity, &answer[0])),
+            "the fixture has to distinguish the corpora"
+        );
+
+        let identity = choose(&entity, &answer[..1], &ranking, WikidataKind::Search)
+            .expect("a lone corroborated candidate");
+        assert!(
+            (identity.confidence.expect("a claim carries a confidence") - expected).abs() < 1e-6
+        );
+    }
 
     /// `choose` orders by the evidence it margins, so the runner-up it compares against is the
     /// closest by that same measure. A blend-ordered comparison once produced a negative margin and
@@ -843,8 +1024,13 @@ mod tests {
             },
         ];
 
-        let identity = choose(&entity, &candidates, WikidataKind::Search)
-            .expect("the evidence supports a claim, not a refusal");
+        let identity = choose(
+            &entity,
+            &candidates,
+            &Ranking::over(&candidates),
+            WikidataKind::Search,
+        )
+        .expect("the evidence supports a claim, not a refusal");
 
         assert_eq!(identity.external_id, "Q207189");
         assert_eq!(identity.method.as_deref(), Some("search_ranked"));

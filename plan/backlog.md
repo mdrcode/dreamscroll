@@ -6,6 +6,23 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ## Next
 
+### Knowledge identity resolver
+
+- [x] **Unify the heuristic tokenizer (step 1: stopwords).** The linker now drops the same `NOISE`
+  words as the resolver (`text::is_noise`), so `The Big Short` blocks against `Big Short`; measured
+  effect: one correct merge (`Nintendo` × 2), no losses. **Step 2 (stems + short-run floor) is
+  measured and pending a decision:** it adds one more correct merge (`The Criterion Collection` × 2)
+  and nothing wrong, but it changes the linker's scale, so it wants its own commit.
+- [x] **`content_tokens` cannot see short tokens.** Two-character runs that carry a digit (`M4`,
+  `5G`) are now words; general two-letter runs stay dropped. Measured: `M4 carbine` resolves to
+  Q214688, 7 confidences move, nothing lost.
+- [ ] **The stemmer disagrees with itself on plurals.** `carbines` → `carbin` while `carbine` →
+  `carbine`. A trailing-`e` trim fixes it and was **measured then reverted**: 23 decisions moved,
+  and merging `force`/`forces` let a *painting* ("Royal Air Force Museum") outrank the B-17 whose
+  description is thin. Blocked on the thin-description/margin problem, not on the stem.
+- [x] **`identity inspect` truncates each rung to four candidates.** The decided candidate is now
+  always shown and the rest are counted (`… 5 more`), in text and JSON.
+
 - [ ] **Overhaul `entity_type`, driven by data.** It is capture vocabulary — the illuminator names a type
   in free text — and it currently acts as a *veto* in three places: `types::incompatible` (rejecting
   candidates by `P31`), the link decision (declining an attachment), and `merge`.
@@ -316,6 +333,9 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 | `/events` catch-up query reduction                 | [event-streaming-optimization.md](archive/event-streaming-optimization.md)     | Connection count or DB load becomes material                  |
 | Crate upgrade sweep                                | [upgrade_3rd_party_crates.md](archive/upgrade_3rd_party_crates.md)             | Scheduled maintenance window                                  |
 | Client pulse + `upload_attempts`                   | [upload-attempts.md](archive/upload-attempts.md)                               | A client-side upload failure goes unexplained for a second time |
+| Identity `confidence`: label or probability         | [wikidata-cleanup-20261112.md](wikidata-cleanup-20261112.md)  | Anything starts sorting entities by confidence again |
+| The title rung's own name-relatedness rule           | [wikidata-cleanup-20261112.md](wikidata-cleanup-20261112.md)  | A second provider answers title queries                          |
+| `SurfaceTitle` as a deferred rule                    | [wikidata-cleanup-20261112.md](wikidata-cleanup-20261112.md)  | `inspect` needs a change, or a third consumer wants the ladder    |
 | Media transcode and format policy                  | [upload-formats.md](upload-formats.md)                                 | `rejected_format` fires for a real user, uploads stay multi-MB on cellular, or a non-browser ingestion path carries originals |
 
 ## Product direction — not yet scoped

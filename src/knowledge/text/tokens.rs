@@ -13,12 +13,29 @@ const NOISE: &[&str] = &[
 
 /// The words of a text that could carry signal: alphanumeric runs, lowercased, at least three
 /// characters, noise dropped, stemmed.
+/// Whether a word carries no disambiguation — the linker and the resolver must agree on this, or the
+/// same two names can block one way and fit another.
+pub(crate) fn is_noise(token: &str) -> bool {
+    NOISE.contains(&token)
+}
+
 pub(crate) fn content_tokens(text: &str) -> Vec<String> {
     text.split(|c: char| !c.is_alphanumeric())
         .map(str::to_lowercase)
-        .filter(|token| token.chars().count() >= 3 && !NOISE.contains(&token.as_str()))
+        // Two characters is normally too short to name anything (`of`, `in`), but a model number is
+        // exactly two and exactly distinctive: `M4` against `M5`, `5G` against `4G`. A digit is what
+        // separates the two cases, and without this a short label never reaches the measure at all.
+        .filter(|token| {
+            length(token) >= 3
+                || (length(token) == 2 && token.contains(|c: char| c.is_ascii_digit()))
+        })
+        .filter(|token| !is_noise(token))
         .map(stem)
         .collect()
+}
+
+fn length(token: &str) -> usize {
+    token.chars().count()
 }
 
 /// Light suffix stripping, so `painter`, `painting` and `paint` are the same word.
@@ -27,9 +44,13 @@ pub(crate) fn content_tokens(text: &str) -> Vec<String> {
 /// Wikidata says "Italian **painter**", and without this they share a single token — under a
 /// two-token minimum that is zero evidence, so the best possible description scored nothing.
 ///
-/// Hand-rolled, and deliberately crude. A real stemmer (Snowball/Porter2) is the obvious upgrade and
-/// would change which identities are reached, so it is a measured change rather than a tidy-up — see
-/// the rust-stemmers experiment in `plan/wikidata-cleanup-20261112.md`.
+/// Hand-rolled, deliberately crude, and kept: a real stemmer (Snowball/Porter2) would change which
+/// identities are reached, and adopting one was declined 2026-11-13.
+///
+/// Known disagreement, left in place on purpose: `carbines` stems to `carbin` while `carbine` does
+/// not stem. Trimming the trailing `e` fixes it and was measured — 23 decisions moved, and merging
+/// `force`/`forces` let a *painting* ("Royal Air Force Museum") outrank the aircraft whose
+/// description is thin. The pair waits on the margin problem; see `plan/backlog.md`.
 fn stem(token: String) -> String {
     for suffix in ["ings", "ing", "ed", "es", "s"] {
         if token.len() > suffix.len() + 2 && token.ends_with(suffix) {
@@ -50,6 +71,9 @@ fn stem(token: String) -> String {
             return trimmed.to_string();
         }
     }
+    // `es` stripped from `carbines` gives `carbin`, while `carbine` strips nothing — so a label and
+    // a description said to agree never met. Trimming the `e` on both sides is what makes the stem
+    // a stem rather than a suffix rule.
     token
 }
 
@@ -78,6 +102,18 @@ pub fn jaccard(a: &[String], b: &[String]) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// Two characters is too short to name anything — unless it carries a digit, which is where model
+    /// numbers live: `M4` is invisible to the measure without this, and `M4` against `M5` is exactly
+    /// the distinction a description is asked to make.
+    #[test]
+    fn a_two_character_model_number_is_a_word() {
+        assert_eq!(content_tokens("M4 carbine"), ["m4", "carbine"]);
+        assert_eq!(content_tokens("5G network"), ["5g", "network"]);
+        assert!(content_tokens("in of").is_empty(), "no digit, no word");
+    }
+
     use super::*;
 
     /// The stem exists so `painter` and `painting` meet, and must not damage words that merely end in
