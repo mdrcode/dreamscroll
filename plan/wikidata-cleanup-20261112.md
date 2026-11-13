@@ -67,7 +67,7 @@ search answer (N candidates, menus and wrong kinds already removed)
 $$\text{of}(g) = \text{boost}(g)\cdot\left(1+\ln\max\!\left(\tfrac{N}{1+\mathrm{df}(g)},1\right)\right),
 \qquad \text{fit} = \frac{\sum_g \text{of}(g)}{\sum_g \text{of}(g)+3}$$
 
-So the corpus sets the magnitude of every matched term, and one hard rule at `ranking.rs:335` —
+So the corpus sets the magnitude of every matched term, and one hard rule in `fit` at `ranking.rs:254` —
 `terse_and_rare = terse && matched.len() == 1 && df <= 1` — is a threshold **on the corpus**.
 
 Two effects:
