@@ -16,7 +16,7 @@ use crate::fetch::{Answer, Outcome};
 use crate::knowledge::blocker::SqlBlocker;
 use crate::knowledge::identity::wikidata::{WikidataCandidate, decision, plan};
 use crate::knowledge::linker::heuristic::Heuristic;
-use crate::knowledge::normalize;
+use crate::knowledge::text;
 use crate::model;
 
 /// One entity, and everything the pipeline did with it.
@@ -95,8 +95,8 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
         None => blocker.candidates_for_name(&entity.name).await,
     };
 
-    let folded = normalize::comparable(&entity.name);
-    let words = normalize::word_key(&folded);
+    let folded = text::comparable(&entity.name);
+    let words = text::word_key(&folded);
     let mut candidates = Vec::with_capacity(found.len());
     for row in &found {
         let keys = index_keys(db, row.id).await?;
@@ -146,7 +146,7 @@ async fn find_entity(
     {
         return Ok(Some(row));
     }
-    let wanted = normalize::comparable(target);
+    let wanted = text::comparable(target);
     if wanted.is_empty() {
         return Ok(None);
     }
@@ -155,7 +155,7 @@ async fn find_entity(
         .await?;
     Ok(live
         .into_iter()
-        .find(|row| row.merged_into_id.is_none() && normalize::comparable(&row.name) == wanted))
+        .find(|row| row.merged_into_id.is_none() && text::comparable(&row.name) == wanted))
 }
 
 /// `(surfaces, word_keys)` as stored for one entity.

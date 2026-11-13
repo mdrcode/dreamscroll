@@ -12,7 +12,7 @@ use sea_orm::sea_query::{Expr, ExprTrait, OnConflict, Query};
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 
 use crate::database::DbHandle;
-use crate::knowledge::normalize;
+use crate::knowledge::text;
 use crate::model;
 
 /// The two generations the index stores, in the entity's surface order.
@@ -31,7 +31,7 @@ pub(crate) fn fold<'a>(surfaces: impl IntoIterator<Item = &'a str>) -> Keys {
     let mut seen = std::collections::BTreeSet::new();
     let surfaces: Vec<String> = surfaces
         .into_iter()
-        .map(normalize::comparable)
+        .map(text::comparable)
         .filter(|key| !key.is_empty())
         .filter(|key| seen.insert(key.clone()))
         .collect();
@@ -40,7 +40,7 @@ pub(crate) fn fold<'a>(surfaces: impl IntoIterator<Item = &'a str>) -> Keys {
         // string would make `&&` match it against every other empty one.
         word_keys: surfaces
             .iter()
-            .map(|surface| normalize::word_key(surface))
+            .map(|surface| text::word_key(surface))
             .filter(|key| !key.is_empty())
             .collect(),
         surfaces,
@@ -92,7 +92,7 @@ pub(crate) async fn write<C: ConnectionTrait>(
         surfaces: Set(surfaces),
         word_keys: Set(word_keys),
         text: Set(text),
-        built_with: Set(normalize::norm_fingerprint().to_string()),
+        built_with: Set(text::norm_fingerprint().to_string()),
         ..Default::default()
     })
     .on_conflict(conflict)
@@ -155,7 +155,7 @@ pub async fn check(db: &DbHandle) -> anyhow::Result<Report> {
 
     let indexed = index::Entity::find().count(&db.conn).await? as usize;
     let stale = index::Entity::find()
-        .filter(index::Column::BuiltWith.ne(normalize::norm_fingerprint()))
+        .filter(index::Column::BuiltWith.ne(text::norm_fingerprint()))
         .count(&db.conn)
         .await? as usize;
     // Live entities with no row: a writer was skipped, or a rebuild was interrupted.
@@ -222,7 +222,7 @@ mod tests {
             .expect("project must write the index row");
         assert_eq!(row.surfaces, keys(&entity).surfaces);
         assert_eq!(row.word_keys, keys(&entity).word_keys);
-        assert_eq!(row.built_with, normalize::norm_fingerprint());
+        assert_eq!(row.built_with, text::norm_fingerprint());
         assert!(row.surfaces.contains(&"train dreams".to_string()));
         assert!(row.word_keys.contains(&"dreams train".to_string()));
         assert_eq!(
@@ -412,7 +412,7 @@ mod tests {
                 "INSERT INTO knowledge_blocking_index \
                    (knowledge_entity_id, surfaces, word_keys, text, built_with) \
                  VALUES ($1, ARRAY['train dreams'], ARRAY['dreams train'], 'train dreams', $2)",
-                [loser.into(), normalize::norm_fingerprint().into()],
+                [loser.into(), text::norm_fingerprint().into()],
             ))
             .await
             .unwrap();

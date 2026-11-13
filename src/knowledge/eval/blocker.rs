@@ -15,7 +15,7 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
 use crate::knowledge::blocker::{Blocker, SqlBlocker, index};
-use crate::knowledge::normalize;
+use crate::knowledge::text;
 use crate::model;
 
 /// One eligible observation whose true entity was not offered.
@@ -168,8 +168,8 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
         .into_iter()
         .filter_map(|verdict| {
             Some((
-                normalize::comparable(verdict.winner_label.as_deref()?),
-                normalize::comparable(verdict.loser_label.as_deref()?),
+                text::comparable(verdict.winner_label.as_deref()?),
+                text::comparable(verdict.loser_label.as_deref()?),
             ))
         })
         .collect();
@@ -208,7 +208,7 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
             let expected_name = names.get(&expected).cloned().unwrap_or_default();
             // A merge verdict names the entity and a name that belongs with it — which may be an
             // earlier member, or the observation under test (the member it was renamed after).
-            let folded = normalize::comparable(&expected_name);
+            let folded = text::comparable(&expected_name);
             let mut candidates: Vec<&str> = vec![observation.name.as_str()];
             candidates.extend(
                 members[&expected]
@@ -217,7 +217,7 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
                     .map(|(_, name, _)| name.as_str()),
             );
             let merged = candidates.iter().any(|name| {
-                let other = normalize::comparable(name);
+                let other = text::comparable(name);
                 merges.contains(&(folded.clone(), other.clone()))
                     || merges.contains(&(other, folded.clone()))
             });

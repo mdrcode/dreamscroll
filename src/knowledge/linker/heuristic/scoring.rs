@@ -17,7 +17,7 @@
 
 use crate::model;
 
-use crate::knowledge::normalize;
+use crate::knowledge::text;
 use crate::knowledge::scoring::{Entity, Observation, Order, Policy, Scoring, Similarity};
 
 pub const WEIGHT_NAME: f32 = 0.60;
@@ -143,7 +143,7 @@ pub(in crate::knowledge) fn best_confidence(identities: &[Option<f32>]) -> Optio
         .max_by(f32::total_cmp)
 }
 
-/// The observation being compared, with its normalized forms precomputed.
+/// The observation being compared, with its folded forms precomputed.
 #[derive(Debug, Clone)]
 struct NormalizedObservation {
     name_key: String,
@@ -154,8 +154,8 @@ struct NormalizedObservation {
 
 impl NormalizedObservation {
     fn new(name: &str, description: Option<&str>, entity_type: &str) -> Self {
-        let name_key = normalize::comparable(name);
-        let token_key = normalize::word_key(&name_key);
+        let name_key = text::comparable(name);
+        let token_key = text::word_key(&name_key);
         Self {
             token_key,
             name_key,
@@ -190,14 +190,14 @@ impl NormalizedCandidate {
         let mut alt_name_keys = Vec::with_capacity(alt_names.len() + 1);
         let mut alt_name_token_keys = Vec::with_capacity(alt_names.len() + 1);
         for surface in std::iter::once(name).chain(alt_names.iter().map(String::as_str)) {
-            let key = normalize::comparable(surface);
+            let key = text::comparable(surface);
             if key.is_empty() {
                 continue;
             }
             // A surface with no words (`...` folds to `..`) has no word generation, and storing the
             // empty string would make it match every other wordless surface. Same rule as
             // `blocker::index::fold`, which is the one definition of the two generations.
-            let token_key = normalize::word_key(&key);
+            let token_key = text::word_key(&key);
             if !token_key.is_empty() {
                 alt_name_token_keys.push(token_key);
             }
@@ -275,7 +275,7 @@ fn features_of_entities(a: &Entity, b: &Entity) -> Features {
             right
                 .description_tokens
                 .iter()
-                .map(move |ours| normalize::jaccard(ours, theirs))
+                .map(move |ours| text::jaccard(ours, theirs))
         })
         .fold(0.0f32, f32::max);
 
@@ -300,7 +300,7 @@ fn features_of_entities(a: &Entity, b: &Entity) -> Features {
     }
 }
 
-/// Similarity of one normalized observation to one candidate: per feature, weighted into a total.
+/// Similarity of one folded observation to one candidate: per feature, weighted into a total.
 fn score(observation: &NormalizedObservation, candidate: &NormalizedCandidate) -> Features {
     let name = name_similarity(observation, candidate);
     // Best fit across every description the candidate has accumulated, never their union: a union
@@ -308,7 +308,7 @@ fn score(observation: &NormalizedObservation, candidate: &NormalizedCandidate) -
     let description = candidate
         .description_tokens
         .iter()
-        .map(|tokens| normalize::jaccard(&observation.description_tokens, tokens))
+        .map(|tokens| text::jaccard(&observation.description_tokens, tokens))
         .fold(0.0f32, f32::max);
     // Any agreement counts. An entity whose members were called both `brand` and `organization` must
     // accept either, or half its own members could not have joined it.
@@ -326,7 +326,7 @@ fn score(observation: &NormalizedObservation, candidate: &NormalizedCandidate) -
     }
 }
 
-/// 1.0 on the same normalized surface, 0.9 when only word order or an article differs, else 0.0.
+/// 1.0 on the same folded surface, 0.9 when only word order or an article differs, else 0.0.
 /// A name never decides on its own — [`Features::qualifies`] demands corroboration.
 fn name_similarity(observation: &NormalizedObservation, candidate: &NormalizedCandidate) -> f32 {
     if candidate.alt_name_keys.contains(&observation.name_key) {
@@ -352,17 +352,17 @@ fn type_similarity(a: &str, b: &str) -> f32 {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The string plumbing the scoring and the blocker share. `normalize::comparable` is the core's;
+// The string plumbing the scoring and the blocker share. `text::comparable` is the core's;
 // these are the guess's, and nothing outside `heuristic_scoring` asks for them.
 // ---------------------------------------------------------------------------------------------
 
-/// The words of a surface, in order, folded the same way `normalize::comparable` folds it.
+/// The words of a surface, in order, folded the same way `text::comparable` folds it.
 fn tokens(surface: &str) -> Vec<String> {
-    tokens_of(&normalize::comparable(surface))
+    tokens_of(&text::comparable(surface))
 }
 
 /// The words of a surface already in its comparable form, so a caller that has one does not
-/// normalize it twice.
+/// fold it twice.
 fn tokens_of(comparable: &str) -> Vec<String> {
     comparable.split_whitespace().map(str::to_string).collect()
 }

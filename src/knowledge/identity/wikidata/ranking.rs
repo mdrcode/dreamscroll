@@ -1,7 +1,7 @@
 //! Scoring: which of a query's candidates, if any, is the entity we meant.
 
 use super::WikidataCandidate;
-use crate::knowledge::normalize;
+use crate::knowledge::text;
 use crate::knowledge::scoring::{Order, Policy};
 use crate::knowledge::text::{content_tokens, grams};
 use crate::model;
@@ -119,7 +119,7 @@ pub(super) fn exact_label(
     candidate
         .label
         .as_deref()
-        .is_some_and(|label| normalize::comparable(label) == normalize::comparable(&entity.name))
+        .is_some_and(|label| text::comparable(label) == text::comparable(&entity.name))
 }
 
 /// The description evidence for one candidate, given the corpus the answer supplied.
@@ -135,7 +135,7 @@ fn blend(entity: &model::knowledge_entity::Model, candidate: &WikidataCandidate,
     let name = if exact_label(entity, candidate) {
         1.0
     } else {
-        normalize::jaccard(
+        text::jaccard(
             &content_tokens(candidate.label.as_deref().unwrap_or_default()),
             &content_tokens(&entity.name),
         )
@@ -171,7 +171,7 @@ pub(super) fn blend_within(
 /// fallback is allowed to weigh.
 pub(super) fn hint_tokens(entity: &model::knowledge_entity::Model) -> Option<Vec<String>> {
     let raw = entity.search_query.as_deref()?.trim();
-    if raw.is_empty() || normalize::comparable(raw) == normalize::comparable(&entity.name) {
+    if raw.is_empty() || text::comparable(raw) == text::comparable(&entity.name) {
         return None;
     }
     let named: std::collections::BTreeSet<String> =

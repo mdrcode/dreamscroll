@@ -42,7 +42,7 @@
 
 use crate::fetch::Answer;
 use crate::knowledge::evidence::Identity;
-use crate::knowledge::normalize;
+use crate::knowledge::text;
 use crate::knowledge::scoring::Rank;
 use crate::knowledge::text::{content_tokens, near_surface};
 use crate::model;
@@ -129,7 +129,7 @@ fn title(
     // "one title, one article" then reads as identity. Sharing no word with our name is not an
     // identity, whatever the title said.
     let ours = content_tokens(&entity.name);
-    let ours_key = normalize::comparable(&entity.name);
+    let ours_key = text::comparable(&entity.name);
     let titled: Vec<WikidataCandidate> = candidates
         .iter()
         .filter(|candidate| {
@@ -139,7 +139,7 @@ fn title(
             let Some(label) = candidate.label.as_deref() else {
                 return true;
             };
-            if near_surface(&normalize::comparable(label), &ours_key) {
+            if near_surface(&text::comparable(label), &ours_key) {
                 return true;
             }
             content_tokens(label)
@@ -159,14 +159,14 @@ fn search(
     entity: &model::knowledge_entity::Model,
     candidates: &[WikidataCandidate],
 ) -> Result<Identity, &'static str> {
-    let ours = normalize::comparable(&entity.name);
+    let ours = text::comparable(&entity.name);
     let same: Vec<&WikidataCandidate> = candidates
         .iter()
         .filter(|candidate| {
             candidate
                 .label
                 .as_deref()
-                .is_some_and(|label| normalize::comparable(label) == ours)
+                .is_some_and(|label| text::comparable(label) == ours)
         })
         .collect();
     // A matching surface is not enough — the description has to corroborate it, exactly as on
@@ -201,7 +201,7 @@ fn search(
             let Some(label) = candidate.label.as_deref() else {
                 return false;
             };
-            if near_surface(&normalize::comparable(label), &ours) {
+            if near_surface(&text::comparable(label), &ours) {
                 return true;
             }
             // Our name is the label plus a qualifier the authority keeps elsewhere: `Andriivka,
@@ -209,8 +209,8 @@ fn search(
             // carry, not the authority's — and refusing here means the description never
             // gets to separate the six villages that share one name.
             let (name_flat, label_flat) = (
-                normalize::comparable(&entity.name),
-                normalize::comparable(label),
+                text::comparable(&entity.name),
+                text::comparable(label),
             );
             if let Some(rest) = name_flat.strip_prefix(&label_flat) {
                 let rest = rest.trim_start();
@@ -379,7 +379,7 @@ pub(crate) fn surface_only(
     // The article has to be about our name: Wikipedia redirects otherwise (`The Bounty Hunter Wars`
     // lands on `Boba Fett`), and this is the last place that can be noticed.
     if let Some(label) = candidate.label.as_deref()
-        && normalize::comparable(label) != normalize::comparable(&entity.name)
+        && text::comparable(label) != text::comparable(&entity.name)
     {
         return None;
     }

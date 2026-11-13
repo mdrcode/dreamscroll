@@ -23,10 +23,10 @@
 //! a cluster to reach its own vocabulary has the dependency backwards:
 //!
 //! - [`evidence`] — [`Identity`](evidence::Identity) and the store for `knowledge_identities`.
-//!   `identity` writes through it and `linking` reads it; it depends on `model`, `normalize` and
+//!   `identity` writes through it and `linking` reads it; it depends on `model`, `text` and
 //!   `scoring` and on nothing else here.
-//! - [`normalize`], [`text`] and [`scoring`] — a surface fold, the words and grams a measure compares,
-//!   and a confidence comparison; used by blocking, identity, evidence and projection alike.
+//! - [`text`] and [`scoring`] — the surface fold, the keys derived from it, the words a measure
+//!   compares, and a confidence comparison; used by blocking, identity, evidence and projection.
 //! - [`snapshot`] — copy the projection, empty it, diff two copies: an operation over the whole
 //!   graph, not a way of changing it.
 //! - [`helper`] — the illumination composition: which observations are linked together, and the
@@ -43,7 +43,6 @@ pub mod graph;
 pub mod helper;
 pub mod identity;
 pub mod linker;
-pub mod normalize;
 pub mod proximity;
 pub mod scoring;
 pub mod snapshot;

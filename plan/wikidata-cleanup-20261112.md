@@ -295,6 +295,17 @@ Left open on purpose when `plan.rs` was signed off:
   `normalize` — which asks a different question (the fold produces a key that is stored; `text`
   produces nothing that outlives the comparison). Moved verbatim; identity table reproduced row for
   row.
+- **S4 — `text` is a module, `normalize` is absorbed, and the edit distance is no longer ours.**
+  `src/knowledge/text/` now holds one file per question: `fold` (the comparable key), `key` (the
+  word-order-insensitive form), `fingerprint` (the stamp both are versioned by), `tokens` (words,
+  stems, grams, `jaccard`) and `surface` (`near_surface`). `normalize.rs` is gone; its call sites
+  name `text::`. `Cargo.toml` gains **`strsim` 0.11** (no transitive dependencies) for
+  `levenshtein`, replacing the loop we wrote and tested ourselves.
+  *Tracked:* the **rust-stemmers experiment** (replace `tokens::stem` with Porter2 and measure the
+  corpus the way M6/M8 were measured) and **unifying the second tokenizer**
+  (`linker/heuristic/scoring.rs` splits a folded surface on whitespace; `text::tokens` stems and
+  filters). *Foregone, with reasons:* `unicode-normalization` (would move `norm_fingerprint`, so a
+  blocking-index rebuild — its own project) and `unicode-segmentation` (the corpus is ASCII-ish).
 
   While moving it: the stem's comment claimed a guard that does not exist (`filmmaker` → `filmmak`),
   now corrected and pinned. That is one reason to stop owning a stemmer. Options, with crates.io

@@ -5,7 +5,7 @@
 //! from, and the pair every durable reference uses.
 
 use crate::illumination::v2::PlatformLink;
-use crate::knowledge::normalize;
+use crate::knowledge::text;
 use crate::model;
 
 /// The platform link an observation's flattened columns describe, if it has a platform.
@@ -37,8 +37,8 @@ impl TryFrom<&PlatformLink> for IdentityKey {
     fn try_from(link: &PlatformLink) -> Result<Self, Self::Error> {
         let handle = link.handle().ok_or(MissingHandle)?;
         Ok(Self {
-            scheme: normalize::comparable(link.platform_name()),
-            external_id: normalize::comparable(handle),
+            scheme: text::comparable(link.platform_name()),
+            external_id: text::comparable(handle),
         })
     }
 }

@@ -157,7 +157,7 @@ sides is the composition root's job — it builds the linker and a `Scoring` fro
 passes that to `proximity scan` and `auto-merge` — because a store that owned one would let a caller
 swap the merge side without swapping the link side, silently.
 
-`linker/heuristic/scoring.rs` is today's only answer: normalized keys, weights, and the merge rule. `linker/heuristic/linker.rs` is the **procedure** — a handle the graph already holds settles the
+`linker/heuristic/scoring.rs` is today's only answer: folded keys, weights, and the merge rule. `linker/heuristic/linker.rs` is the **procedure** — a handle the graph already holds settles the
 observation before any scoring, else the best qualifying candidate, else create — and holds the policy it applies, but no numbers of its own. `blocker/sql.rs` is recall:
 every folded surface and its word-order-insensitive form, probed out of `knowledge_blocking_index` —
 nothing scored. A platform handle is a surface too, so a capture that named an account only by its
@@ -326,7 +326,7 @@ one.
 | file | what it is |
 |---|---|
 | `scoring.rs` | the verbs — `Similarity` for a pair, `Policy` for a set with `Rank` derived from it — plus `Order`, `TotalCmp` and the `Scoring` bundle. The linker holds one; the proximity passes are handed one |
-| `normalize.rs` | the two key generations: `comparable` (the fold) and `word_key` (words sorted, one leading article dropped), plus `norm_fingerprint` — the behavioural stamp they are versioned by. Shared by the blocker, identity, evidence and projection |
+| `text/` | everything about a string short of its meaning: `fold` (the comparable key `comparable`), `key` (the word-order-insensitive `word_key`), `fingerprint` (the behavioural stamp the two are versioned by), `tokens` (words, stems, grams and `jaccard` for a measure) and `surface` (`near_surface`, a spelling tolerance). Shared by the blocker, identity, evidence, linking and projection |
 | `blocker/mod.rs` | the `Blocker` trait: which entities are worth considering, and nothing else |
 | `blocker/sql.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
 | `blocker/index.rs` | `knowledge_blocking_index`: the folded forms a blocker matches on — `rebuild`, `check`, `write`, `forget` |

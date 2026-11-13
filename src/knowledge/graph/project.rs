@@ -68,7 +68,7 @@ pub(super) async fn project<C: ConnectionTrait>(
     let surfaces = gather(
         &members,
         |member| surfaces(member).collect(),
-        crate::knowledge::normalize::comparable,
+        crate::knowledge::text::comparable,
     );
     let types = gather(
         &members,

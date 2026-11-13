@@ -11,7 +11,7 @@ use sea_orm::{
 
 use super::Blocker;
 use crate::database::DbHandle;
-use crate::knowledge::normalize;
+use crate::knowledge::text;
 use crate::model;
 
 /// Reads `knowledge_blocking_index` for every candidate.
@@ -75,7 +75,7 @@ impl SqlBlocker {
     ) -> Vec<model::knowledge_entity::Model> {
         let mut keys: Vec<String> = surfaces
             .into_iter()
-            .map(normalize::comparable)
+            .map(text::comparable)
             .filter(|key| !key.is_empty())
             .collect();
         keys.sort_unstable();
@@ -85,7 +85,7 @@ impl SqlBlocker {
         }
         let words: Vec<String> = keys
             .iter()
-            .map(|key| normalize::word_key(key))
+            .map(|key| text::word_key(key))
             // An empty key would be `ARRAY['']`, which overlaps every row that stored one.
             .filter(|key| !key.is_empty())
             .collect();

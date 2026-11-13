@@ -223,9 +223,9 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   entities: 0 names with leading/trailing whitespace, 0 not in NFC, 0 containing invisible
   characters (ZWSP/ZWNJ/soft hyphen/BOM/NBSP/word joiner), 0 with doubled inner spaces.
   **Tripwire:** if an illuminator ever emits zero-width or NFD text the symptom is a *silent
-  duplicate entity* — the exact-label query misses **and** `normalize::comparable` cannot fold the
-  string either (its table is precomposed-only, per the note at `normalize.rs:228`). Fix it in
-  `normalize.rs` (NFC, strip `Cf`) and bump `norm_fingerprint`; not in `plan.rs`, because comparison
+  duplicate entity* — the exact-label query misses **and** `text::comparable` cannot fold the
+  string either (its table is precomposed-only, per the note in `text/fold.rs`). Fix it in
+  `text/fold.rs` (NFC, strip `Cf`) and bump `norm_fingerprint`; not in `plan.rs`, because comparison
   needs it at least as much as querying does.
 
 - [ ] **Decide how admin privilege reaches the common APIs.** Today an admin can do a thing only if a

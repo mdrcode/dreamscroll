@@ -9,7 +9,7 @@ use super::property_query::platform_link_queries;
 use super::shape;
 use crate::fetch::Request;
 use crate::illumination::v2::PlatformLink;
-use crate::knowledge::normalize;
+use crate::knowledge::text;
 use crate::model;
 
 /// One request, carrying the shape that produced it. Only place requests are built here.
@@ -139,7 +139,7 @@ fn search_hint(entity: &model::knowledge_entity::Model) -> Option<Request<Wikida
     let hint = entity.search_query.as_deref()?.trim();
     if label.is_empty()
         || hint.is_empty()
-        || normalize::comparable(hint) == normalize::comparable(label)
+        || text::comparable(hint) == text::comparable(label)
     {
         return None;
     }
