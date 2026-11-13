@@ -1,4 +1,19 @@
-//! Scoring: which of a query's candidates, if any, is the entity we meant.
+//! The measure: how well one candidate fits the entity, and how that orders.
+//!
+//! The decision — which candidate wins, or none — is `decision`'s. This module only produces the
+//! evidence it decides on, so it is a [`Policy`] rather than a
+//! [`Similarity`](crate::knowledge::scoring::Similarity): terms are weighed by rarity among the
+//! answers the question returned, and a pair comparison cannot see that corpus.
+//!
+//! The signal is the entity's description, read two ways: *containment* — how much of what Wikidata
+//! says about a candidate our description accounts for, which survives our description being long —
+//! and symmetric *overlap*, which separates `Dune` (1965 novel) from `Dune` (the series), whose
+//! description is a superset of ours.
+//!
+//! `search_query` is deliberately not part of the score. Measured 2026-10-31: adding it lifted
+//! `Sunset Boulevard (musical film adaptation)` above the 1950 film, because that candidate's
+//! description literally contains the hint's words. A hint drawn from what we saw is not independent
+//! evidence about which candidate we meant.
 
 use crate::knowledge::scoring::{Order, Policy};
 use crate::knowledge::text::{self, content_tokens, grams};
@@ -6,31 +21,30 @@ use crate::model;
 
 use super::WikidataCandidate;
 
-// The authority's calibration. Not the graph's: every number below prices a *Wikidata answer*, on a
-// scale produced by `fit` and the blend above — so it lives with the measure that produces them, and
-// the graph's `Similarity`/`Rank` cannot state it.
+// Every number below prices a *Wikidata answer* on the scale `fit` produces, so they live with the
+// measure that produces them; the graph's `Similarity` cannot state them.
 
-/// …and it must beat the runner-up by this much. A near-tie is not evidence.
+/// The winner must beat the runner-up by this much on `fit`: a near-tie is not evidence.
 pub(super) const FIT_MARGIN: f32 = 0.05;
-/// The hint fallback is a blend, and is held to the same margin.
+/// The hint fallback scores on its own scale, so its margin is its own number too.
 pub(super) const CLAIM_MARGIN: f32 = 0.10;
 
-/// A ranked answer, mapped into `[0.5, ANSWER_CEILING]`.
-const ANSWER_BASE: f32 = 0.50;
-const ANSWER_SPREAD: f32 = 0.45;
+/// No answer is certain: the best a score can be priced at is 0.95.
 pub(super) const ANSWER_CEILING: f32 = 0.95;
 /// A guess from the disambiguating words alone is worth less than an exact label.
 pub(super) const HINT_CEILING: f32 = 0.85;
 /// One exact label with nothing competing for it is identity, but nothing corroborates it either.
 pub(super) const LONE_LABEL_CONFIDENCE: f32 = 0.75;
-/// A search answer accepted because exactly one candidate's label is our own surface.
+/// Exactly one candidate's label is our own surface, and its description corroborates it.
 pub(super) const LOOKUP_CONFIDENCE: f32 = 0.85;
 /// A property match: the item *is* the account.
 pub(super) const HANDLE_CONFIDENCE: f32 = 0.95;
 
-/// What a ranked answer is worth, before the graph adds corroboration.
+/// A score in `[0, 1]` priced into the confidence an identity carries.
 pub(super) fn answer_confidence(score: f32) -> f32 {
-    (ANSWER_BASE + ANSWER_SPREAD * score).min(ANSWER_CEILING)
+    const BASE: f32 = 0.50;
+    const SPREAD: f32 = 0.45;
+    (BASE + SPREAD * score).min(ANSWER_CEILING)
 }
 
 /// A description this short has little to say, so one distinctive shared word can be the whole of
@@ -44,27 +58,11 @@ const EVIDENCE_SCALE: f32 = 3.0;
 pub(super) const HINT_MIN_SUPPORT: f32 = 0.50;
 /// The hint fallback is gated on the blend: a name plus partial support is not enough.
 pub(super) const CLAIM_BAR: f32 = 0.60;
-/// A name blocks; evidence decides. The name is worth enough to matter and not enough to win alone.
+/// A name blocks, evidence decides: the two sum to one, so neither wins alone.
 pub(super) const NAME_WEIGHT: f32 = 0.40;
 pub(super) const SUPPORT_WEIGHT: f32 = 0.60;
 
-/// Words that carry no disambiguation: dropping them makes description overlap mean something.
-/// The authority's one policy, in the shape [`Policy`] expects.
-///
-/// Not [`Similarity`](crate::knowledge::scoring::Similarity): the measure is corpus-aware — terms are
-/// weighed by rarity among the answers the question returned — and a pair comparison cannot see the
-/// corpus. The order key is the description evidence (`fit`), because that is the quantity [`choose`]
-/// margins; the identity's confidence is this policy's own calibration, [`blend`].
-///
-/// The signal is the entity's description, read two ways: *containment* — how much of what Wikidata
-/// says about the candidate is accounted for by our description of it, which survives our description
-/// being long — and symmetric *overlap*, which separates `Dune` (1965 novel) from `Dune` (the series)
-/// because the series' description is a superset of ours.
-///
-/// `search_query` is deliberately not part of the score. Measured 2026-10-31: adding it lifted
-/// `Sunset Boulevard (musical film adaptation)` above the 1950 film, because that candidate's
-/// description literally contains the hint's words. A hint drawn from what we saw is not independent
-/// evidence about which candidate we meant.
+/// The authority's one policy: the description evidence that orders, and the blend that prices it.
 pub(super) struct Ranking;
 
 impl Policy<model::knowledge_entity::Model, WikidataCandidate> for Ranking {
@@ -94,6 +92,8 @@ impl Policy<model::knowledge_entity::Model, WikidataCandidate> for Ranking {
     }
 
     fn order(&self, evidence: &Fit) -> Order {
+        // `fit` orders because it is the quantity `choose` margins; the blend only separates equals,
+        // so two candidates with identical evidence do not fall back on the order they arrived in.
         Order {
             primary: evidence.fit,
             tiebreak: evidence.blend,
@@ -101,9 +101,8 @@ impl Policy<model::knowledge_entity::Model, WikidataCandidate> for Ranking {
     }
 }
 
-/// What one candidate is worth against one entity: the description evidence that orders and is what
-/// [`choose`] margins, and the blend it is priced with, which breaks ties so two candidates with equal
-/// evidence do not fall back on the order the answer happened to arrive in.
+/// What one candidate is worth against one entity: the evidence [`choose`] margins, and the blend that
+/// prices it and breaks ties.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct Fit {
     fit: f32,
@@ -143,8 +142,8 @@ fn blend(entity: &model::knowledge_entity::Model, candidate: &WikidataCandidate,
     NAME_WEIGHT * name + SUPPORT_WEIGHT * fit
 }
 
-/// One candidate's fit against the answer it arrived in. `parse_search` asks this for a lone
-/// same-surface candidate that still has to be corroborated by the corpus the question returned.
+/// One candidate's fit against the answer it arrived in: `decision::search` asks this before accepting
+/// a lone same-surface candidate.
 pub(super) fn fit_within(
     entity: &model::knowledge_entity::Model,
     candidate: &WikidataCandidate,
@@ -153,7 +152,7 @@ pub(super) fn fit_within(
     fit(&our_tokens(entity), candidate, &Weights::over(candidates))
 }
 
-/// The winning candidate's confidence input, measured against the answer it arrived in.
+/// The winner's blend against the answer it arrived in: the confidence `decision::choose` stores.
 pub(super) fn blend_within(
     entity: &model::knowledge_entity::Model,
     candidate: &WikidataCandidate,
@@ -163,6 +162,7 @@ pub(super) fn blend_within(
     let fit = fit(&our_tokens(entity), candidate, &weights);
     blend(entity, candidate, fit)
 }
+
 /// The part of `search_query` that the label does not already say.
 ///
 /// This subtraction is the whole point. `"James Davies anthropologist author"` scores a *photograph
@@ -189,23 +189,13 @@ pub(super) fn our_tokens(entity: &model::knowledge_entity::Model) -> Vec<Vec<Str
     entity.descriptions().map(content_tokens).collect()
 }
 
-/// Light suffix stripping, so `painter`, `painting` and `paint` are the same word.
-///
-/// Measured on `Caravaggio`: the entity's description says "revolutionized Western **painting**",
-/// Wikidata says
-/// "Italian **painter**", and without this they share a single token — under a two-token minimum that
-/// is zero evidence, so the best possible description scored nothing.
-/// Unigrams plus adjacent bigrams. `"first president"` is stronger evidence than `first` and
-/// `president` appearing separately: the phrase is evidence about the same thing, whereas two loose
-/// words can be coincidence — our description and a *statue's* both contain `united` and `states`.
 /// Term rarity within the candidate set.
 ///
 /// This is what separates a *subject* from a *location*: `"George Washington"` returns a president
 /// and a "bronze statue in Portland, Oregon, United States", and both share two words with the
 /// entity's description — but `united`/`states` appear in a large fraction of the candidates (every
-/// American
-/// place) while `president` does not. Inverse document frequency, computed over the candidates the
-/// query itself returned, weights them accordingly. No hand-written stoplist, no global tuning.
+/// American place) while `president` does not. Inverse document frequency over the candidates the
+/// query itself returned, and no hand-written stoplist.
 pub(super) struct Weights {
     documents: f32,
     frequency: std::collections::BTreeMap<String, usize>,
@@ -309,8 +299,8 @@ mod tests {
         assert!(fit > 0.0, "one terse shared word is evidence, got {fit}");
     }
 
-    /// `grams` turns three tokens into five, so the terse test used to read the gram count and
-    /// treated every description longer than two words as verbose.
+    /// Terse is counted in tokens: `grams` turns three into five, and reading the gram count made
+    /// every description longer than two words look verbose.
     #[test]
     fn three_words_is_still_terse() {
         let weights = weights(&["video game from 1992"]);

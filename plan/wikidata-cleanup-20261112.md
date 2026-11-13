@@ -306,6 +306,15 @@ Left open on purpose when `plan.rs` was signed off:
   (`linker/heuristic/scoring.rs` splits a folded surface on whitespace; `text::tokens` stems and
   filters). *Foregone, with reasons:* `unicode-normalization` (would move `norm_fingerprint`, so a
   blocking-index rebuild — its own project) and `unicode-segmentation` (the corpus is ASCII-ish).
+- **S5 — `ranking.rs`'s own comment pass.** Behaviour was right; the prose had drifted. Two orphaned
+  blocks left behind when `text/` took the string code (`NOISE`'s doc sitting on the `Ranking` struct;
+  `stem`'s and `grams`'s docs stacked above `Weights`), three stale claims (the calibration header
+  pointed at "the blend above", which is below; `CLAIM_MARGIN` was "held to the same margin" as the fit
+  margin, which it is not; `fit_within` credited `parse_search`, renamed `decision::search`), and a
+  module doc that described the whole decision when the file only produces the evidence for it. Also
+  removed the places where a doc and its code said the same thing twice: the mapping constants moved
+  inside `answer_confidence`, and the tie-break rationale moved to `order()` where the tie-break is set.
+  343 → 333 lines, 86 comment lines, no behaviour change.
 
   While moving it: the stem's comment claimed a guard that does not exist (`filmmaker` → `filmmak`),
   now corrected and pinned. That is one reason to stop owning a stemmer. Options, with crates.io
