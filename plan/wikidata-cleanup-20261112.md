@@ -202,7 +202,7 @@ and the fix that closed them. Status values: `pending`, `done`.
 | 1 | `resolver.rs` | done | R1–R11: free functions, `accumulate` / `last_resort`, the vocabulary sweep. Open: no precedence test, the `Canned` footgun |
 | 2 | `plan.rs` | done | P1 `plan::all_steps`, P2 `trim()` measured. Open: `Handle(&'static str)` drops `PropertyId` |
 | 3 | `decision.rs` | done | M1–M8: one entry, `choose` private, dead guards, method vocabulary, `Result` refusals, both score questions measured. Open: file size only |
-| 4 | `ranking.rs` | next | the two-fits defect (options A/B/C), `terse_and_rare`, hand-rolled `stem`, 4 tests for 347 lines |
+| 4 | `ranking.rs` | in progress | S1 scoring contract rewritten; the two-fits defect (options A/B/C), `terse_and_rare`, hand-rolled `stem`, 4 tests for 347 lines |
 | 5 | `types.rs` | pending | best quality-per-line; arms enumerate forbidden families inline |
 | 6 | `transport.rs` | pending | `search` mixes three concerns; `sparql` picks its query from `first.kind`; no degraded-branch test |
 | 7 | `property_query.rs` | pending | clean; only its coupling to `WikidataKind::Handle` |
@@ -270,6 +270,18 @@ Left open on purpose when `plan.rs` was signed off:
   invisible" in a query, and it is the only source of the value today, so nothing is broken — but the
   type no longer stops a future caller from minting a handle kind from an arbitrary string. Not worth
   churn now; revisit if a second producer of handle kinds appears.
+
+### 4. `ranking.rs` — in progress 2026-11-13
+
+- **S1 — the shared scoring contract, before the file.** `Rank` promised "ordering *and* the
+  threshold that turns a candidate into an answer — an empty list means nothing here is this". True
+  for the graph's conjunction; false for an authority, whose gate is a margin and whose answer also
+  carries a method and a confidence that `(usize, f32)` cannot hold. So the promise moved into a verb
+  that can keep it: `Policy` authors `evaluate` / `qualifies` / `order`, while `Rank` became its
+  object-safe projection written once as a blanket impl. `Similarity` is now corpus-free *by rule*,
+  which is the distinction whose absence produced the authority's two incompatible fits. `Order`
+  names the two-part key; each side's evidence is named (`Features` owns its judgement, the authority
+  has `Fit { fit, blend }`). Behaviour identical: rebuild reproduces the identity table row for row.
 
 ### 3. `decision.rs` (was `policy.rs`) — in progress 2026-11-12
 
