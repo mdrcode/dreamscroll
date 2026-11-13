@@ -15,7 +15,7 @@ const NOISE: &[&str] = &[
 /// characters, noise dropped, stemmed.
 /// Whether a word carries no disambiguation — the linker and the resolver must agree on this, or the
 /// same two names can block one way and fit another.
-pub(crate) fn is_noise(token: &str) -> bool {
+fn is_noise(token: &str) -> bool {
     NOISE.contains(&token)
 }
 

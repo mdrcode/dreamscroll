@@ -8,11 +8,10 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ### Knowledge identity resolver
 
-- [x] **Unify the heuristic tokenizer (step 1: stopwords).** The linker now drops the same `NOISE`
-  words as the resolver (`text::is_noise`), so `The Big Short` blocks against `Big Short`; measured
-  effect: one correct merge (`Nintendo` × 2), no losses. **Step 2 (stems + short-run floor) is
-  measured and pending a decision:** it adds one more correct merge (`The Criterion Collection` × 2)
-  and nothing wrong, but it changes the linker's scale, so it wants its own commit.
+- [x] **Unify the heuristic tokenizer.** The linker tokenises with `text::content_tokens`, the
+  resolver's own definition, instead of splitting on whitespace. Measured over the full rebuild:
+  two link decisions move, both correct merges (`Nintendo` × 2, `The Criterion Collection` × 2), no
+  wrong merges, no losses.
 - [x] **`content_tokens` cannot see short tokens.** Two-character runs that carry a digit (`M4`,
   `5G`) are now words; general two-letter runs stay dropped. Measured: `M4 carbine` resolves to
   Q214688, 7 confidences move, nothing lost.

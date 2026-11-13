@@ -37,10 +37,7 @@ mod tests {
     /// work. The old bespoke key kept the accent, so `Pokémon` and `Pokemon` never met.
     #[test]
     fn folds_before_measuring_edits() {
-        assert!(near_surface(
-            &comparable("Pokémon"),
-            &comparable("Pokemon"),
-        ));
+        assert!(near_surface(&comparable("Pokémon"), &comparable("Pokemon"),));
         assert!(near_surface(
             &comparable("J. R. R. Tolkien"),
             &comparable("J.R.R. Tolkien"),

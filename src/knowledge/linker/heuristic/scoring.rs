@@ -362,17 +362,14 @@ fn tokens(surface: &str) -> Vec<String> {
 }
 
 /// The words of a surface already in its comparable form, so a caller that has one does not
-/// fold it twice. Stopwords are dropped with `text::is_noise`, the resolver's own definition: `the`
-/// and `of` never name a thing, and `The Big Short` must block against `Big Short`.
+/// fold it twice.
 ///
-/// Deliberately *not* the full `content_tokens` yet: stemming and the short-run floor would move
-/// link decisions much further, so they are a separate step.
+/// The same definition the resolver measures with (`text::content_tokens`): one notion of "the same
+/// words" across the blocker and the fit, so a name that blocks `The Big Short` against `Big Short`
+/// also stems `painting` to `paint`. Two tokenizers meant a pair could be related by one and
+/// unrelated by the other.
 fn tokens_of(comparable: &str) -> Vec<String> {
-    comparable
-        .split_whitespace()
-        .filter(|token| !text::is_noise(token))
-        .map(str::to_string)
-        .collect()
+    text::content_tokens(comparable)
 }
 
 #[cfg(test)]
@@ -501,16 +498,23 @@ mod tests {
         );
     }
 
-    /// The pair the graph must never fold, and the number that says why: one exact name, no
-    /// corroboration. A single threshold in this band would fold it — which is exactly why the
-    /// filter is a conjunction and not a threshold on the total.
+    /// The pair the graph must never fold: one exact name, no corroboration. Its total used to clear
+    /// 0.6 on the strength of the shared article `a` — which is why the filter is a conjunction and
+    /// not a threshold on the sum. Unifying the tokenizer dropped the article, so the description now
+    /// contributes nothing and the total is exactly the name weight; the refusal is still the
+    /// conjunction's, not a lucky number.
     #[test]
     fn a_type_mismatch_without_name_agreement_does_not_clear() {
         let django = entity(1, "Django", Some("a 2021 video game"), "product");
         let frame = observation("Django", Some("a Python web framework"), "software");
+        let features = features(&frame, &django);
+        assert_eq!(
+            features.description, 0.0,
+            "the two descriptions share no substantive word: {features:?}"
+        );
         assert!(
-            Heuristic.score(&frame, &django) > 0.6,
-            "the total alone would fold this pair"
+            (features.total - WEIGHT_NAME).abs() < 1e-6,
+            "the total is the name weight alone: {features:?}"
         );
         assert!(Heuristic.rank(&frame, &[django]).is_empty());
     }

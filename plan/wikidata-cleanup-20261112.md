@@ -526,9 +526,9 @@ refused when `Degraded`.
 ## The startable list, worked (2026-11-13)
 
 Four items from `plan/backlog.md`, each measured against the identity table keyed by
-`origin_observation_id`. Net against the baseline: **1677 → 1672** identities, made of 4 wrong
-referents corrected, 2 wrong claims refused, 2 correct claims lost, 1 duplicate entity folded
-(`Nintendo` × 2), 4 method upgrades, 27 confidence-only moves.
+`origin_observation_id`. Net against the baseline: **1677 → 1671** identities, made of 4 wrong
+referents corrected, 2 wrong claims refused, 2 correct claims lost, 2 duplicate entities folded
+(`Nintendo` × 2, `The Criterion Collection` × 2), 4 method upgrades, 27 confidence-only moves.
 
 - **`inspect` truncation — fixed.** The decided candidate is always printed (`.take(4)` used to hide
   it: `M4 carbine` decided on a QID the report never showed) and the rest are counted as `… N more`.
@@ -541,10 +541,11 @@ referents corrected, 2 wrong claims refused, 2 correct claims lost, 1 duplicate 
   (`Hittitology` → `Hittites`) — and one wrong referent, because `force`/`forces` then match and a
   *painting* ("Royal Air Force Museum") outranked the B-17. Reverted; the backlog entry now carries
   this evidence instead of a plan.
-- **Tokenizer unification — step 1 shipped, step 2 measured.** The linker drops the resolver's
-  `NOISE` words (`text::is_noise`), which folds `Nintendo` × 2 and nothing else. Switching the
-  linker to the full `content_tokens` adds one more correct merge (`The Criterion Collection` × 2)
-  and no wrong ones; deferred as its own commit because it changes the linker's scale.
+- **Tokenizer unification — shipped in two steps.** Step 1: the linker drops the resolver's
+  `NOISE` words, which folds `Nintendo` × 2 and nothing else. Step 2: `tokens_of` delegates to
+  `text::content_tokens` outright, which folds `The Criterion Collection` × 2 and nothing else.
+  Both merges are right (same company, same QID each time), and the identity rows they deduplicate
+  are why the count drops again.
 
 **Bug found in my own rule:** the label-less admission counted matching *tokens*, not distinct
 words, so repeated stems inflated the count. Fixed; see the correction above.

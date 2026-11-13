@@ -32,4 +32,4 @@ pub(crate) use fold::comparable;
 pub(crate) use key::word_key;
 pub(crate) use surface::near_surface;
 pub use tokens::jaccard;
-pub(crate) use tokens::{content_tokens, grams, is_noise};
+pub(crate) use tokens::{content_tokens, grams};
