@@ -676,3 +676,36 @@ and contradiction sort were removed with them.
    different surface expectation?
 5. Should `SurfaceTitle` become a deferred *rule on the title question* rather than a pseudo-step —
    and should `inspect` stop being the second implementation of the loop?
+
+## Staged asking: measured twice, declined (2026-11-13)
+
+The pool asks every question for every entity, so a rebuild spends ~2,900 transport calls where the
+old ladder spent ~2,400. Nearly all of the difference is the two CirrusSearch questions, which cannot
+be batched: `search_label` ~2,279 calls, `search_hint` ~517. Provenance over the 1,601 pool-decided
+identities (the other ~36 are handle matches, which bypass the pool) prices them:
+
+| question | winners it produced | sole source of the winner |
+| --- | --- | --- |
+| `label` (SPARQL) | 1291 | 63 |
+| `title` (SPARQL) | 1240 | 28 |
+| `search_label` | 1249 | 91 |
+| `search_hint` | 517 | 11 |
+
+Two stagings were built, each keeping the single `pool::decide` and one combined pool — staging the
+*asking*, never the admission:
+
+| staging | requests | identities | fixed set | verdict |
+| --- | --- | --- | --- | --- |
+| every question (shipped) | 8466 | 1637 | 181/185, 10/15, 5 still wrong | — |
+| search only where exact answers refused | 6108 | 1647 | 177/185, 10/15 | **declined** |
+| search unless title *and* label agree | 6825 | 1642 | 179/185, 10/15 | **declined** |
+
+Both fail the gate (kept must not fall). Refusal is not a signal of weakness: `Heat`, `Hunter
+Hancock`, `John Roberts` and `Mont-Saint-Michel` were all claimed by a wave-one winner that search
+would have outranked. Confidence does not separate them either — they sat at 0.77–0.91 with 745
+other claims at ≥ 0.90 — and corroboration does not: Hunter Hancock and John Roberts are named by
+both the title and the label, and search still finds the item the description supports.
+
+So search stays asked for every non-handle entity. The cost is deferred rather than solved: an
+offline rebuild answers 7,956 of 8,466 questions from the cache, and only a first-contact run pays
+the unbatched calls.
