@@ -19,29 +19,29 @@ use crate::illumination::v2::{Platform, PlatformLink};
 ///
 /// A const per property we know, because the number is otherwise a bare string in a query, where a
 /// typo is invisible: it returns nothing and caches the negative.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) struct PropertyId(&'static str);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct PropertyId(&'static str);
 
 impl PropertyId {
     /// X (formerly Twitter) username; values carry no `@`.
-    const X_USERNAME: Self = Self("P2002");
-    const INSTAGRAM_USERNAME: Self = Self("P2003");
+    pub(super) const X_USERNAME: Self = Self("P2002");
+    pub(super) const INSTAGRAM_USERNAME: Self = Self("P2003");
     /// GitHub account.
-    const GITHUB_ACCOUNT: Self = Self("P2037");
+    pub(super) const GITHUB_ACCOUNT: Self = Self("P2037");
     /// A YouTube *channel* ID (`UC…`), not the channel's name.
-    const YOUTUBE_CHANNEL: Self = Self("P2397");
+    pub(super) const YOUTUBE_CHANNEL: Self = Self("P2397");
     /// A YouTube handle; values carry no `@`.
-    const YOUTUBE_HANDLE: Self = Self("P11245");
-    const TIKTOK_USERNAME: Self = Self("P7085");
+    pub(super) const YOUTUBE_HANDLE: Self = Self("P11245");
+    pub(super) const TIKTOK_USERNAME: Self = Self("P7085");
     /// A Mastodon address, `user@server.domain`, without a leading `@`.
-    const MASTODON_ADDRESS: Self = Self("P4033");
-    const FACEBOOK_USERNAME: Self = Self("P2013");
-    const LINKEDIN_PROFILE: Self = Self("P6634");
-    const THREADS_USERNAME: Self = Self("P11892");
-    const BLUESKY_HANDLE: Self = Self("P12361");
-    const REDDIT_USERNAME: Self = Self("P4265");
+    pub(super) const MASTODON_ADDRESS: Self = Self("P4033");
+    pub(super) const FACEBOOK_USERNAME: Self = Self("P2013");
+    pub(super) const LINKEDIN_PROFILE: Self = Self("P6634");
+    pub(super) const THREADS_USERNAME: Self = Self("P11892");
+    pub(super) const BLUESKY_HANDLE: Self = Self("P12361");
+    pub(super) const REDDIT_USERNAME: Self = Self("P4265");
     /// A Reddit forum's name; not a user, and therefore not a username.
-    const SUBREDDIT: Self = Self("P3984");
+    pub(super) const SUBREDDIT: Self = Self("P3984");
 
     pub(super) const fn as_str(self) -> &'static str {
         self.0

@@ -120,7 +120,9 @@ module's one-line claim about the corpus gets rewritten to match.
 
 ## Other findings, by severity
 
-1. **`Step::SurfaceTitle` is a decision wearing a request's clothes.** It plans the identical
+1. **`Step::SurfaceTitle` is a decision wearing a request's clothes** *(accepted 2026-11-13: the
+   ladder stays one shape; the cost is two special cases, documented at the site; revisit with a
+   third consumer)*. It plans the identical
    `Request` as `Step::Title` and exists only to re-decide the same cached answer after everything
    else refused. The cost is two special cases in two consumers (`resolver::ladder`'s
    `if step == SurfaceTitle`, `inspect`'s two arms) for what is really "the last rule of the title
@@ -132,12 +134,14 @@ module's one-line claim about the corpus gets rewritten to match.
    are shared (which is what `plan` was fixed for); the *loop semantics* are not. `plan::Step`'s doc
    claims "used by the resolver and by the eval replay" — **`eval` does not touch this module at
    all**. The only replay of the decision is `inspect`, and it is a second implementation.
-3. **Two different name-relatedness rules.** `parse_title` admits a candidate that shares *any*
+3. **Two different name-relatedness rules** *(accepted 2026-11-13: each is justified where it lives
+   and both were measured; revisit with a second provider)*. `parse_title` admits a candidate that shares *any*
    content token with our name; `parse_search` demands near-surface, a qualifier suffix (`, …` or
    `(…)`), or subset-of-content-words. Each has a long justification and neither is tested against
    the other. They may genuinely need to differ (a title query was our exact name; a search result
    was generated from text) — but that is currently an accident of authorship, not a stated rule.
-4. **Confidence is neither a rung label nor a calibrated probability.** It is a float mixing
+4. **Confidence is neither a rung label nor a calibrated probability** *(accepted 2026-11-13: it
+   stays a score, and downstream keeps sorting on it; a calibration sample does not exist)*. It is a float mixing
    hard-coded rung values (0.95/0.85/0.75), a corpus-size-dependent `fit`, and a ceiling. Downstream
    treats it as comparable: `project` takes `best_confidence` as the entity's confidence, and
    `evidence` sorts entities by it. Either it becomes an enum (and consumers stop ranking on it) or
@@ -146,14 +150,17 @@ module's one-line claim about the corpus gets rewritten to match.
 5. ~~**A `Degraded` answer can claim.**~~ **Fixed 2026-11-13** — a degraded answer is decided and
    then refused (`decision::trusted`), and the claim it would have made is logged as a warning. See
    "Degraded answers never claim" below.
-6. **`Kind::Handle(&'static str)` defeats `PropertyId`.** `property_query` introduces a newtype
-   "because the number is otherwise a bare string in a query, where a typo is invisible", then
-   `Kind` carries the property as a raw `&'static str` across the transport boundary.
-7. **The ladder is budget-blind.** `Resolver::resolve` receives the `Gateway` and can observe a
+6. ~~**`Kind::Handle(&'static str)` defeats `PropertyId`.**~~ **Fixed 2026-11-13** — `Handle` carries
+   the newtype, the constants are the only way to build one, and tests name `PropertyId::X_USERNAME`
+   instead of a literal.
+7. **The ladder is budget-blind** *(accepted 2026-11-13: ordering rungs by cost needs per-rung costs
+   measured first, and no run has been budget-bound yet)*. `Resolver::resolve` receives the `Gateway` and can observe a
    refusal, but not how much allowance is left, so it cannot prefer cheap rungs when a run is
    short. Ordering rungs by value per call is the resolver's business and it has no input.
-8. **Test topology is archaeology, not specification** *(partly addressed: `decision.rs`'s gates and
-   choice are now a `Case` table, and `ranking.rs` carries one test per rule)*. ~25 single-case tests, most documenting a
+8. ~~**Test topology is archaeology, not specification.**~~ **Done 2026-11-13** — every gate is a
+   `Case` table (gates, each rung, admission, degraded) and `ranking.rs` carries one test per rule.
+   Three white-box tests remain by design: `choose`'s margin ordering, `surface_only`'s guards, and
+   the degraded contract, none of which `decide` can express. ~25 single-case tests, most documenting a
    historical bug, several pinning exact confidences (0.75, 0.80). Valuable as history; fragile as
    regression protection, and duplicative (three `Dune` tests for one tie-break rule). What is
    missing is one table test per *gate* — menu, incompatible class, name-relatedness of each kind,
@@ -217,16 +224,16 @@ and the fix that closed them. Status values: `pending`, `done`.
 | # | File | Status | Findings / decisions |
 | --- | --- | --- | --- |
 | 1 | `resolver.rs` | done | R1–R11: free functions, `accumulate` / `last_resort`, the vocabulary sweep. Open: no precedence test, the `Canned` footgun |
-| 2 | `plan.rs` | done | P1 `plan::all_steps`, P2 `trim()` measured. Open: `Handle(&'static str)` drops `PropertyId` |
+| 2 | `plan.rs` | done | P1 `plan::all_steps`, P2 `trim()` measured; `Handle` now carries `PropertyId` (2026-11-13) |
 | 3 | `decision.rs` | done | M1–M8: one entry, `choose` private, dead guards, method vocabulary, `Result` refusals, both score questions measured. Open: file size only |
-| 4 | `ranking.rs` | in progress | S1 scoring contract rewritten; the two-fits defect (options A/B/C), `terse_and_rare`, hand-rolled `stem`, 4 tests for 347 lines |
+| 4 | `ranking.rs` | done | S1 scoring contract, two-fits (option A shipped, measured), `terse_and_rare` kept, comment pass S5 |
 | 5 | `types.rs` | pending | best quality-per-line; arms enumerate forbidden families inline |
 | 6 | `transport.rs` | pending | `search` mixes three concerns; `sparql` picks its query from `first.kind`; no degraded-branch test |
-| 7 | `property_query.rs` | pending | clean; only its coupling to `WikidataKind::Handle` |
+| 7 | `property_query.rs` | pending | clean; its `WikidataKind::Handle` coupling is closed (2026-11-13), the file is still unreviewed |
 | 8 | `query.rs` | pending | `escape` coverage; a comment block inside `format!` |
 | 9 | `shape.rs` | pending | maintained by hand, not derived from the builder it must agree with |
 | 10 | `answer.rs` | pending | `is_menu`'s description signal is a convention, not a rule |
-| 11 | `kind.rs` | pending | `property()` has one caller; carries a bare `&'static str` |
+| 11 | `kind.rs` | pending | `property()` has one caller; the bare-string finding is closed (2026-11-13) |
 | 12 | `candidate.rs` | pending | `classes` empty meaning "not asked" is load-bearing |
 | 13 | `mod.rs` | pending | declarations plus three constants |
 

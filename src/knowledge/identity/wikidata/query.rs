@@ -51,6 +51,7 @@ pub(super) fn escape(value: &str) -> String {
 mod tests {
     use super::*;
     use crate::knowledge::identity::wikidata::WikidataKind;
+    use crate::knowledge::identity::wikidata::property_query::PropertyId;
 
     fn request(kind: WikidataKind, query: &str) -> Request<WikidataKind> {
         Request {
@@ -78,7 +79,10 @@ mod tests {
     #[test]
     fn a_handle_query_asks_about_the_property_that_holds_the_account() {
         let query = for_handles(
-            &[request(WikidataKind::Handle("P2002"), "tsoding")],
+            &[request(
+                WikidataKind::Handle(PropertyId::X_USERNAME),
+                "tsoding",
+            )],
             "P2002",
         );
         assert!(query.contains("wdt:P2002"), "{query}");

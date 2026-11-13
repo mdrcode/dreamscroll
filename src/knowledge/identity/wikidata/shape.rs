@@ -27,6 +27,7 @@ pub(super) fn of(kind: &WikidataKind) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::knowledge::identity::wikidata::property_query::PropertyId;
     use std::collections::BTreeSet;
 
     /// A shape belongs to one kind: its own version prefix, carrying only the constants that kind's
@@ -38,7 +39,7 @@ mod tests {
         let label = of(&WikidataKind::Label);
         let title = of(&WikidataKind::Title);
         let search = of(&WikidataKind::Search);
-        let handle = of(&WikidataKind::Handle("P2002"));
+        let handle = of(&WikidataKind::Handle(PropertyId::X_USERNAME));
 
         assert!(search.contains("limit="), "{search}");
         for (kind, shape) in [("label", &label), ("title", &title), ("handle", &handle)] {
@@ -49,7 +50,7 @@ mod tests {
             "a handle query reads no labels: {handle}"
         );
         assert_eq!(
-            of(&WikidataKind::Handle("P2003")),
+            of(&WikidataKind::Handle(PropertyId::INSTAGRAM_USERNAME)),
             handle,
             "another property is another kind, not another shape"
         );

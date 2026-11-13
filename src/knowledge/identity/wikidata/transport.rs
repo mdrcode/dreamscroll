@@ -459,7 +459,7 @@ impl Wire {
             return Ok(Vec::new());
         };
         let query = if let Some(property) = first.kind.property() {
-            query::for_handles(requests, property)
+            query::for_handles(requests, property.as_str())
         } else {
             query::for_labels(requests)
         };

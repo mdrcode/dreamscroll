@@ -49,6 +49,7 @@ use crate::knowledge::text;
 use crate::knowledge::text::{content_tokens, near_surface};
 use crate::model;
 
+use super::property_query::PropertyId;
 use super::ranking::{
     CLAIM_BAR, CLAIM_MARGIN, FIT_MARGIN, HANDLE_CONFIDENCE, HINT_CEILING, HINT_MIN_SUPPORT,
     LONE_LABEL_CONFIDENCE, LOOKUP_CONFIDENCE, NAME_WEIGHT, Ranking, SUPPORT_WEIGHT,
@@ -121,8 +122,8 @@ fn trusted(
 ///
 /// `candidates` is non-empty because [`admit`] refuses an answer that carried nothing, so there is
 /// no "no item" branch to write.
-fn handle(candidates: &[WikidataCandidate], property: &'static str) -> Identity {
-    answer::identity(&candidates[0], property, HANDLE_CONFIDENCE)
+fn handle(candidates: &[WikidataCandidate], property: PropertyId) -> Identity {
+    answer::identity(&candidates[0], property.as_str(), HANDLE_CONFIDENCE)
 }
 
 /// No admission rule on purpose: the label query enumerates *every* holder of the string, so the
@@ -638,7 +639,7 @@ mod tests {
             answer: json!([{ "id": "Q1234", "label": "Tsoding" }]),
             claim: Some(claim("Q1234", "P2002", 0.95)),
         }
-        .run(WikidataKind::Handle("P2002"));
+        .run(WikidataKind::Handle(PropertyId::X_USERNAME));
     }
 
     // ---- label -------------------------------------------------------------------------------
@@ -847,6 +848,33 @@ mod tests {
                 }]),
                 claim: None,
             },
+            Case {
+                why: "a label too short to tokenise is still a name by prefix: `M4` within `M4 carbine`",
+                probe: probe("M4 carbine")
+                    .described("A 5.56×45mm NATO gas-operated magazine-fed carbine")
+                    .typed("product"),
+                answer: json!([{ "id": "Q214688", "label": "M4", "description": "carbine" }]),
+                claim: Some(ranked("Q214688", "search_ranked")),
+            },
+            Case {
+                why: "a label-less answer names us in its description: three distinct words is the bar",
+                probe: probe("Gladiator").described(
+                    "2000 historical epic drama directed by Ridley Scott that won five Academy Awards",
+                ),
+                answer: json!([{ "id": "Q128518", "description": "2000 film directed by Ridley Scott" }]),
+                claim: Some(ranked("Q128518", "search_ranked")),
+            },
+            Case {
+                why: "a mention is not a naming: a product of the company is not the company",
+                probe: probe("xAI")
+                    .described("Artificial intelligence startup founded by Elon Musk focused on developing frontier AI models")
+                    .typed("movie"),
+                answer: json!([{
+                    "id": "Q136410803",
+                    "description": "AI-generated encyclopedia developed by xAI"
+                }]),
+                claim: None,
+            },
         ] {
             case.run(WikidataKind::Search);
         }
@@ -881,59 +909,6 @@ mod tests {
             surface_only(&entity, &found(json!([]))).is_err(),
             "no candidate, no surface"
         );
-    }
-
-    /// A label shorter than three characters tokenises to nothing, so `M4` could never be a name
-    /// for `M4 carbine` — the search rung's subset test saw an empty word list and refused. The
-    /// word-prefix test is what admits it, and its boundary is what keeps `roy` from being `royal`.
-    #[test]
-    fn a_label_shorter_than_a_token_is_still_a_name() {
-        Case {
-            why: "`M4` is the first word of `M4 carbine`",
-            probe: probe("M4 carbine")
-                .described("A 5.56×45mm NATO gas-operated magazine-fed carbine")
-                .typed("product"),
-            answer: json!([{ "id": "Q214688", "label": "M4", "description": "carbine" }]),
-            claim: Some(ranked("Q214688", "search_ranked")),
-        }
-        .run(WikidataKind::Search);
-    }
-
-    /// A candidate with no label has no name to test, so its description has to stand in for one.
-    /// A single shared word is a mention (`AI-generated encyclopedia developed by xAI` for `xAI`),
-    /// not a naming; three substantive words is the bar that admits the right item and refuses the
-    /// encyclopaedia.
-    #[test]
-    fn a_label_less_candidate_must_name_us_in_three_words() {
-        for (why, probe, answer, claim) in [
-            (
-                "a film description naming the director and year is the same thing",
-                probe("Gladiator").described(
-                    "2000 historical epic drama directed by Ridley Scott that won five Academy Awards",
-                ),
-                json!([{ "id": "Q128518", "description": "2000 film directed by Ridley Scott" }]),
-                Some(ranked("Q128518", "search_ranked")),
-            ),
-            (
-                "a product of the company is not the company",
-                probe("xAI").described(
-                    "Artificial intelligence startup founded by Elon Musk focused on developing frontier AI models",
-                ),
-                json!([{
-                    "id": "Q136410803",
-                    "description": "AI-generated encyclopedia developed by xAI"
-                }]),
-                None,
-            ),
-        ] {
-            Case {
-                why,
-                probe: probe.typed("movie"),
-                answer,
-                claim,
-            }
-            .run(WikidataKind::Search);
-        }
     }
 
     /// A degraded answer can hold the right item — and it is still refused, because a prefix-only

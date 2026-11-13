@@ -6,6 +6,8 @@
 
 use std::fmt;
 
+use super::property_query::PropertyId;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum WikidataKind {
     /// Exact label, through a SPARQL `VALUES`.
@@ -15,14 +17,14 @@ pub enum WikidataKind {
     /// MediaWiki full-text search: the expensive fallback.
     Search,
     /// A platform link's handle, held by one Wikidata property (`P2002` for X, and so on).
-    Handle(&'static str),
+    Handle(PropertyId),
 }
 
 impl WikidataKind {
     /// The property a handle request asks about, if it is one.
-    pub fn property(&self) -> Option<&'static str> {
+    pub fn property(&self) -> Option<PropertyId> {
         match self {
-            Self::Handle(property) => Some(property),
+            Self::Handle(property) => Some(*property),
             _ => None,
         }
     }
@@ -36,7 +38,7 @@ impl fmt::Display for WikidataKind {
             Self::Label => f.write_str("label"),
             Self::Title => f.write_str("title"),
             Self::Search => f.write_str("search"),
-            Self::Handle(property) => write!(f, "handle:{property}"),
+            Self::Handle(property) => write!(f, "handle:{}", property.as_str()),
         }
     }
 }

@@ -114,7 +114,7 @@ fn handle(entity: &model::knowledge_entity::Model) -> Vec<Request<WikidataKind>>
     };
     platform_link_queries(&link)
         .into_iter()
-        .map(|query| request(WikidataKind::Handle(query.property.as_str()), &query.value))
+        .map(|query| request(WikidataKind::Handle(query.property), &query.value))
         .collect()
 }
 
@@ -137,10 +137,7 @@ fn search_label(entity: &model::knowledge_entity::Model) -> Option<Request<Wikid
 fn search_hint(entity: &model::knowledge_entity::Model) -> Option<Request<WikidataKind>> {
     let label = entity.name.trim();
     let hint = entity.search_query.as_deref()?.trim();
-    if label.is_empty()
-        || hint.is_empty()
-        || text::comparable(hint) == text::comparable(label)
-    {
+    if label.is_empty() || hint.is_empty() || text::comparable(hint) == text::comparable(label) {
         return None;
     }
     Some(request(WikidataKind::Search, hint))
@@ -157,6 +154,7 @@ fn title(entity: &model::knowledge_entity::Model) -> Option<Request<WikidataKind
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::knowledge::identity::wikidata::property_query::PropertyId;
     use crate::test_support::fixtures::stub_entity;
 
     fn entity(label: &str) -> model::knowledge_entity::Model {
@@ -182,7 +180,7 @@ mod tests {
             vec![
                 (
                     Step::Handle,
-                    WikidataKind::Handle("P2002"),
+                    WikidataKind::Handle(PropertyId::X_USERNAME),
                     "tsoding".to_string()
                 ),
                 (
@@ -233,20 +231,40 @@ mod tests {
     #[test]
     fn every_platform_string_reaches_the_property_that_holds_its_handle() {
         for (platform, handle, property) in [
-            ("x_twitter", "tsoding", WikidataKind::Handle("P2002")),
-            ("youtube", "@MeatCanyon", WikidataKind::Handle("P11245")),
+            (
+                "x_twitter",
+                "tsoding",
+                WikidataKind::Handle(PropertyId::X_USERNAME),
+            ),
+            (
+                "youtube",
+                "@MeatCanyon",
+                WikidataKind::Handle(PropertyId::YOUTUBE_HANDLE),
+            ),
             (
                 "youtube",
                 "UC_x5XG1OV2P6uZZ5FSM9Ttw",
-                WikidataKind::Handle("P2397"),
+                WikidataKind::Handle(PropertyId::YOUTUBE_CHANNEL),
             ),
-            ("reddit", "r/NFCWestMemeWar", WikidataKind::Handle("P3984")),
-            ("reddit", "u/spez", WikidataKind::Handle("P4265")),
-            ("threads", "@ada", WikidataKind::Handle("P11892")),
+            (
+                "reddit",
+                "r/NFCWestMemeWar",
+                WikidataKind::Handle(PropertyId::SUBREDDIT),
+            ),
+            (
+                "reddit",
+                "u/spez",
+                WikidataKind::Handle(PropertyId::REDDIT_USERNAME),
+            ),
+            (
+                "threads",
+                "@ada",
+                WikidataKind::Handle(PropertyId::THREADS_USERNAME),
+            ),
             (
                 "mastodon",
                 "@user@mastodon.social",
-                WikidataKind::Handle("P4033"),
+                WikidataKind::Handle(PropertyId::MASTODON_ADDRESS),
             ),
         ] {
             let mut entity = entity("someone");
