@@ -3,50 +3,8 @@
 use super::WikidataCandidate;
 use crate::knowledge::normalize;
 use crate::knowledge::scoring::{Order, Policy};
+use crate::knowledge::text::{content_tokens, grams};
 use crate::model;
-
-/// Whether two *comparable* surfaces are the same name spelled differently:
-/// `dostoyevsky`/`dostoevsky`, `jrr tolkien`/`jrrtolkien`. Measured on the two cases that
-/// motivated the fallback: a one-letter transliteration and an initials/spacing difference.
-///
-/// Both sides must already be folded by [`normalize::comparable`]; the caller owns that, because
-/// the fold is shared with the blocker and the graph's own scoring.
-///
-/// Deliberately tight. A candidate whose label merely *contains* our name — `Royal Navy fleet
-/// aircraft carrier fleet` for `Royal Navy` — is a different referent that describes ours, and its
-/// text overlap is precisely what would fool the fit score.
-pub(super) fn near_surface(theirs: &str, ours: &str) -> bool {
-    if theirs == ours {
-        return true;
-    }
-    let (a, b) = (theirs.chars().count(), ours.chars().count());
-    let longest = a.max(b);
-    if longest < 6 {
-        return false;
-    }
-    // One edit per eight characters, and never more than two: enough for `Dostoevsky`, far too
-    // little for a title that embeds ours.
-    let allowance = (longest / 8).clamp(1, 2);
-    edit_distance(theirs, ours) <= allowance
-}
-
-fn edit_distance(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    let mut previous: Vec<usize> = (0..=b.len()).collect();
-    let mut current = vec![0usize; b.len() + 1];
-    for (i, ca) in a.iter().enumerate() {
-        current[0] = i + 1;
-        for (j, cb) in b.iter().enumerate() {
-            let cost = usize::from(ca != cb);
-            current[j + 1] = (previous[j] + cost)
-                .min(previous[j + 1] + 1)
-                .min(current[j] + 1);
-        }
-        std::mem::swap(&mut previous, &mut current);
-    }
-    previous[b.len()]
-}
 
 // The authority's calibration. Not the graph's: every number below prices a *Wikidata answer*, on a
 // scale produced by `fit` and the blend above — so it lives with the measure that produces them, and
@@ -91,11 +49,6 @@ pub(super) const NAME_WEIGHT: f32 = 0.40;
 pub(super) const SUPPORT_WEIGHT: f32 = 0.60;
 
 /// Words that carry no disambiguation: dropping them makes description overlap mean something.
-const NOISE: &[&str] = &[
-    "the", "and", "for", "with", "from", "that", "this", "his", "her", "its", "was", "were", "who",
-    "which", "about", "into", "are", "but", "not", "由", "der", "die", "das", "les", "los", "las",
-];
-
 /// The authority's one policy, in the shape [`Policy`] expects.
 ///
 /// Not [`Similarity`](crate::knowledge::scoring::Similarity): the measure is corpus-aware — terms are
@@ -236,14 +189,6 @@ pub(super) fn our_tokens(entity: &model::knowledge_entity::Model) -> Vec<Vec<Str
     entity.descriptions().map(content_tokens).collect()
 }
 
-pub(super) fn content_tokens(text: &str) -> Vec<String> {
-    text.split(|c: char| !c.is_alphanumeric())
-        .map(str::to_lowercase)
-        .filter(|token| token.chars().count() >= 3 && !NOISE.contains(&token.as_str()))
-        .map(stem)
-        .collect()
-}
-
 /// Light suffix stripping, so `painter`, `painting` and `paint` are the same word.
 ///
 /// Measured on `Caravaggio`: the entity's description says "revolutionized Western **painting**",
@@ -253,37 +198,6 @@ pub(super) fn content_tokens(text: &str) -> Vec<String> {
 /// Unigrams plus adjacent bigrams. `"first president"` is stronger evidence than `first` and
 /// `president` appearing separately: the phrase is evidence about the same thing, whereas two loose
 /// words can be coincidence — our description and a *statue's* both contain `united` and `states`.
-fn grams(tokens: &[String]) -> Vec<String> {
-    let mut grams = tokens.to_vec();
-    grams.extend(
-        tokens
-            .windows(2)
-            .map(|pair| format!("{} {}", pair[0], pair[1])),
-    );
-    grams
-}
-
-fn stem(token: String) -> String {
-    for suffix in ["ings", "ing", "ed", "es", "s"] {
-        if token.len() > suffix.len() + 2 && token.ends_with(suffix) {
-            return token[..token.len() - suffix.len()].to_string();
-        }
-    }
-    // Agent nouns only when enough of the word remains: `painter` → `paint` is the case this exists
-    // for, while `water` → `wat` and `filmmaker` → `filmak` are damage.
-    if token.len() > 6 && (token.ends_with("ers") || token.ends_with("er")) {
-        let trimmed = if token.ends_with("ers") {
-            &token[..token.len() - 3]
-        } else {
-            &token[..token.len() - 2]
-        };
-        if trimmed.len() >= 4 {
-            return trimmed.to_string();
-        }
-    }
-    token
-}
-
 /// Term rarity within the candidate set.
 ///
 /// This is what separates a *subject* from a *location*: `"George Washington"` returns a president
@@ -379,20 +293,6 @@ mod tests {
             })
             .collect();
         Weights::over(&candidates)
-    }
-
-    /// The fold is shared with the graph, so the near-surface test inherits its diacritic and
-    /// spacing work. The old bespoke key kept the accent, so `Pokémon` and `Pokemon` never met.
-    #[test]
-    fn near_surface_folds_before_measuring_edits() {
-        assert!(near_surface(
-            &normalize::comparable("Pokémon"),
-            &normalize::comparable("Pokemon"),
-        ));
-        assert!(near_surface(
-            &normalize::comparable("J. R. R. Tolkien"),
-            &normalize::comparable("J.R.R. Tolkien"),
-        ));
     }
 
     /// A term in every candidate used to be worth *less* than nothing: `N / (1 + df)` is below 1,

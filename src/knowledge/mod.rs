@@ -25,8 +25,8 @@
 //! - [`evidence`] — [`Identity`](evidence::Identity) and the store for `knowledge_identities`.
 //!   `identity` writes through it and `linking` reads it; it depends on `model`, `normalize` and
 //!   `scoring` and on nothing else here.
-//! - [`normalize`] and [`scoring`] — a surface fold and a confidence comparison, used by blocking,
-//!   identity, evidence and projection alike.
+//! - [`normalize`], [`text`] and [`scoring`] — a surface fold, the words and grams a measure compares,
+//!   and a confidence comparison; used by blocking, identity, evidence and projection alike.
 //! - [`snapshot`] — copy the projection, empty it, diff two copies: an operation over the whole
 //!   graph, not a way of changing it.
 //! - [`helper`] — the illumination composition: which observations are linked together, and the
@@ -47,6 +47,7 @@ pub mod normalize;
 pub mod proximity;
 pub mod scoring;
 pub mod snapshot;
+pub mod text;
 pub mod verdicts;
 
 pub use graph::{KnowledgeGraph, LinkReport, ReplayReport};

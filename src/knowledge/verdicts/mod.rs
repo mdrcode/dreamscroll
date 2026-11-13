@@ -20,8 +20,8 @@ mod store;
 mod veto;
 
 pub use store::VerdictStore;
-pub use veto::VetoReport;
 pub(crate) use store::pair_key;
+pub use veto::VetoReport;
 
 /// Why a decision was made — the column `knowledge_verdicts.cause` names. Re-exported here because
 /// this module owns that table's vocabulary; `merge` takes one, `replay` selects on it.

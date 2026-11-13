@@ -21,8 +21,8 @@ mod knowledge_graph;
 mod project;
 mod replay;
 
-pub(crate) use knowledge_graph::{current_generation, get};
 pub use knowledge_graph::KnowledgeGraph;
+pub(crate) use knowledge_graph::{current_generation, get};
 pub use link::LinkReport;
 pub use project::Scope as ReprojectScope;
 pub use replay::ReplayReport;

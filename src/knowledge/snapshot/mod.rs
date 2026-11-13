@@ -10,6 +10,6 @@ mod compare;
 mod record;
 mod reset;
 
-pub use compare::{compare, Kind};
+pub use compare::{Kind, compare};
 pub use record::Snapshot;
 pub use reset::{preview, reset};

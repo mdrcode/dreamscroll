@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
-use crate::database;
 use super::record::Snapshot;
+use crate::database;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -50,7 +50,10 @@ pub struct Report {
 
 impl Report {
     pub fn identical(&self) -> bool {
-        self.split == 0 && self.merged == 0 && self.moved == 0 && self.only_in_before == 0
+        self.split == 0
+            && self.merged == 0
+            && self.moved == 0
+            && self.only_in_before == 0
             && self.only_in_after == 0
     }
 }
@@ -70,8 +73,14 @@ pub async fn compare(
 
     let mut report = Report {
         observations: before_map.len().max(after_map.len()),
-        only_in_before: before_map.keys().filter(|id| !after_map.contains_key(id)).count(),
-        only_in_after: after_map.keys().filter(|id| !before_map.contains_key(id)).count(),
+        only_in_before: before_map
+            .keys()
+            .filter(|id| !after_map.contains_key(id))
+            .count(),
+        only_in_after: after_map
+            .keys()
+            .filter(|id| !before_map.contains_key(id))
+            .count(),
         entities_before: before_groups.len(),
         entities_after: after_groups.len(),
         ..Default::default()
@@ -91,18 +100,10 @@ pub async fn compare(
         .filter(|id| before_room.get(id) != after_room.get(*id))
         .count();
 
-    let (split, mut examples) = transitions(
-        &before_groups,
-        &after_map,
-        &before_labels,
-        Kind::Split,
-    );
-    let (merged, merged_examples) = transitions(
-        &after_groups,
-        &before_map,
-        &after_labels,
-        Kind::Merged,
-    );
+    let (split, mut examples) =
+        transitions(&before_groups, &after_map, &before_labels, Kind::Split);
+    let (merged, merged_examples) =
+        transitions(&after_groups, &before_map, &after_labels, Kind::Merged);
     report.split = split;
     report.merged = merged;
     examples.extend(merged_examples);
@@ -137,7 +138,11 @@ fn transitions(
     let mut count = 0;
     let mut examples = Vec::new();
     for (entity, members) in groups {
-        let into: BTreeSet<i32> = members.iter().filter_map(|id| other.get(id)).copied().collect();
+        let into: BTreeSet<i32> = members
+            .iter()
+            .filter_map(|id| other.get(id))
+            .copied()
+            .collect();
         if into.len() > 1 {
             count += 1;
             examples.push(Example {
@@ -173,14 +178,20 @@ async fn membership(db: &database::DbHandle, table: &str) -> anyhow::Result<Hash
         .conn
         .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
-            format!("SELECT observation_id, knowledge_entity_id FROM {}", quoted(table)),
+            format!(
+                "SELECT observation_id, knowledge_entity_id FROM {}",
+                quoted(table)
+            ),
         ))
         .await
         .map_err(|error| anyhow::anyhow!("cannot read snapshot table {table}: {error}"))?;
 
     let mut map = HashMap::with_capacity(rows.len());
     for row in rows {
-        map.insert(row.try_get_by_index::<i32>(0)?, row.try_get_by_index::<i32>(1)?);
+        map.insert(
+            row.try_get_by_index::<i32>(0)?,
+            row.try_get_by_index::<i32>(1)?,
+        );
     }
     Ok(map)
 }
@@ -234,22 +245,47 @@ mod tests {
         };
 
         // Before: {1,2} · {3} · {4} · {5}
-        table(&db, &before.membership(), "observation_id int, knowledge_entity_id int",
-              "(1,10),(2,10),(3,20),(4,30),(5,40)").await;
-        table(&db, &before.entities(), "id int, name text",
-              r#"(10,'Train Dreams'),(20,'Dune'),(30,'Dune'),(40,'Wojak')"#).await;
+        table(
+            &db,
+            &before.membership(),
+            "observation_id int, knowledge_entity_id int",
+            "(1,10),(2,10),(3,20),(4,30),(5,40)",
+        )
+        .await;
+        table(
+            &db,
+            &before.entities(),
+            "id int, name text",
+            r#"(10,'Train Dreams'),(20,'Dune'),(30,'Dune'),(40,'Wojak')"#,
+        )
+        .await;
         // After: {1} · {2} · {3,4} · {5} — the first group split, the middle two merged.
-        table(&db, &after.membership(), "observation_id int, knowledge_entity_id int",
-              "(1,11),(2,12),(3,21),(4,21),(5,40)").await;
-        table(&db, &after.entities(), "id int, name text",
-              r#"(11,'Train Dreams'),(12,'Train Dreams'),(21,'Dune'),(40,'Wojak')"#).await;
+        table(
+            &db,
+            &after.membership(),
+            "observation_id int, knowledge_entity_id int",
+            "(1,11),(2,12),(3,21),(4,21),(5,40)",
+        )
+        .await;
+        table(
+            &db,
+            &after.entities(),
+            "id int, name text",
+            r#"(11,'Train Dreams'),(12,'Train Dreams'),(21,'Dune'),(40,'Wojak')"#,
+        )
+        .await;
 
-        let report = compare(&db, &before, &after).await.expect("compare should succeed");
+        let report = compare(&db, &before, &after)
+            .await
+            .expect("compare should succeed");
 
         assert_eq!(report.observations, 5, "{report:?}");
         assert_eq!(report.split, 1, "{report:?}");
         assert_eq!(report.merged, 1, "{report:?}");
-        assert_eq!(report.unchanged, 1, "the {{5}} group is identical: {report:?}");
+        assert_eq!(
+            report.unchanged, 1,
+            "the {{5}} group is identical: {report:?}"
+        );
         assert_eq!(report.moved, 4, "{report:?}");
         assert_eq!(report.entities_before, 4);
         assert_eq!(report.entities_after, 4);
@@ -267,15 +303,39 @@ mod tests {
             suffix: "same_after".to_string(),
         };
 
-        table(&db, &before.membership(), "observation_id int, knowledge_entity_id int",
-              "(1,10),(2,10),(3,20)").await;
-        table(&db, &before.entities(), "id int, name text", r#"(10,'A'),(20,'B')"#).await;
+        table(
+            &db,
+            &before.membership(),
+            "observation_id int, knowledge_entity_id int",
+            "(1,10),(2,10),(3,20)",
+        )
+        .await;
+        table(
+            &db,
+            &before.entities(),
+            "id int, name text",
+            r#"(10,'A'),(20,'B')"#,
+        )
+        .await;
         // Different entity ids, same grouping — which is what a rebuild of the same corpus produces.
-        table(&db, &after.membership(), "observation_id int, knowledge_entity_id int",
-              "(1,71),(2,71),(3,82)").await;
-        table(&db, &after.entities(), "id int, name text", r#"(71,'A'),(82,'B')"#).await;
+        table(
+            &db,
+            &after.membership(),
+            "observation_id int, knowledge_entity_id int",
+            "(1,71),(2,71),(3,82)",
+        )
+        .await;
+        table(
+            &db,
+            &after.entities(),
+            "id int, name text",
+            r#"(71,'A'),(82,'B')"#,
+        )
+        .await;
 
-        let report = compare(&db, &before, &after).await.expect("compare should succeed");
+        let report = compare(&db, &before, &after)
+            .await
+            .expect("compare should succeed");
 
         assert!(report.identical(), "{report:?}");
         assert_eq!(report.unchanged, 2, "{report:?}");
@@ -294,7 +354,9 @@ mod tests {
             .expect_err("a missing snapshot should fail");
 
         assert!(
-            error.to_string().contains("knowledge_entity_membership__cmp_missing"),
+            error
+                .to_string()
+                .contains("knowledge_entity_membership__cmp_missing"),
             "{error}"
         );
     }
@@ -308,14 +370,19 @@ mod tests {
             suffix: "a\"b".to_string(),
         };
         for (table, columns, row) in [
-            (&snapshot.membership(), "observation_id int, knowledge_entity_id int", "(1, 10)"),
-            (&snapshot.entities(), "id int, name text", "(10, 'Train Dreams')"),
+            (
+                &snapshot.membership(),
+                "observation_id int, knowledge_entity_id int",
+                "(1, 10)",
+            ),
+            (
+                &snapshot.entities(),
+                "id int, name text",
+                "(10, 'Train Dreams')",
+            ),
         ] {
             db.conn
-                .execute_unprepared(&format!(
-                    "CREATE TABLE {} ({columns})",
-                    quoted(table)
-                ))
+                .execute_unprepared(&format!("CREATE TABLE {} ({columns})", quoted(table)))
                 .await
                 .expect("the quoted identifier names a table");
             db.conn

@@ -14,7 +14,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
-use crate::knowledge::blocker::{index, Blocker, SqlBlocker};
+use crate::knowledge::blocker::{Blocker, SqlBlocker, index};
 use crate::knowledge::normalize;
 use crate::model;
 
@@ -153,7 +153,11 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
     // The same two key generations the blocker matches on.
     let keys = |name: &str, handle: Option<&str>| -> HashSet<String> {
         let folded = index::fold([Some(name), handle].into_iter().flatten());
-        folded.surfaces.into_iter().chain(folded.word_keys).collect()
+        folded
+            .surfaces
+            .into_iter()
+            .chain(folded.word_keys)
+            .collect()
     };
 
     // Merge verdicts, folded the same way the index folds: (winner, loser), either direction.
@@ -331,6 +335,9 @@ mod tests {
         assert_eq!(report.attributable(), 2);
         assert_eq!(report.attributable_recall(), 50.0);
         assert_eq!(report.unexplained_misses(), 1);
-        assert_eq!(report.hit, 3, "the live index carries every member's own surface");
+        assert_eq!(
+            report.hit, 3,
+            "the live index carries every member's own surface"
+        );
     }
 }

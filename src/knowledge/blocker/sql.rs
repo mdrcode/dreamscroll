@@ -9,8 +9,8 @@ use sea_orm::{
     RelationTrait, Value, sea_query::Expr,
 };
 
-use crate::database::DbHandle;
 use super::Blocker;
+use crate::database::DbHandle;
 use crate::knowledge::normalize;
 use crate::model;
 

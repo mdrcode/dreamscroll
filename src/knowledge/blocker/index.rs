@@ -9,9 +9,7 @@
 //! hand-bumped number, and `plan/knowledge-blocking.md` §Storage for why this is a table.
 
 use sea_orm::sea_query::{Expr, ExprTrait, OnConflict, Query};
-use sea_orm::{
-    ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, Set,
-};
+use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 
 use crate::database::DbHandle;
 use crate::knowledge::normalize;
@@ -74,9 +72,8 @@ pub(crate) async fn write<C: ConnectionTrait>(
     } = keys(entity);
     let text = surfaces.join(" ");
 
-    let mut conflict = OnConflict::column(
-        model::knowledge_blocking_index::Column::KnowledgeEntityId,
-    );
+    let mut conflict =
+        OnConflict::column(model::knowledge_blocking_index::Column::KnowledgeEntityId);
     conflict
         .update_columns([
             model::knowledge_blocking_index::Column::Surfaces,
@@ -90,16 +87,14 @@ pub(crate) async fn write<C: ConnectionTrait>(
             Expr::current_timestamp(),
         )]);
 
-    model::knowledge_blocking_index::Entity::insert(
-        model::knowledge_blocking_index::ActiveModel {
-            knowledge_entity_id: Set(entity.id),
-            surfaces: Set(surfaces),
-            word_keys: Set(word_keys),
-            text: Set(text),
-            built_with: Set(normalize::norm_fingerprint().to_string()),
-            ..Default::default()
-        },
-    )
+    model::knowledge_blocking_index::Entity::insert(model::knowledge_blocking_index::ActiveModel {
+        knowledge_entity_id: Set(entity.id),
+        surfaces: Set(surfaces),
+        word_keys: Set(word_keys),
+        text: Set(text),
+        built_with: Set(normalize::norm_fingerprint().to_string()),
+        ..Default::default()
+    })
     .on_conflict(conflict)
     .exec_without_returning(conn)
     .await?;
@@ -107,11 +102,12 @@ pub(crate) async fn write<C: ConnectionTrait>(
 }
 
 /// Drop an entity's row: it was tombstoned by a merge, or the generation was emptied.
-pub(crate) async fn forget<C: ConnectionTrait>(conn: &C, knowledge_entity_id: i32) -> anyhow::Result<()> {
+pub(crate) async fn forget<C: ConnectionTrait>(
+    conn: &C,
+    knowledge_entity_id: i32,
+) -> anyhow::Result<()> {
     model::knowledge_blocking_index::Entity::delete_many()
-        .filter(
-            model::knowledge_blocking_index::Column::KnowledgeEntityId.eq(knowledge_entity_id),
-        )
+        .filter(model::knowledge_blocking_index::Column::KnowledgeEntityId.eq(knowledge_entity_id))
         .exec(conn)
         .await?;
     Ok(())
@@ -209,7 +205,10 @@ mod tests {
         db_or_skip!(db);
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         // The fixture inserts the row directly; `project` is the writer under test.
-        crate::knowledge::KnowledgeGraph::new(&db).update_projection(id).await.unwrap();
+        crate::knowledge::KnowledgeGraph::new(&db)
+            .update_projection(id)
+            .await
+            .unwrap();
         let entity = model::knowledge_entity::Entity::find_by_id(id)
             .one(&db.conn)
             .await
@@ -242,7 +241,10 @@ mod tests {
     async fn a_row_from_another_fold_is_counted_and_rebuildable() {
         db_or_skip!(db);
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        crate::knowledge::KnowledgeGraph::new(&db).update_projection(id).await.unwrap();
+        crate::knowledge::KnowledgeGraph::new(&db)
+            .update_projection(id)
+            .await
+            .unwrap();
         db.conn
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
@@ -326,7 +328,10 @@ mod tests {
     async fn a_live_entity_without_a_row_is_missing() {
         db_or_skip!(db);
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        crate::knowledge::KnowledgeGraph::new(&db).update_projection(id).await.unwrap();
+        crate::knowledge::KnowledgeGraph::new(&db)
+            .update_projection(id)
+            .await
+            .unwrap();
         forget(&db.conn, id).await.unwrap();
         let report = check(&db).await.unwrap();
         assert_eq!(report.missing, 1, "{report:?}");
@@ -368,11 +373,7 @@ mod tests {
         store.update_projection(winner).await.unwrap();
         store.update_projection(loser).await.unwrap();
         store
-            .merge(
-                loser,
-                winner,
-                crate::knowledge::verdicts::Cause::Repair,
-            )
+            .merge(loser, winner, crate::knowledge::verdicts::Cause::Repair)
             .await
             .unwrap();
 
@@ -400,11 +401,7 @@ mod tests {
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         store
-            .merge(
-                loser,
-                winner,
-                crate::knowledge::verdicts::Cause::Repair,
-            )
+            .merge(loser, winner, crate::knowledge::verdicts::Cause::Repair)
             .await
             .unwrap();
 

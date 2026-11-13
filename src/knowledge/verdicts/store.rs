@@ -129,7 +129,10 @@ impl VerdictStore {
         entity_b: i32,
         note: Option<&str>,
     ) -> anyhow::Result<bool> {
-        anyhow::ensure!(entity_a != entity_b, "an entity cannot be distinct from itself");
+        anyhow::ensure!(
+            entity_a != entity_b,
+            "an entity cannot be distinct from itself"
+        );
         let rows = model::knowledge_entity::Entity::find()
             .filter(model::knowledge_entity::Column::Id.is_in([entity_a, entity_b]))
             .all(&self.conn)

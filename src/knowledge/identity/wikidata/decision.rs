@@ -44,13 +44,13 @@ use crate::fetch::Answer;
 use crate::knowledge::evidence::Identity;
 use crate::knowledge::normalize;
 use crate::knowledge::scoring::Rank;
+use crate::knowledge::text::{content_tokens, near_surface};
 use crate::model;
 
 use super::ranking::{
     CLAIM_BAR, CLAIM_MARGIN, FIT_MARGIN, HANDLE_CONFIDENCE, HINT_CEILING, HINT_MIN_SUPPORT,
     LONE_LABEL_CONFIDENCE, LOOKUP_CONFIDENCE, NAME_WEIGHT, Ranking, SUPPORT_WEIGHT,
-    answer_confidence, blend_within, content_tokens, exact_label, fit_within, hint_tokens,
-    near_surface,
+    answer_confidence, blend_within, exact_label, fit_within, hint_tokens,
 };
 use super::{WikidataCandidate, WikidataKind, answer, types};
 
