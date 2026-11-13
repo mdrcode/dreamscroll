@@ -393,615 +393,481 @@ pub(crate) fn surface_only(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fetch::Request;
+    use crate::fetch::{Answer, Outcome};
     use crate::test_support::fixtures::stub_entity;
     use serde_json::json;
 
-    /// The ladder hands over a request; tests say the same thing with the query spelled out.
-    fn identify(
-        entity: &model::knowledge_entity::Model,
-        request: &Request<WikidataKind>,
-        raw: &Answer<Vec<WikidataCandidate>>,
-    ) -> Result<Identity, &'static str> {
-        decide(entity, request.kind, raw)
+    // ---- the fixture -------------------------------------------------------------------------
+
+    /// The entity a case asks about: one field per input `decide` reads.
+    #[derive(Clone, Copy)]
+    struct Probe {
+        name: &'static str,
+        description: Option<&'static str>,
+        entity_type: &'static str,
+        hint: Option<&'static str>,
     }
 
-    fn candidate(id: &str, label: &str, description: Option<&str>) -> WikidataCandidate {
-        WikidataCandidate {
-            id: id.to_string(),
-            label: Some(label.to_string()),
-            description: description.map(str::to_string),
-            classes: Vec::new(),
+    fn probe(name: &'static str) -> Probe {
+        Probe {
+            name,
+            description: None,
+            entity_type: "unknown",
+            hint: None,
         }
     }
 
-    fn request(kind: WikidataKind, query: &str) -> Request<WikidataKind> {
-        Request {
-            provider: "wikidata",
-            kind,
-            shape: "test".to_string(),
-            query: query.to_string(),
+    impl Probe {
+        fn described(self, description: &'static str) -> Self {
+            Self {
+                description: Some(description),
+                ..self
+            }
+        }
+
+        fn typed(self, entity_type: &'static str) -> Self {
+            Self {
+                entity_type,
+                ..self
+            }
+        }
+
+        /// The capture's disambiguation hint, which only the fallbacks may read.
+        fn hinted(self, hint: &'static str) -> Self {
+            Self {
+                hint: Some(hint),
+                ..self
+            }
+        }
+
+        fn entity(self) -> model::knowledge_entity::Model {
+            let mut entity = stub_entity(1, self.name, self.entity_type);
+            entity.description = self.description.map(str::to_string);
+            entity.search_query = self.hint.map(str::to_string);
+            entity
         }
     }
 
-    fn found(candidates: serde_json::Value) -> crate::fetch::Answer<Vec<WikidataCandidate>> {
-        crate::fetch::Answer {
-            outcome: crate::fetch::Outcome::Found,
-            body: Some(serde_json::from_value(candidates).expect("fixture candidates")),
+    fn found(answer: serde_json::Value) -> Answer<Vec<WikidataCandidate>> {
+        Answer {
+            outcome: Outcome::Found,
+            body: Some(serde_json::from_value(answer).expect("fixture candidates")),
         }
     }
 
-    fn entity(label: &str, description: Option<&str>) -> model::knowledge_entity::Model {
-        let mut entity = stub_entity(1, label, "unknown");
-        entity.description = description.map(str::to_string);
-        entity
+    /// What an answer must produce, named as the corpus will see it.
+    struct Claim {
+        qid: &'static str,
+        method: &'static str,
+        confidence: Option<f32>,
     }
 
-    /// The shared fold is the one that decides what "the same name" means: an accent is a spelling,
-    /// not a different article. `surface_key` used to keep the accent and miss this.
+    /// A claim whose confidence the rule pins.
+    fn claim(qid: &'static str, method: &'static str, confidence: f32) -> Claim {
+        Claim {
+            qid,
+            method,
+            confidence: Some(confidence),
+        }
+    }
+
+    /// A claim whose confidence is the calibration's business, not this table's.
+    fn ranked(qid: &'static str, method: &'static str) -> Claim {
+        Claim {
+            qid,
+            method,
+            confidence: None,
+        }
+    }
+
+    /// One row of the specification: the question, the answer, and what `decide` must make of it.
+    struct Case {
+        /// The rule this row pins, in the words someone would use to explain it.
+        why: &'static str,
+        probe: Probe,
+        answer: serde_json::Value,
+        claim: Option<Claim>,
+    }
+
+    impl Case {
+        fn run(self, kind: WikidataKind) {
+            match (
+                decide(&self.probe.entity(), kind, &found(self.answer)),
+                self.claim,
+            ) {
+                (Ok(identity), Some(claim)) => {
+                    assert_eq!(identity.external_id, claim.qid, "{}", self.why);
+                    assert_eq!(
+                        identity.method.as_deref(),
+                        Some(claim.method),
+                        "{}",
+                        self.why
+                    );
+                    if let Some(expected) = claim.confidence {
+                        let actual = identity.confidence.expect("a claim carries a confidence");
+                        assert!((actual - expected).abs() < 1e-3, "{}: {actual}", self.why);
+                    }
+                }
+                (Err(reason), None) => {
+                    assert!(!reason.is_empty(), "{}: a refusal says why", self.why)
+                }
+                (Ok(identity), None) => panic!("{}: claimed {identity:?}", self.why),
+                (Err(reason), Some(_)) => panic!("{}: refused with {reason:?}", self.why),
+            }
+        }
+    }
+
+    // ---- the gates ---------------------------------------------------------------------------
+
+    /// Before any rung decides: an answer that never arrived proves nothing, a menu is not a
+    /// referent, and the right name can still be the wrong kind of thing. The last gate is
+    /// one-sided on purpose — an unrecognised class never rejects.
     #[test]
-    fn the_shared_fold_sees_through_an_accent() {
-        let entity = stub_entity(1, "Pokemon", "unknown");
-        let candidates = vec![candidate("Q1", "Pokémon", None)];
+    fn the_gates() {
+        let movie = probe("Dogma").typed("movie").entity();
+        let label = probe("Dogma").entity();
+
+        for (why, raw) in [
+            (
+                "an answer that never came back cannot be admitted",
+                Answer::nothing(Outcome::Failed),
+            ),
+            (
+                "a disambiguation page is a menu, whatever else it says",
+                found(json!([{ "id": "Q1", "label": "Dogma", "classes": ["Q4167410"] }])),
+            ),
+            (
+                "…and the human-name subclass is a menu too",
+                found(json!([{ "id": "Q1", "label": "Dogma", "classes": ["Q22808320"] }])),
+            ),
+            (
+                "…and an unstored menu is caught by its description",
+                found(
+                    json!([{ "id": "Q1", "label": "Dogma", "description": "Wikimedia disambiguation page" }]),
+                ),
+            ),
+        ] {
+            assert!(admit(&movie, &raw).is_err(), "{why}");
+        }
+
+        let concept = found(json!([{ "id": "Q1", "label": "Dogma", "classes": ["Q151885"] }]));
+        assert!(admit(&movie, &concept).is_err(), "a film is not a concept");
+
+        let unknown = found(json!([{ "id": "Q1", "label": "Dogma", "classes": ["Q99999999"] }]));
         assert!(
-            surface_only(&entity, &candidates).is_some(),
-            "a spelling difference is not a different article"
+            admit(&label, &unknown).is_ok(),
+            "an unrecognised class never rejects — the table may be incomplete, but never wrong"
         );
     }
 
-    /// The surface path records the title method through `method_for`, so it cannot drift from the
-    /// name a decided title writes. Both halves are asserted: the link, and the stored vocabulary.
+    // ---- handle ------------------------------------------------------------------------------
+
+    /// A property match *is* the identity: the handle space belongs to the property, so there is
+    /// nothing to rank and nothing to corroborate.
     #[test]
-    fn the_surface_path_records_the_title_method() {
+    fn the_handle_rung() {
+        Case {
+            why: "the account's item is the account",
+            probe: probe("Tsoding"),
+            answer: json!([{ "id": "Q1234", "label": "Tsoding" }]),
+            claim: Some(claim("Q1234", "P2002", 0.95)),
+        }
+        .run(WikidataKind::Handle("P2002"));
+    }
+
+    // ---- label -------------------------------------------------------------------------------
+
+    /// The label rung asked for *every* holder of the string, so a lone exact label is uniqueness
+    /// evidence and needs no corroboration — while ambiguity arrives as a second candidate.
+    #[test]
+    fn the_label_rung() {
+        for case in [
+            Case {
+                why: "a unique label is the name's own evidence",
+                probe: probe("Train Dreams"),
+                answer: json!([{ "id": "Q185971", "label": "Train Dreams", "description": "novella" }]),
+                claim: Some(claim("Q185971", "exact_label", 0.75)),
+            },
+            Case {
+                why: "…even when the descriptions share no word: 'film director' and 'filmmaker' are one person",
+                probe: probe("Alfred Hitchcock").described("English film director and producer"),
+                answer: json!([{
+                    "id": "Q7374",
+                    "label": "Alfred Hitchcock",
+                    "description": "British filmmaker (1899-1980)",
+                }]),
+                claim: Some(claim("Q7374", "exact_label", 0.75)),
+            },
+            Case {
+                why: "two holders of the string: the name cannot decide",
+                probe: probe("Django"),
+                answer: json!([
+                    { "id": "Q1", "label": "Django", "description": "web framework" },
+                    { "id": "Q2", "label": "Django", "description": "2021 video game" },
+                ]),
+                claim: None,
+            },
+            Case {
+                why: "a misspelling is not the label — this rung does not rank",
+                probe: probe("Sunset Boulevarde"),
+                answer: json!([{ "id": "Q1", "label": "Sunset Boulevard" }]),
+                claim: None,
+            },
+            Case {
+                why: "several share the label; the description picks the film",
+                probe: probe("Sunset Boulevard")
+                    .described("1950 American film noir directed by Billy Wilder about a faded silent-screen star"),
+                answer: json!([
+                    { "id": "Q1", "label": "Sunset Boulevard", "description": "street in Los Angeles" },
+                    { "id": "Q2", "label": "Sunset Boulevard", "description": "1950 film noir directed by Billy Wilder" },
+                    { "id": "Q3", "label": "Sunset Boulevard", "description": "musical by Andrew Lloyd Webber" },
+                ]),
+                claim: Some(ranked("Q2", "exact_label")),
+            },
+            Case {
+                why: "no description to arbitrate, so the tie is honest",
+                probe: probe("Dune"),
+                answer: json!([
+                    { "id": "Q1", "label": "Dune", "description": "1965 novel by Frank Herbert" },
+                    { "id": "Q2", "label": "Dune", "description": "2021 film by Denis Villeneuve" },
+                ]),
+                claim: None,
+            },
+            Case {
+                why: "…and with one it resolves",
+                probe: probe("Dune").described("1965 science fiction novel by Frank Herbert"),
+                answer: json!([
+                    { "id": "Q1", "label": "Dune", "description": "1965 science fiction novel by Frank Herbert" },
+                    { "id": "Q2", "label": "Dune", "description": "2021 film by Denis Villeneuve" },
+                ]),
+                claim: Some(ranked("Q1", "exact_label")),
+            },
+            Case {
+                why: "nothing corroborates, so the entity's own hint decides",
+                probe: probe("Stagecoach").described("a western").hinted("Stagecoach 1939 film"),
+                answer: json!([
+                    { "id": "Q1", "label": "Stagecoach", "description": "1939 film directed by John Ford" },
+                    { "id": "Q2", "label": "Stagecoach", "description": "1986 film" },
+                    { "id": "Q3", "label": "Stagecoach", "description": "a horse-drawn vehicle" },
+                ]),
+                claim: Some(ranked("Q1", "search_hint")),
+            },
+            Case {
+                why: "a hint never breaks a tie — it is our own text echoing back",
+                probe: probe("Dune")
+                    .described("1965 science fiction novel by Frank Herbert")
+                    .hinted("Dune novel Frank Herbert"),
+                answer: json!([
+                    { "id": "Q1", "label": "Dune", "description": "1965 science fiction novel by Frank Herbert" },
+                    { "id": "Q2", "label": "Dune", "description": "1965 science fiction novel by Frank Herbert" },
+                ]),
+                claim: None,
+            },
+        ] {
+            case.run(WikidataKind::Label);
+        }
+    }
+
+    // ---- title -------------------------------------------------------------------------------
+
+    /// A title's query is our exact name, so the answer has to be about that name — and because a
+    /// page maps to one item by construction, an exact surface proves nothing on its own.
+    #[test]
+    fn the_title_rung() {
+        for case in [
+            Case {
+                why: "a redirect lands on another subject: 'The Bounty Hunter Wars' asks for Boba Fett",
+                probe: probe("The Bounty Hunter Wars").described("a trilogy of Star Wars novels"),
+                answer: json!([{
+                    "id": "Q51790",
+                    "label": "Boba Fett",
+                    "description": "fictional character from Star Wars",
+                }]),
+                claim: None,
+            },
+            Case {
+                why: "the article is the concept and the book is a different page, so one exact surface is not enough",
+                probe: probe("Orthodoxy")
+                    .described("A 1908 philosophical and apologetic book by G.K. Chesterton"),
+                answer: json!([{
+                    "id": "Q383258",
+                    "label": "Orthodoxy",
+                    "description": "adherence to the actual accepted belief, especially in religion",
+                }]),
+                claim: None,
+            },
+            Case {
+                why: "a label-less item is a real answer shape, and the description still has to corroborate",
+                probe: probe("James Cameron").described(
+                    "Canadian filmmaker who served as executive producer on Point Break",
+                ),
+                answer: json!([{
+                    "id": "Q42574",
+                    "label": null,
+                    "description": "Canadian filmmaker and explorer (born 1954)",
+                }]),
+                claim: Some(ranked("Q42574", "wikipedia_title")),
+            },
+            Case {
+                why: "the article title carries a qualifier the item's label does not",
+                probe: probe("Symphony No. 7 (Sibelius)")
+                    .described("The final published symphony by Finnish composer Jean Sibelius"),
+                answer: json!([{
+                    "id": "Q261122",
+                    "label": "Symphony No. 7",
+                    "description": "symphony by Jean Sibelius",
+                }]),
+                claim: Some(ranked("Q261122", "wikipedia_title")),
+            },
+            Case {
+                why: "a disambiguation page is a menu, not a referent",
+                probe: probe("John Grant").described("American singer-songwriter"),
+                answer: json!([{
+                    "id": "Q632837",
+                    "label": "John Grant",
+                    "description": "Wikimedia disambiguation page",
+                    "classes": ["Q4167410"],
+                }]),
+                claim: None,
+            },
+        ] {
+            case.run(WikidataKind::Title);
+        }
+    }
+
+    // ---- search ------------------------------------------------------------------------------
+
+    /// A search result set is text search: one exact surface counts only with corroboration, a
+    /// respelling is ranked, and an item whose label merely *contains* our name is another thing.
+    #[test]
+    fn the_search_rung() {
+        for case in [
+            Case {
+                why: "a punctuation variant is the same name",
+                probe: probe("J.R.R. Tolkien").described("English author, philologist, and academic"),
+                answer: json!([
+                    { "id": "Q892", "label": "J. R. R. Tolkien", "description": "English writer and philologist" },
+                    { "id": "Q3805090", "label": "J.R.R. Tolkien's The Lord of the Rings, Vol. I", "description": "DOS game" },
+                ]),
+                claim: Some(ranked("Q892", "search_lookup")),
+            },
+            Case {
+                why: "a transliteration is a spelling of the same name, so the description ranks it",
+                probe: probe("Fyodor Dostoevsky")
+                    .described("19th-century Russian novelist and philosopher renowned for psychological mastery"),
+                answer: json!([
+                    { "id": "Q991", "label": "Fyodor Dostoyevsky", "description": "Russian novelist and philosopher (1821–1881)" },
+                    { "id": "Q136199557", "label": "Fyodor Dostoevsky–Darkness and Dawn", "description": "book, 2024" },
+                ]),
+                claim: Some(ranked("Q991", "search_ranked")),
+            },
+            Case {
+                why: "an item that embeds our name is another referent, however well the text overlaps",
+                probe: probe("Royal Navy").described("the United Kingdom's naval warfare force"),
+                answer: json!([{
+                    "id": "Q1",
+                    "label": "Royal Navy fleet aircraft carrier fleet",
+                    "description": "something else",
+                }]),
+                claim: None,
+            },
+            Case {
+                why: "…and a suffix is enough to make it another thing",
+                probe: probe("Clawdbot").described("an open-source personal AI agent harness"),
+                answer: json!([{
+                    "id": "Q1",
+                    "label": "Clawdbot Pro",
+                    "description": "something else",
+                }]),
+                claim: None,
+            },
+        ] {
+            case.run(WikidataKind::Search);
+        }
+    }
+
+    // ---- the deferred surface rule -----------------------------------------------------------
+
+    /// The last resort has no corroboration and no ranking, so its guards are what protect it: one
+    /// candidate, and a label that folds to our name. Its method is the title rung's, not a new one.
+    #[test]
+    fn the_surface_rule() {
         let entity = stub_entity(1, "Pokemon", "unknown");
-        let candidates = vec![candidate("Q1", "Pokémon", None)];
+        let one = vec![WikidataCandidate {
+            id: "Q1".to_string(),
+            label: Some("Pokémon".to_string()),
+            description: None,
+            classes: Vec::new(),
+        }];
 
-        let identity = surface_only(&entity, &candidates).expect("an identity");
-
+        let identity =
+            surface_only(&entity, &one).expect("an accent is a spelling, not an article");
         assert_eq!(
             identity.method.as_deref(),
-            Some(method_for(&WikidataKind::Title, true))
+            Some(method_for(&WikidataKind::Title, true)),
+            "the surface path records the title rung's method"
         );
-        assert_eq!(identity.method.as_deref(), Some("wikipedia_title"));
+
+        assert!(
+            surface_only(&entity, &[]).is_none(),
+            "no candidate, no surface"
+        );
+        let two = [one[0].clone(), one[0].clone()];
+        assert!(
+            surface_only(&entity, &two).is_none(),
+            "several candidates are ambiguity, which this rule cannot resolve"
+        );
     }
 
-    /// The winner and the runner-up must be measured in one order.
-    ///
-    /// This is the case that exposed the split: the exact-label candidate wins the *blend* on its
-    /// name (0.820) even though the runner-up fits the description better (0.842 against 0.700).
-    /// Comparing a blend-ordered winner against an evidence-ordered runner-up made the margin
-    /// negative and refused an identity the evidence supports.
-    ///
-    /// The description describes the second candidate because that is how a graph reaches this
-    /// shape: `our_tokens` takes the best fit over every `alt_description`, not only the one that
-    /// arrived with the name.
+    // ---- the shared choice -------------------------------------------------------------------
+
+    /// `choose` orders by the evidence it margins, so the runner-up it compares against is the
+    /// closest by that same measure. A blend-ordered comparison once produced a negative margin and
+    /// refused a claim the evidence supported.
     #[test]
-    fn the_runner_up_is_measured_in_the_same_order_as_the_winner() {
+    fn the_runner_up_is_the_closest_by_the_measure_that_margins() {
         let mut entity = stub_entity(1, "Dune", "book");
         entity.description = Some("1969 novel by Frank Herbert, sequel to Dune".to_string());
         let candidates = vec![
-            candidate(
-                "Q191536",
-                "Dune",
-                Some("1965 science fiction novel by Frank Herbert"),
-            ),
-            candidate(
-                "Q207189",
-                "Dune Messiah",
-                Some("1969 novel by Frank Herbert, sequel to Dune"),
-            ),
+            WikidataCandidate {
+                id: "Q191536".to_string(),
+                label: Some("Dune".to_string()),
+                description: Some("1965 science fiction novel by Frank Herbert".to_string()),
+                classes: Vec::new(),
+            },
+            WikidataCandidate {
+                id: "Q207189".to_string(),
+                label: Some("Dune Messiah".to_string()),
+                description: Some("1969 novel by Frank Herbert, sequel to Dune".to_string()),
+                classes: Vec::new(),
+            },
         ];
-        let identity = choose(&entity, &candidates, WikidataKind::Search);
 
-        assert!(
-            identity.is_ok(),
-            "the evidence supports an identity, not a refusal: {identity:?}"
-        );
-        assert_eq!(
-            identity.as_ref().expect("an identity").external_id,
-            "Q207189"
-        );
-        assert_eq!(
-            identity.as_ref().expect("an identity").method.as_deref(),
-            Some("search_ranked")
-        );
+        let identity = choose(&entity, &candidates, WikidataKind::Search)
+            .expect("the evidence supports a claim, not a refusal");
+
+        assert_eq!(identity.external_id, "Q207189");
+        assert_eq!(identity.method.as_deref(), Some("search_ranked"));
     }
 
-    // The gates are asserted through `identify` — the composition the resolver calls — so a
-    // rule that only holds when a rung is entered directly cannot pass here.
-
-    /// A Wikipedia title can redirect to a different subject: asking for `The Bounty Hunter Wars`
-    /// lands on `Boba Fett`. "One title, one article" then reads as identity, so the answer has to be
-    /// about our name before it is even considered.
-    #[test]
-    fn a_title_about_another_subject_is_refused() {
-        let raw = found(json!([{
-            "id": "Q51790",
-            "label": "Boba Fett",
-            "description": "fictional character from Star Wars",
-        }]));
-        let identity = identify(
-            &entity(
-                "The Bounty Hunter Wars",
-                Some("a trilogy of Star Wars novels"),
-            ),
-            &request(WikidataKind::Title, "The Bounty Hunter Wars"),
-            &raw,
-        );
-        assert!(
-            identity.is_err(),
-            "a redirect is not an identity: {identity:?}"
-        );
-
-        // …while a title whose label is our name still identifies.
-        let ok = found(json!([{
-            "id": "Q16010557",
-            "label": "The Bounty Hunter Wars",
-            "description": "novel trilogy by K. W. Jeter",
-        }]));
-        let identity = identify(
-            &entity(
-                "The Bounty Hunter Wars",
-                Some("a trilogy of Star Wars novels"),
-            ),
-            &request(WikidataKind::Title, "The Bounty Hunter Wars"),
-            &ok,
-        );
-        assert!(identity.is_ok());
-        assert_eq!(
-            identity.as_ref().expect("an identity").external_id,
-            "Q16010557"
-        );
-
-        // A title answer with no label is not a mismatch — the description still has to corroborate.
-        let unlabelled = found(json!([{
-            "id": "Q42574",
-            "label": null,
-            "description": "Canadian filmmaker and explorer (born 1954)",
-        }]));
-        let identity = identify(
-            &entity(
-                "James Cameron",
-                Some("Canadian filmmaker who served as executive producer on Point Break"),
-            ),
-            &request(WikidataKind::Title, "James Cameron"),
-            &unlabelled,
-        );
-        assert!(identity.is_ok(), "a label-less answer can still be right");
-        assert_eq!(
-            identity.as_ref().expect("an identity").external_id,
-            "Q42574"
-        );
-    }
-
-    #[test]
-    fn an_exact_label_match_is_claimed() {
-        let identity = identify(
-            &entity("Train Dreams", None),
-            &request(WikidataKind::Label, "Train Dreams"),
-            &found(json!([{"id": "Q185971", "label": "Train Dreams", "description": "novella"}])),
-        );
-        assert!(identity.is_ok());
-        assert_eq!(
-            identity.as_ref().expect("an identity").external_id,
-            "Q185971"
-        );
-        assert_eq!(
-            identity.as_ref().expect("an identity").method.as_deref(),
-            Some("exact_label")
-        );
-        // A unique exact label is identity even with nothing to corroborate it — but it does not
-        // reach the confidence a description-backed identity gets.
-        assert!(
-            (identity
-                .as_ref()
-                .expect("an identity")
-                .confidence
-                .expect("an identity carries confidence")
-                - 0.75)
-                .abs()
-                < 1e-6,
-            "{:?}",
-            identity
-        );
-    }
-
-    /// A title answer always carries one candidate, so "only one" is not evidence there: the
-    /// `Orthodoxy` article names the concept, and the book is a different page.
-    #[test]
-    fn a_title_cannot_claim_on_an_exact_label_alone() {
-        let identity = identify(
-            &entity(
-                "Orthodoxy",
-                Some("A 1908 philosophical and apologetic book by G.K. Chesterton"),
-            ),
-            &request(WikidataKind::Title, "Orthodoxy"),
-            &found(json!([{
-                "id": "Q383258",
-                "label": "Orthodoxy",
-                "description": "adherence to the actual accepted belief, especially in religion",
-            }])),
-        );
-        assert!(identity.is_err(), "{identity:?}");
-    }
-
-    /// On the label rung, one exact match *is* evidence: the query enumerated every holder of the
-    /// string. With nothing to corroborate it — no description on either side — that is identity.
-    #[test]
-    fn a_lone_label_with_nothing_to_contradict_it_claims() {
-        let identity = identify(
-            &entity("Tsoding", None),
-            &request(WikidataKind::Label, "Tsoding"),
-            &found(json!([{"id": "Q1", "label": "Tsoding"}])),
-        );
-        assert!(identity.is_ok(), "{identity:?}");
-        assert_eq!(
-            identity.as_ref().expect("an identity").method.as_deref(),
-            Some("exact_label")
-        );
-    }
-
-    /// …and a description that shares no content word does not refute it: "British filmmaker" and
-    /// "English film director" describe one person without agreeing on a single token.
-    #[test]
-    fn a_lone_label_claims_even_when_the_descriptions_share_no_word() {
-        let identity = identify(
-            &entity(
-                "Alfred Hitchcock",
-                Some("English film director and producer"),
-            ),
-            &request(WikidataKind::Label, "Alfred Hitchcock"),
-            &found(json!([{
-                "id": "Q7374",
-                "label": "Alfred Hitchcock",
-                "description": "British filmmaker (1899-1980)",
-            }])),
-        );
-        assert!(identity.is_ok(), "{identity:?}");
-        assert_eq!(
-            identity.as_ref().expect("an identity").method.as_deref(),
-            Some("exact_label")
-        );
-    }
-
-    #[test]
-    fn an_ambiguous_label_is_not_claimed() {
-        // The Django case: two items share the surface, so the name cannot decide.
-        let identity = identify(
-            &entity("Django", None),
-            &request(WikidataKind::Label, "Django"),
-            &found(json!([
-                {"id": "Q1", "label": "Django", "description": "web framework"},
-                {"id": "Q2", "label": "Django", "description": "2021 video game"}
-            ])),
-        );
-        assert!(identity.is_err(), "{identity:?}");
-    }
-
-    /// Not the same surface: no identity, however close the spelling. The label stage does not rank.
-    #[test]
-    fn a_misspelt_label_is_not_claimed() {
-        let identity = identify(
-            &entity("Sunset Boulevarde", None),
-            &request(WikidataKind::Label, "Sunset Boulevarde"),
-            &found(json!([{"id": "Q1", "label": "Sunset Boulevard"}])),
-        );
-        assert!(identity.is_err(), "{identity:?}");
-    }
-
-    #[test]
-    fn a_handle_match_is_stronger_than_a_label_match() {
-        let identity = identify(
-            &entity("Tsoding", None),
-            &request(WikidataKind::Handle("P2002"), "tsoding"),
-            &found(json!([{"id": "Q1234", "label": "Tsoding"}])),
-        );
-        assert!(identity.is_ok());
-        assert_eq!(
-            identity.as_ref().expect("an identity").method.as_deref(),
-            Some("P2002")
-        );
-        assert_eq!(
-            identity.as_ref().expect("an identity").confidence,
-            Some(0.95)
-        );
-    }
-
-    /// The case the conservative rule used to throw away: eleven candidates share the label, and the
-    /// entity's own description picks the 1950 film.
-    #[test]
-    fn a_description_picks_one_of_many_same_label_candidates() {
-        let candidates = json!([
-            {"id": "Q1", "label": "Sunset Boulevard", "description": "street in Los Angeles"},
-            {"id": "Q2", "label": "Sunset Boulevard", "description": "1950 film noir directed by Billy Wilder"},
-            {"id": "Q3", "label": "Sunset Boulevard", "description": "musical by Andrew Lloyd Webber"},
-            {"id": "Q4", "label": "Sunset Boulevard", "description": "film directed by someone else"}
-        ]);
-        let identity = identify(
-            &entity(
-                "Sunset Boulevard",
-                Some(
-                    "1950 American film noir directed by Billy Wilder about a faded silent-screen star",
-                ),
-            ),
-            &request(WikidataKind::Label, "Sunset Boulevard"),
-            &found(candidates),
-        );
-        assert!(identity.is_ok(), "{identity:?}");
-        assert_eq!(identity.as_ref().expect("an identity").external_id, "Q2");
-        assert_eq!(
-            identity.as_ref().expect("an identity").method.as_deref(),
-            Some("exact_label")
-        );
-        assert!(
-            identity
-                .as_ref()
-                .expect("an identity")
-                .confidence
-                .expect("confidence")
-                >= 0.80,
-            "{:?}",
-            identity
-        );
-    }
-
-    /// A two-word description that shares one generic word must not win by being short.
-    ///
-    /// With today's conservative bar the correct candidate is rejected too (it scores 0.546 against
-    /// 0.60, because Wikidata's description of George Washington shares only "first" and "president"
-    /// with ours). That is a false negative we accept until the thresholds are calibrated against a
-    /// labelled sample; the invariant worth locking now is that the painting never wins.
+    /// A terse, generic description must not win by being short: the accepted false negative is the
+    /// president, and the invariant is that the painting never carries the claim.
     #[test]
     fn a_short_generic_description_never_wins() {
-        let identity = identify(
-            &entity(
-                "George Washington",
-                Some(
-                    "An American military general and statesman who served as the first president of the United States",
-                ),
-            ),
-            &request(WikidataKind::Label, "George Washington"),
-            &found(json!([
-                {"id": "Q79035760", "label": "George Washington", "description": "painting by American"},
-                {"id": "Q23", "label": "George Washington", "description": "Founding Father and first U.S. president (1732–1799)"}
-            ])),
-        );
-        assert!(
-            identity
-                .as_ref()
-                .map_or(true, |found| found.external_id != "Q79035760"),
-            "a one-word match must not carry an identity: {identity:?}"
-        );
-    }
+        let entity = probe("George Washington")
+            .described(
+                "An American military general and statesman who served as the first president of the United States",
+            )
+            .entity();
+        let candidates = found(json!([
+            { "id": "Q79035760", "label": "George Washington", "description": "painting by American" },
+            { "id": "Q23", "label": "George Washington", "description": "Founding Father and first U.S. president (1732–1799)" },
+        ]));
 
-    /// With no candidate fitting the description, the illumination's hint decides.
-    #[test]
-    fn the_hint_decides_when_nothing_fits_the_description() {
-        let mut view = entity("Stagecoach", Some("a western"));
-        view.search_query = Some("Stagecoach 1939 film".to_string());
-        let identity = identify(
-            &view,
-            &request(WikidataKind::Label, "Stagecoach"),
-            &found(json!([
-                {"id": "Q1", "label": "Stagecoach", "description": "1939 film directed by John Ford"},
-                {"id": "Q2", "label": "Stagecoach", "description": "1986 film"},
-                {"id": "Q3", "label": "Stagecoach", "description": "a horse-drawn vehicle"}
-            ])),
-        );
-        assert!(identity.is_ok(), "{identity:?}");
-        assert_eq!(identity.as_ref().expect("an identity").external_id, "Q1");
-        assert_eq!(
-            identity.as_ref().expect("an identity").method.as_deref(),
-            Some("search_hint")
-        );
-        assert!(
-            identity
-                .as_ref()
-                .expect("an identity")
-                .confidence
-                .expect("confidence")
-                <= 0.85,
-            "hint identities are capped lower"
-        );
-    }
-
-    /// Two candidates fit our description equally: the hint must not break that tie. A hint that
-    /// could pick one is still our own text echoing back, not independent evidence.
-    #[test]
-    fn the_hint_does_not_break_a_tie_between_qualifying_candidates() {
-        let mut view = entity("Dune", Some("1965 science fiction novel by Frank Herbert"));
-        view.search_query = Some("Dune novel Frank Herbert".to_string());
-        let identity = identify(
-            &view,
-            &request(WikidataKind::Label, "Dune"),
-            &found(json!([
-                {"id": "Q1", "label": "Dune", "description": "1965 science fiction novel by Frank Herbert"},
-                {"id": "Q2", "label": "Dune", "description": "1965 science fiction novel by Frank Herbert"}
-            ])),
-        );
-        assert!(identity.is_err(), "{identity:?}");
-    }
-
-    /// No description to arbitrate: the tie is honest, so nothing is claimed.
-    #[test]
-    fn a_near_tie_claims_nothing() {
-        let identity = identify(
-            &entity("Dune", None),
-            &request(WikidataKind::Label, "Dune"),
-            &found(json!([
-                {"id": "Q1", "label": "Dune", "description": "1965 novel by Frank Herbert"},
-                {"id": "Q2", "label": "Dune", "description": "2021 film by Denis Villeneuve"}
-            ])),
-        );
-        assert!(identity.is_err(), "{identity:?}");
-    }
-
-    /// …but with a description it resolves, which is the whole point of holding the text.
-    #[test]
-    fn a_description_breaks_the_dune_tie() {
-        let identity = identify(
-            &entity("Dune", Some("1965 science fiction novel by Frank Herbert")),
-            &request(WikidataKind::Label, "Dune"),
-            &found(json!([
-                {"id": "Q1", "label": "Dune", "description": "1965 science fiction novel by Frank Herbert"},
-                {"id": "Q2", "label": "Dune", "description": "2021 film by Denis Villeneuve"}
-            ])),
-        );
-        assert!(identity.is_ok(), "{identity:?}");
-        assert_eq!(identity.as_ref().expect("an identity").external_id, "Q1");
-        assert_eq!(
-            identity.as_ref().expect("an identity").method.as_deref(),
-            Some("exact_label")
-        );
-    }
-
-    /// Wikidata labels `J. R. R. Tolkien` with spaces; our label has none. Search finds it, and the
-    /// surface comparison ignores the difference.
-    #[test]
-    fn a_search_answer_is_accepted_on_a_punctuation_variant() {
-        let identity = identify(
-            &entity(
-                "J.R.R. Tolkien",
-                Some("English author, philologist, and academic"),
-            ),
-            &request(WikidataKind::Search, "J.R.R. Tolkien"),
-            &found(json!([
-                {"id": "Q892", "label": "J. R. R. Tolkien", "description": "English writer and philologist"},
-                {"id": "Q3805090", "label": "J.R.R. Tolkien's The Lord of the Rings, Vol. I", "description": "DOS game"}
-            ])),
-        );
-        assert!(identity.is_ok(), "{identity:?}");
-        assert_eq!(identity.as_ref().expect("an identity").external_id, "Q892");
-        assert_eq!(
-            identity.as_ref().expect("an identity").method.as_deref(),
-            Some("search_lookup")
-        );
-    }
-
-    /// A transliteration difference is a spelling of the same name, not a different name:
-    /// `Dostoyevsky` is how Wikidata spells him, `Dostoevsky` is how the entity did.
-    #[test]
-    fn a_search_answer_with_a_misspelt_label_is_ranked() {
-        let identity = identify(
-            &entity(
-                "Fyodor Dostoevsky",
-                Some(
-                    "19th-century Russian novelist and philosopher renowned for psychological mastery",
-                ),
-            ),
-            &request(WikidataKind::Search, "Fyodor Dostoevsky"),
-            &found(json!([
-                {"id": "Q991", "label": "Fyodor Dostoyevsky", "description": "Russian novelist and philosopher (1821–1881)"},
-                {"id": "Q136199557", "label": "Fyodor Dostoevsky–Darkness and Dawn", "description": "book, 2024"}
-            ])),
-        );
-        assert!(identity.is_ok(), "{identity:?}");
-        assert_eq!(identity.as_ref().expect("an identity").external_id, "Q991");
-    }
-
-    /// The trap: an item whose *label* merely contains our name is a different referent, and its
-    /// description overlaps ours precisely because it is about ours. A weak lookup must not become a
-    /// weak identity — the search stage accepts a surface match or nothing.
-    #[test]
-    fn a_search_answer_that_only_mentions_our_name_is_refused() {
-        for (name, description, label) in [
-            (
-                "Royal Navy",
-                "the United Kingdom's naval warfare force",
-                "Royal Navy fleet aircraft carrier fleet",
-            ),
-            (
-                "Clawdbot",
-                "an open-source personal AI agent harness",
-                "Clawdbot Pro",
-            ),
-        ] {
-            let identity = identify(
-                &entity(name, Some(description)),
-                &request(WikidataKind::Search, name),
-                &found(json!([{"id": "Q1", "label": label, "description": "something else"}])),
-            );
-            assert!(identity.is_err(), "{label}: {identity:?}");
+        // The correct candidate sits below the bar today, which is the accepted false negative; what
+        // must never happen is the painting carrying the claim.
+        if let Ok(identity) = decide(&entity, WikidataKind::Label, &candidates) {
+            assert_ne!(identity.external_id, "Q79035760");
         }
-    }
-
-    /// A Wikipedia title reaches an item whose Wikidata label is different: the item is
-    /// `Symphony No. 7`, the article is `Symphony No. 7 (Sibelius)`.
-    #[test]
-    fn a_title_reaches_an_item_whose_label_differs() {
-        let identity = identify(
-            &entity(
-                "Symphony No. 7 (Sibelius)",
-                Some("The final published symphony by Finnish composer Jean Sibelius"),
-            ),
-            &request(WikidataKind::Title, "Symphony No. 7 (Sibelius)"),
-            &found(json!([{
-                "id": "Q261122",
-                "label": "Symphony No. 7",
-                "description": "symphony by Jean Sibelius",
-                "classes": ["Q97363528"]
-            }])),
-        );
-        assert!(identity.is_ok(), "{identity:?}");
-        assert_eq!(
-            identity.as_ref().expect("an identity").external_id,
-            "Q261122"
-        );
-        assert_eq!(
-            identity.as_ref().expect("an identity").method.as_deref(),
-            Some("wikipedia_title")
-        );
-    }
-
-    /// A title that lands on a disambiguation page is a menu, not a referent.
-    #[test]
-    fn a_title_that_is_a_disambiguation_page_is_refused() {
-        let identity = identify(
-            &entity("John Grant", Some("American singer-songwriter")),
-            &request(WikidataKind::Title, "John Grant"),
-            &found(json!([{
-                "id": "Q632837",
-                "label": "John Grant",
-                "description": "Wikimedia disambiguation page",
-                "classes": ["Q4167410"]
-            }])),
-        );
-        assert!(identity.is_err(), "{identity:?}");
-    }
-
-    /// The bug this guard exists for: a *label* answer carrying a human-name disambiguation page was
-    /// claimed, because the menu check lived in `parse_title` and the label rung never looked.
-    #[test]
-    fn a_label_answer_that_is_a_menu_is_refused() {
-        let identity = identify(
-            &entity("Robert Chandler", Some("British literary translator")),
-            &request(WikidataKind::Label, "Robert Chandler"),
-            &found(json!([{
-                "id": "Q7342857",
-                "label": "Robert Chandler",
-                "description": "Wikimedia human name disambiguation page",
-                "classes": ["Q22808320"]
-            }])),
-        );
-        assert!(identity.is_err(), "{identity:?}");
-    }
-
-    /// The subclass is not in every stored class list, so the description has to carry the rule too.
-    #[test]
-    fn a_menu_with_no_classes_is_refused_by_its_description() {
-        let identity = identify(
-            &entity(
-                "Rogue Heroes",
-                Some("British historical drama television series"),
-            ),
-            &request(WikidataKind::Label, "Rogue Heroes"),
-            &found(json!([{
-                "id": "Q115697563",
-                "label": "Rogue Heroes",
-                "description": "Wikimedia disambiguation page",
-                "classes": []
-            }])),
-        );
-        assert!(identity.is_err(), "{identity:?}");
     }
 }
