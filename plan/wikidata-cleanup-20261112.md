@@ -289,6 +289,28 @@ Left open on purpose when `plan.rs` was signed off:
   any policy that answers them. The heuristic is stateless, so `Heuristic::scoring()` hands out one
   `&'static dyn Scoring`; `HeuristicLinker` borrows it and proximity takes `&dyn Scoring`.
   `with_scoring` was deleted — defined, documented, never called.
+- **S3 — the string work moved out, and the dependencies it should use are on the table.** `ranking.rs`
+  had grown a tokenizer, a suffix stemmer, a gram builder, a fuzzy-surface test and a Levenshtein
+  loop: all pure, all about text, none of them Wikidata's. They now live in `knowledge::text`, beside
+  `normalize` — which asks a different question (the fold produces a key that is stored; `text`
+  produces nothing that outlives the comparison). Moved verbatim; identity table reproduced row for
+  row.
+
+  While moving it: the stem's comment claimed a guard that does not exist (`filmmaker` → `filmmak`),
+  now corrected and pinned. That is one reason to stop owning a stemmer. Options, with crates.io
+  facts as of 2026-11-13:
+
+  | crate | version | normal deps | replaces | behaviour |
+  | --- | --- | --- | --- | --- |
+  | `strsim` | 0.11.1 (2024, 1.27B dl) | none | `edit_distance` | identical — same Levenshtein |
+  | `rust-stemmers` | 1.2.0 (2019, 42M dl) | serde (already in tree) | `stem` | changes tokens, so the corpus |
+  | `unicode-normalization` | 0.1.26 (2026) | tinyvec | `normalize`'s hand-written fold, and the NFD tripwire in `plan/backlog.md` | moves `norm_fingerprint`, so a blocking-index rebuild |
+  | `unicode-segmentation` | 1.13.3 (2026) | none | the `split(!is_alphanumeric)` tokenizer | mild; the corpus is ASCII-ish |
+
+  Recommendation: take `strsim` (no tradeoff: it deletes an algorithm we own and returns the same
+  numbers); measure `rust-stemmers` the way M6/M8 were measured, since a stemmer changes which
+  identities are reached; treat `unicode-normalization` as its own project (`norm_fingerprint` and an
+  index rebuild), not a drive-by; skip `unicode-segmentation` until the corpus asks for it.
 
 ### 3. `decision.rs` (was `policy.rs`) — in progress 2026-11-12
 
