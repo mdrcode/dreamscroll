@@ -3,7 +3,8 @@
 //! Two verbs, implemented for the pairs the graph asks about:
 //!
 //! - [`Similarity`] — the weighted total of `name`, `description` and type agreement.
-//! - [`Rank`] — the same total, filtered by `worth_merging` and ordered best first.
+//! - [`Policy`] — the same features for a candidate set, the corroboration conjunction, and the
+//!   total as the order key. `Rank` (qualifying candidates, best first) follows from it.
 //!
 //! The filter is the part a number could not carry: `same` is a conjunction — a name match *and*
 //! something corroborating it — which is why [`Rank`] exists rather than a threshold on the score.
@@ -17,7 +18,7 @@
 use crate::model;
 
 use crate::knowledge::normalize;
-use crate::knowledge::scoring::{Entity, Observation, Rank, Scoring, Similarity};
+use crate::knowledge::scoring::{Entity, Observation, Order, Policy, Scoring, Similarity};
 
 pub const WEIGHT_NAME: f32 = 0.60;
 pub const WEIGHT_DESCRIPTION: f32 = 0.30;
@@ -63,59 +64,73 @@ impl Similarity<Entity, Entity> for Heuristic {
     }
 }
 
-impl Rank<Observation, Entity> for Heuristic {
-    fn rank(&self, observation: &Observation, candidates: &[Entity]) -> Vec<(usize, f32)> {
-        rank_by(candidates, |candidate| features(observation, candidate))
+impl Policy<Observation, Entity> for Heuristic {
+    type Evidence = Features;
+
+    fn evaluate(&self, observation: &Observation, candidates: &[Entity]) -> Vec<Features> {
+        candidates
+            .iter()
+            .map(|candidate| features(observation, candidate))
+            .collect()
+    }
+
+    fn qualifies(&self, features: &Features) -> bool {
+        features.qualifies()
+    }
+
+    fn order(&self, features: &Features) -> Order {
+        features.order()
     }
 }
 
-impl Rank<Entity, Entity> for Heuristic {
-    fn rank(&self, a: &Entity, candidates: &[Entity]) -> Vec<(usize, f32)> {
-        rank_by(candidates, |candidate| features_of_entities(a, candidate))
-    }
-}
+impl Policy<Entity, Entity> for Heuristic {
+    type Evidence = Features;
 
-/// Score every candidate, keep the ones worth choosing, best first.
-///
-/// Ties keep the candidate order, which the blocker hands back by id.
-fn rank_by(
-    candidates: &[Entity],
-    features_of: impl Fn(&Entity) -> Features,
-) -> Vec<(usize, f32)> {
-    let mut scored: Vec<(usize, f32)> = candidates
-        .iter()
-        .enumerate()
-        .filter_map(|(index, candidate)| {
-            let features = features_of(candidate);
-            worth_merging(&features).then_some((index, features.total))
-        })
-        .collect();
-    scored.sort_by(|a, b| b.1.total_cmp(&a.1));
-    scored
+    fn evaluate(&self, a: &Entity, candidates: &[Entity]) -> Vec<Features> {
+        candidates
+            .iter()
+            .map(|candidate| features_of_entities(a, candidate))
+            .collect()
+    }
+
+    fn qualifies(&self, features: &Features) -> bool {
+        features.qualifies()
+    }
+
+    fn order(&self, features: &Features) -> Order {
+        features.order()
+    }
 }
 
 /// What one candidate earns against one subject, per feature and in total.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Features {
+pub struct Features {
     pub name: f32,
     pub description: f32,
     pub type_match: f32,
     pub total: f32,
 }
 
-/// Whether the features justify calling two things one.
-///
-/// A weight alone is not enough: the observed Django failure is one exact name, two referents, and
-/// a description sharing only enough tokens to lift the total over the bar. Without an identifier, a
-/// name match has to be corroborated by the type or the text — and that conjunction is why this is
-/// a filter on a vector of components rather than a threshold on its sum.
-///
-/// The total is deliberately not consulted. Under these weights every pair this accepts scores at
-/// least `0.6 * NAME_TOKEN_MATCH + 0.1 * TYPE_UNKNOWN_MATCH`, so a threshold on the sum can only
-/// contradict the conjunction — which is exactly what `MERGE_BAR = 0.60` did at that one point.
-fn worth_merging(features: &Features) -> bool {
-    features.name >= NAME_FLOOR
-        && (features.type_match >= AGREEMENT_FLOOR || features.description >= AGREEMENT_FLOOR)
+impl Features {
+    /// Whether these features justify calling two things one.
+    ///
+    /// A weight alone is not enough: the observed Django failure is one exact name, two referents, and
+    /// a description sharing only enough tokens to lift the total over the bar. Without an identifier, a
+    /// name match has to be corroborated by the type or the text — and that conjunction is why this is
+    /// a filter on a vector of components rather than a threshold on its sum.
+    ///
+    /// The total is deliberately not consulted. Under these weights every pair this accepts scores at
+    /// least `0.6 * NAME_TOKEN_MATCH + 0.1 * TYPE_UNKNOWN_MATCH`, so a threshold on the sum can only
+    /// contradict the conjunction — which is exactly what `MERGE_BAR = 0.60` did at that one point.
+    pub fn qualifies(&self) -> bool {
+        self.name >= NAME_FLOOR
+            && (self.type_match >= AGREEMENT_FLOOR || self.description >= AGREEMENT_FLOOR)
+    }
+
+    /// Where these features sort: the total is the whole judgement, so there is no tie to break.
+    pub fn order(&self) -> Order {
+        Order::of(self.total)
+    }
 }
 
 /// How substantiated an entity is: its best identity's score.
@@ -211,12 +226,7 @@ impl From<&model::knowledge_entity::Model> for NormalizedCandidate {
             .chain(entity.alt_descriptions.iter().map(String::as_str))
             .collect();
         let types: Vec<String> = entity.types().map(str::to_string).collect();
-        Self::new(
-            &entity.name,
-            &entity.alt_names,
-            &descriptions,
-            &types,
-        )
+        Self::new(&entity.name, &entity.alt_names, &descriptions, &types)
     }
 }
 
@@ -317,7 +327,7 @@ fn score(observation: &NormalizedObservation, candidate: &NormalizedCandidate) -
 }
 
 /// 1.0 on the same normalized surface, 0.9 when only word order or an article differs, else 0.0.
-/// A name never decides on its own — [`worth_merging`] demands corroboration.
+/// A name never decides on its own — [`Features::qualifies`] demands corroboration.
 fn name_similarity(observation: &NormalizedObservation, candidate: &NormalizedCandidate) -> f32 {
     if candidate.alt_name_keys.contains(&observation.name_key) {
         return 1.0;
@@ -361,7 +371,7 @@ fn tokens_of(comparable: &str) -> Vec<String> {
 mod tests {
     use super::*;
 
-    use crate::knowledge::scoring::Similarity;
+    use crate::knowledge::scoring::{Rank, Similarity};
     use crate::test_support::fixtures;
 
     fn observation(name: &str, description: Option<&str>, ty: &str) -> Observation {
@@ -370,7 +380,12 @@ mod tests {
         row
     }
 
-    fn entity(id: i32, name: &str, description: Option<&str>, ty: &str) -> model::knowledge_entity::Model {
+    fn entity(
+        id: i32,
+        name: &str,
+        description: Option<&str>,
+        ty: &str,
+    ) -> model::knowledge_entity::Model {
         let mut row = fixtures::stub_entity(id, name, ty);
         row.description = description.map(str::to_string);
         row
@@ -384,7 +399,12 @@ mod tests {
     ) {
         let mut movie = entity(1, "Train Dreams", None, "movie");
         movie.alt_descriptions = vec!["a 2011 novella by Denis Johnson".to_string()];
-        let book = entity(2, "Train Dreams", Some("a 2011 novella by Denis Johnson"), "book");
+        let book = entity(
+            2,
+            "Train Dreams",
+            Some("a 2011 novella by Denis Johnson"),
+            "book",
+        );
         (movie, book)
     }
 
@@ -408,7 +428,11 @@ mod tests {
         let (a, b) = train_dreams_pair();
 
         let features = features_of_entities(&a, &b);
-        assert_eq!(features_of_entities(&b, &a), features, "one pair, one number");
+        assert_eq!(
+            features_of_entities(&b, &a),
+            features,
+            "one pair, one number"
+        );
         assert_eq!(features.name, 1.0);
         assert_eq!(features.description, 1.0);
     }
@@ -422,7 +446,11 @@ mod tests {
 
         for (subject, candidate) in [(&a, &b), (&b, &a)] {
             let ranked = Heuristic.rank(subject, std::slice::from_ref(candidate));
-            assert_eq!(ranked.len(), 1, "the alternative corroborates from either side");
+            assert_eq!(
+                ranked.len(),
+                1,
+                "the alternative corroborates from either side"
+            );
         }
     }
 
@@ -430,7 +458,11 @@ mod tests {
     fn article_or_word_order_alone_still_clears() {
         let candidate = entity(1, "Train Dreams", None, "book");
         let ranked = Heuristic.rank(&observation("The Train Dreams", None, "book"), &[candidate]);
-        assert_eq!(ranked.len(), 1, "an article is not a different name: {ranked:?}");
+        assert_eq!(
+            ranked.len(),
+            1,
+            "an article is not a different name: {ranked:?}"
+        );
         // A word-key name match (0.9) plus an agreeing type (1.0).
         assert!((ranked[0].1 - 0.64).abs() < 1e-6, "{ranked:?}");
     }
@@ -497,7 +529,11 @@ mod tests {
     fn an_unknown_type_does_not_disqualify_a_name() {
         let candidate = entity(1, "Wojak", None, "concept");
         let ranked = Heuristic.rank(&observation("Wojak", None, "unknown"), &[candidate]);
-        assert_eq!(ranked.len(), 1, "an unknown type is not a disagreement: {ranked:?}");
+        assert_eq!(
+            ranked.len(),
+            1,
+            "an unknown type is not a disagreement: {ranked:?}"
+        );
     }
 
     /// The filter is a filter, not a reordering: the strongest candidate wins, and the ones that do
@@ -505,7 +541,12 @@ mod tests {
     #[test]
     fn rank_keeps_only_qualifying_candidates_best_first() {
         let weak = entity(1, "Train Dreams", None, "book");
-        let strong = entity(2, "Train Dreams", Some("a novella by Denis Johnson"), "book");
+        let strong = entity(
+            2,
+            "Train Dreams",
+            Some("a novella by Denis Johnson"),
+            "book",
+        );
         let unrelated = entity(3, "Dune", None, "book");
         let ranked = Heuristic.rank(
             &observation("Train Dreams", Some("a novella by Denis Johnson"), "book"),
@@ -516,7 +557,6 @@ mod tests {
         assert!(ranked.iter().all(|(index, _)| *index != 2));
     }
 
-
     /// `None` is the least worth there is, and a tie is not a win for either side.
     #[test]
     fn cmp_confidence_puts_nothing_last() {
@@ -524,7 +564,10 @@ mod tests {
         let none: Option<f32> = None;
         assert_eq!(none.total_cmp(&Some(0.5)), std::cmp::Ordering::Less);
         assert_eq!(Some(0.5f32).total_cmp(&none), std::cmp::Ordering::Greater);
-        assert_eq!(Some(0.5f32).total_cmp(&Some(0.5)), std::cmp::Ordering::Equal);
+        assert_eq!(
+            Some(0.5f32).total_cmp(&Some(0.5)),
+            std::cmp::Ordering::Equal
+        );
     }
 
     /// Confidence is the best claim, not a sum or a bonus.
@@ -555,4 +598,3 @@ mod tests {
         );
     }
 }
-

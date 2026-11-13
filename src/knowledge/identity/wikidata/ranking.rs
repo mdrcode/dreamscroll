@@ -2,7 +2,7 @@
 
 use super::WikidataCandidate;
 use crate::knowledge::normalize;
-use crate::knowledge::scoring::Rank;
+use crate::knowledge::scoring::{Order, Policy};
 use crate::model;
 
 /// Whether two *comparable* surfaces are the same name spelled differently:
@@ -96,12 +96,12 @@ const NOISE: &[&str] = &[
     "which", "about", "into", "are", "but", "not", "由", "der", "die", "das", "les", "los", "las",
 ];
 
-/// The authority's one policy, in the shape the graph's [`Rank`] verb expects.
+/// The authority's one policy, in the shape [`Policy`] expects.
 ///
-/// A resolver implements `Rank`, not `Similarity`: its measure is corpus-aware — terms are weighed
-/// by rarity among the answers the question returned — and a pair comparison cannot see the corpus.
-/// The score `Rank` returns is the description evidence (`fit`), because that is the quantity
-/// `decide` margins. The identity's confidence is this policy's own calibration, [`blend`].
+/// Not [`Similarity`](crate::knowledge::scoring::Similarity): the measure is corpus-aware — terms are
+/// weighed by rarity among the answers the question returned — and a pair comparison cannot see the
+/// corpus. The order key is the description evidence (`fit`), because that is the quantity [`choose`]
+/// margins; the identity's confidence is this policy's own calibration, [`blend`].
 ///
 /// The signal is the entity's description, read two ways: *containment* — how much of what Wikidata
 /// says about the candidate is accounted for by our description of it, which survives our description
@@ -114,31 +114,47 @@ const NOISE: &[&str] = &[
 /// evidence about which candidate we meant.
 pub(super) struct Ranking;
 
-impl Rank<model::knowledge_entity::Model, WikidataCandidate> for Ranking {
-    fn rank(
+impl Policy<model::knowledge_entity::Model, WikidataCandidate> for Ranking {
+    type Evidence = Fit;
+
+    fn evaluate(
         &self,
         entity: &model::knowledge_entity::Model,
         candidates: &[WikidataCandidate],
-    ) -> Vec<(usize, f32)> {
+    ) -> Vec<Fit> {
         let ours = our_tokens(entity);
         let weights = Weights::over(candidates);
-        let mut scored: Vec<(usize, f32, f32)> = candidates
+        candidates
             .iter()
-            .enumerate()
-            .filter_map(|(index, candidate)| {
+            .map(|candidate| {
                 let fit = fit(&ours, candidate, &weights);
-                (fit > 0.0).then(|| (index, fit, blend(entity, candidate, fit)))
+                Fit {
+                    fit,
+                    blend: blend(entity, candidate, fit),
+                }
             })
-            .collect();
-        // Ordering is `fit`, the quantity `decide` margins. The blend only breaks ties: an order
-        // that disagreed with the quantity being compared made the margin negative and refused
-        // identities the evidence supported.
-        scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| b.2.total_cmp(&a.2)));
-        scored
-            .into_iter()
-            .map(|(index, fit, _)| (index, fit))
             .collect()
     }
+
+    fn qualifies(&self, evidence: &Fit) -> bool {
+        evidence.fit > 0.0
+    }
+
+    fn order(&self, evidence: &Fit) -> Order {
+        Order {
+            primary: evidence.fit,
+            tiebreak: evidence.blend,
+        }
+    }
+}
+
+/// What one candidate is worth against one entity: the description evidence that orders and is what
+/// [`choose`] margins, and the blend it is priced with, which breaks ties so two candidates with equal
+/// evidence do not fall back on the order the answer happened to arrive in.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Fit {
+    fit: f32,
+    blend: f32,
 }
 
 /// The same name once the shared fold has run: `J.R.R. Tolkien` and `J. R. R. Tolkien` are one, and

@@ -136,13 +136,16 @@ identity. `merge` refuses that pair (shared illumination), so the scan records i
 open — the terminal state the merge-side rule produces everywhere.
 
 **The heuristic is one implementation of that chain — not the chain.** The chain is `scoring.rs`, and
-it is two verbs:
+it is three verbs' worth of contract:
 
-- [`Similarity`] measures one pair: how strongly the evidence says these two are one thing.
-- [`Rank`] says which of a candidate set is *this*, best first — and only the ones worth choosing.
+- `Similarity` measures one pair: a corpus-free number, never a verdict.
+- `Policy` measures a *set*: the evidence for each candidate, which of them qualifies, and where each
+  sorts. The set is the corpus, which is why a corpus-aware measure cannot be a `Similarity`.
+- `Rank` is `Policy` in the form the store holds — qualifying candidates, best first — and it is
+  written once, as a blanket implementation, instead of once per policy.
 
-The filter is the second verb's, and it is not a threshold on the score: the rule is a conjunction —
-a name match has to be corroborated — and a number cannot carry its own components. That is also why
+The filter is the policy's, and it is not a threshold on the score: the rule is a conjunction — a
+name match has to be corroborated — and a number cannot carry its own components. That is also why
 a rejected pair still reports its score: `Nintendo [organization] ⇄ Nintendo [brand]` at 0.74 is a
 pair that must never merge, and the number is how a person sees why.
 
@@ -163,9 +166,9 @@ resolver keeps its own measure and its own calibration, because its candidate ty
 its fit is corpus-aware (terms are weighed by rarity among the answers it got back) — a pair
 comparison cannot see the corpus.
 
-That is what makes a second policy possible without a second graph: implement the two verbs for the
-pairs the graph asks about, build a `Scoring`, and hand it to the `HeuristicLinker` and to the passes
-that measure.
+That is what makes a second policy possible without a second graph: implement `Policy` for the two
+pairs the graph asks about plus `Similarity` for the stored number, build a `Scoring`, and hand it to
+the `HeuristicLinker` and the passes that measure.
 
 ## Resolving: what can the authorities tell us?
 
@@ -322,7 +325,7 @@ one.
 
 | file | what it is |
 |---|---|
-| `scoring.rs` | the two verbs — `Similarity`, `Rank` — `TotalCmp`, and the `Scoring` bundle. The linker holds one; the proximity passes are handed one |
+| `scoring.rs` | the verbs — `Similarity` for a pair, `Policy` for a set with `Rank` derived from it — plus `Order`, `TotalCmp` and the `Scoring` bundle. The linker holds one; the proximity passes are handed one |
 | `normalize.rs` | the two key generations: `comparable` (the fold) and `word_key` (words sorted, one leading article dropped), plus `norm_fingerprint` — the behavioural stamp they are versioned by. Shared by the blocker, identity, evidence and projection |
 | `blocker/mod.rs` | the `Blocker` trait: which entities are worth considering, and nothing else |
 | `blocker/sql.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
@@ -340,7 +343,7 @@ one.
 | `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `Basis` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `auto_merge.rs` folds what it can on its own and leaves the rest. Both take the connection and the `Scoring` as arguments |
 | `verdicts/` | the register: the modification log and the standing vetoes, held by `KnowledgeGraph`. `store.rs` is the type, its connection, `record` (the one write that takes the caller's transaction, so a merge's row commits with the fold) and the reads the replay and `stats` share; `veto.rs` holds `veto`/`unveto`/`vetoed`; `origin.rs` turns an origin into the entity it names now. Applying the log is the graph's command (`graph/replay.rs`), exposed as `KnowledgeGraph::replay_verdicts`; `pair_key` is shared with `stats` |
 |`identity/`|`mod.rs` (module declarations) · `resolution` (the `Resolver` trait a provider implements, the run loop, candidate selection, vetoes) · `wikidata/` (today's only authority). The identities it returns, and where they become rows, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
-| `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the ladder in `resolver.rs` · request planning in `plan.rs` · query text in `query.rs` · a platform link turned into the property and value form to ask (`property_query.rs`) · shape keys in `shape.rs` · a decided candidate turned into the stored annotation, and the menu rule (`answer.rs`) · the single entry, the gates and the per-rung admission in `decision.rs` · candidate scoring in `ranking.rs`, as the graph's `Rank` verb · class filtering in `types.rs` · HTTP in `transport.rs` |
+| `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the ladder in `resolver.rs` · request planning in `plan.rs` · query text in `query.rs` · a platform link turned into the property and value form to ask (`property_query.rs`) · shape keys in `shape.rs` · a decided candidate turned into the stored annotation, and the menu rule (`answer.rs`) · the single entry, the gates and the per-rung admission in `decision.rs` · candidate scoring in `ranking.rs`, as a `Policy` over the answer's candidates · class filtering in `types.rs` · HTTP in `transport.rs` |
 |`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, and their TTLs) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
 | `identity/inspect.rs` | `identity inspect`: walks one entity through blocking, ranking and the ladder, read-only |
 | `eval/` | offline diagnostics: `eval blocker` measures recall |

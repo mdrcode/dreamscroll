@@ -1,6 +1,7 @@
 # Vision
 Our app Dreamscroll empowers users to build a personal, AI-enriched knowledge graph from
-screenshots and share links.
+screenshots. We unlock the flywheel of curiosity by helping users capture,
+understand, retrieve, and discover.
 
 # Philosophy
 Be simple, idiomatic, robust, and flexible (in that order).
@@ -10,6 +11,9 @@ Be simple, idiomatic, robust, and flexible (in that order).
   obsessing about production hardening. Trade robustness for speed,
   thoughtfully.
 - **Log Technical Debt:** Document all shortcuts and tradeoffs in `plan/pragmatism.md`.
+- **Code for Readability:** Prioritize intuitability and legibility of
+  the code. An unfamiliar (but technical) reader should find it illuminating and
+  delightful to read the code. No headaches, only epiphanies. 
 - **Strive for Coherent Commits:** Git is our journal and source of truth.
   Group related changes into one coherent unit of work. A whole discovery
   journey, feature slice, or migration is one commit—not one per file, phase,
@@ -19,14 +23,15 @@ Be simple, idiomatic, robust, and flexible (in that order).
 - **Confirm New Dependencies:** If a new third-party crate might be helpful,
   please explain your research/conclusion and seek confirmation before
   adding.
-- **Confirm Local DB Writes:** Do not change the local dev database (`sync_schema`, seeding, resets, manual SQL) without explicit approval.
+- **Confirm Local DB Writes:** Do not change the local dev database (`sync_schema`,
+  seeding, resets, manual SQL) without explicit approval.
 - **Document Along The Way:** Update the various plan files as you go. Start at
   `plan/README.md` for what is live, deferred, and archived. If
   you are informed by useful third-party docs/websites, link to them.
 - **Archive Means Inactive, Not Finished:** `plan/archive/` holds docs no longer
   receiving active attention — shipped, abandoned, or superseded — kept out of the
-  default read path to save context tokens. Do not read or cite one unless
-  specifically instructed.
+  default read path to save context tokens. Do not read or cite from
+  `plan/archive` unless specifically instructed.
 - **Restart Local Dev Aggressively:** You are responsible for managing the local
   dev instance. When you rebuild, restart localdev to avoid binary drift/skew.
 - **Stand On the Shoulders of Giants:** Research best practices and existing
