@@ -96,6 +96,121 @@ impl Family {
     }
 }
 
+/// Whether `classes` say this candidate can be what the entity is: `None` when no class is
+/// recognised, so an incomplete table has no opinion rather than a negative one.
+///
+/// Wider than [`incompatible`] on purpose. That one is a *gate* — the ladder path still refuses on
+/// it — and its arms were narrowed to the ones measured safe as refusals. This one is *evidence*
+/// for the pooled ranker, so every type we have an opinion about counts, including the eight whose
+/// arms turned out too blunt to refuse on (`place`, `organization`, `publication`, …). A candidate
+/// possible under any one of the entity's types is possible.
+pub(super) fn compatible(types: &[&str], classes: &[String]) -> Option<bool> {
+    let found: std::collections::BTreeSet<Family> = classes
+        .iter()
+        .filter_map(|class| Family::of(class))
+        .collect();
+    if found.is_empty() {
+        return None;
+    }
+    Some(
+        types.iter().any(|entity_type| {
+            !incompatible(entity_type, classes) && !unlikely(entity_type, &found)
+        }),
+    )
+}
+
+/// The kinds a type probably cannot be, for scoring only. Each arm is the set of families that
+/// would make the candidate a different sort of thing; a candidate is unlikely only when *every*
+/// recognised class falls in it.
+fn unlikely(entity_type: &str, found: &std::collections::BTreeSet<Family>) -> bool {
+    let every = |families: fn(Family) -> bool| found.iter().copied().all(families);
+    match entity_type {
+        // Somewhere, not something made or someone named. Organization is allowed: a museum is both.
+        "place" => every(|family| {
+            matches!(
+                family,
+                Family::Person
+                    | Family::Work
+                    | Family::Fictional
+                    | Family::Name
+                    | Family::Software
+                    | Family::Nature
+                    | Family::Event
+                    | Family::Concept
+            )
+        }),
+        // It happens; it is not someone, something authored, or somewhere.
+        "event" => every(|family| {
+            matches!(
+                family,
+                Family::Person
+                    | Family::Work
+                    | Family::Fictional
+                    | Family::Name
+                    | Family::Software
+                    | Family::Place
+            )
+        }),
+        // Something authored — a journal is a work, so Work is allowed.
+        "publication" => every(|family| {
+            matches!(
+                family,
+                Family::Person
+                    | Family::Place
+                    | Family::Nature
+                    | Family::Software
+                    | Family::Fictional
+                    | Family::Name
+                    | Family::Event
+            )
+        }),
+        // A collective, not a person or a made thing.
+        "organization" => every(|family| {
+            matches!(
+                family,
+                Family::Person
+                    | Family::Work
+                    | Family::Fictional
+                    | Family::Name
+                    | Family::Nature
+                    | Family::Event
+            )
+        }),
+        "online_community" => every(|family| {
+            matches!(
+                family,
+                Family::Person | Family::Work | Family::Place | Family::Nature | Family::Name
+            )
+        }),
+        // Person is allowed: the handle rung resolves a person's item through their username.
+        "social_media_account" => every(|family| {
+            matches!(
+                family,
+                Family::Work | Family::Place | Family::Nature | Family::Event
+            )
+        }),
+        "financial" => every(|family| {
+            matches!(
+                family,
+                Family::Person
+                    | Family::Work
+                    | Family::Fictional
+                    | Family::Name
+                    | Family::Place
+                    | Family::Event
+            )
+        }),
+        // A meme may be a concept or a character; a place or a taxon cannot be one.
+        "meme" => every(|family| {
+            matches!(
+                family,
+                Family::Place | Family::Nature | Family::Software | Family::Event
+            )
+        }),
+        _ => false,
+    }
+}
+
 /// Whether `classes` rule the candidate out for this entity type.
 ///
 /// True only when at least one class is recognised and **every** recognised one is a kind of thing

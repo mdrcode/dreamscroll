@@ -30,7 +30,7 @@ fn request(kind: WikidataKind, query: &str) -> Request<WikidataKind> {
 ///
 /// One definition, used by the resolver and by `inspect`: a step that exists in one and not the
 /// other is what lets a diagnostic report identities the resolver would not make.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Step {
     /// A platform link's handle, through the property that holds it (`P2002`, …).
     Handle,

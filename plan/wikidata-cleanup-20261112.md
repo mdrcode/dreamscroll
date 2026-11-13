@@ -564,6 +564,108 @@ referents corrected, 2 wrong claims refused, 2 correct claims lost, 2 duplicate 
 **Bug found in my own rule:** the label-less admission counted matching *tokens*, not distinct
 words, so repeated stems inflated the count. Fixed; see the correction above.
 
+## Pooled ranking experiment (2026-11-13)
+
+Hypothesis, from the failure analysis: precision is decided by *what may compete*, not by who wins.
+So ask every rung, pool the candidates, rank once. Working tree: `wikidata/pool.rs` + the resolver
+asking all rungs; the ladder's per-rung admission and first-claim stop are gone from the resolver
+(they remain for `inspect`, which still replays the old path).
+
+Score: `tier_prior + 0.6·surface + 0.4·fit + kind + breadth`, where surface is the label against
+the entity *name* or its `search_query` (so an acronym's expansion counts), tier is the question's
+authority (title 0.30, label 0.20, search 0.00), kind is `types::compatible` (a class the entity
+can be `+0.15`, only classes it cannot `−0.30`), and breadth rewards a candidate two questions
+produced independently. Eligibility: search needs a prefix or better, label needs the same, and a
+label match with no description corroboration needs a title answer too.
+
+**First measurement** (offline, surface-first ranking before tuning): 1645 identities vs 1664;
+87 losses, 69 gains, 49 reassignments; 8466 requests vs 5416 — and 2416 of those questions had no
+cached answer, because the ladder never asked them. Random sample, n=30: **22/30** against 30/30 for
+the ladder. The failures are homonyms and adjacency (Phil Eaton → basketball player, Wez → a French
+commune, Lolita the film → the novel, an account → a 3D model): an exact surface carried them and
+the description could not separate them. Wins: `BBC` → `Q9531`, `Industrial Revolution` → `Q2269` —
+the two cases the design was aimed at.
+
+Then the cache was filled online (~3.5k answers in twelve paced passes) and the ranking was tuned
+in three rounds. Final shape of the score, all terms measured:
+
+| term | what it says | measured effect |
+| --- | --- | --- |
+| `tier_prior` | title 0.15, label 0.10, search 0.0 | keeps a title answer ahead of a search hit without gating |
+| `surface` | label vs name, hint, and every `alt_name`; a label-less candidate is judged by its description | the hint term is what fixed `BBC`; the label-less proxy the film/book cases |
+| `fit` | IDF-weighted unigram + bigram overlap, saturating | the ladder's own measure, unchanged |
+| `kind` | `compatible` over **all 19 types** (`+0.15` / `−0.30`) | the arms stay out of the gate; a person cannot be the organisation |
+| `breadth` | distinct questions that produced the candidate | small, positive |
+| `year` | descriptions agree / disagree on a year (`+0.10` / `−0.20`) | what separates `Gladiator` 2000 from 1992 |
+| `mention` | a label-less description that names the entity in full | stops a CEO's title claiming NPR |
+| `position` | the provider's own order | small, positive |
+| account rule | an account-only entity may claim only via a platform property | 25 of 26 account identities were wrong; see below |
+| kind refusal | never assert a candidate whose kind is known impossible, unless something possible exists | 14 of 15 refusals were wrong claims |
+
+Final graph: **1676 identities** (ladder 1664). Precision on a 100-row random sample: **93/100,
+95% CI [86%, 97%]**; the ladder's 30-row sample was 30/30, CI [88.6%, 100%] — indistinguishable.
+
+The account bucket was a census, not a sample: 26 accounts carried a Wikidata identity, **25 were
+wrong** (`Bear` → a gay-culture term, `Blue` → a colour, `Drake` → a botanist, `sphinx` → a myth),
+and the one right answer came from `P2002`. The rule keys on *account-only* entities, so a
+`social_media_account` that is also a person still resolves as one.
+
+
+## Fixed evaluation set and ablation (2026-11-13)
+
+`plan/eval/identity-labels.tsv` holds 200 knowledge entities drawn at random and judged once:
+185 correct identities, 15 known-wrong. It never changes. Every ranking change is scored against
+it — `kept` (of the 185 correct, how many the build still asserts), `avoided` (of the 15 wrong,
+how many the wrong QID is gone), and identity coverage.
+
+Why it exists: the tuning before it judged each build against a *fresh* 60-row sample, so every
+observed error became a rule. That cannot converge. The fixed set makes a term justify itself or be
+deleted.
+
+The ablation, one term per build, baseline first:
+
+| configuration | kept | avoided | identities | precision on asserted |
+| --- | --- | --- | --- | --- |
+| baseline: surface + fit + kind + tier + account rule | 177/185 | 3/15 | 1649 | 93.7% |
+| + label corroboration (a label with no description overlap needs a title answer) | 178 | 5 | 1662 | |
+| + description head noun (kind from `1902 novel by …`, ±0.10/0.15) | 180 | 6 | 1682 | |
+| + year agreement (±0.10/0.20) | 181 | 6 | 1693 | **95.3%** |
+| + mention penalty | 181 | 6 | 1692 | no gain, one identity lost — removed |
+| + position + breadth | 181 | 6 | 1704 | no precision gain — removed |
+
+Then a **refusal floor** — a minimum absolute score, because a pool of one has no runner-up to lose
+to — swept on the same set:
+
+| floor | kept | avoided | identities | precision on asserted |
+| --- | --- | --- | --- | --- |
+| 0.00 | 181/185 | 6/15 | 1689 | 95.3% |
+| 0.50 | 181/185 | 10/15 | 1637 | 97.3% |
+| 0.55 | 179/185 | 12/15 | 1610 | 98.4% |
+| **0.60** | 178/185 | 14/15 | 1576 | **99.4%** |
+| 0.65 | 177/185 | 14/15 | 1554 | 99.4% |
+| 0.70 | 177/185 | 14/15 | 1539 | 99.4% |
+
+**0.50 shipped** (decided 2026-11-13): 181/185 correct kept, 10 of 15 known-wrong withheld,
+1637 identities. The four claims it admits over 0.60 are `Billy Costigan` → *The Departed*,
+`Sten Mk III` → the Sten family, `All Things Are Full of Gods` → the hardcover edition, and
+`Death Bunny` → a short story. The first two are adjacent-by-design (a character and the film
+about them, a variant and its family); the edition is the work's edition. `Death Bunny` is the one
+genuine homonym — capture 70 is a meme of a Lily Seika Jones watercolour that has **no Wikidata
+item**, so no scoring change can resolve it and the floor is the only lever: the search answer for
+the name returns only other referents (`The Death of Bunny Munro`, `Death to the Easter Bunny!`,
+a Rupert Bunny painting). 0.60 refuses it at the cost of seven real identities and 61 rows.
+
+**Rejected after measurement:** splitting `Family::Work` into film / book / painting / game, with
+the QIDs already mapped. On top of the floor it scored 1580 identities, 178 kept, **13** avoided —
+one known-wrong claim returned — so it was reverted. The kind confusion it targets is real, but the
+head-noun term already covers enough of it that the split is neutral-to-negative on this set.
+
+Final: **1576 identities, 99.4% precision on asserted identities** (178/179), 21 refusals (7
+correct entities given up, 14 wrong QIDs withheld). Two heuristics that earlier versions carried —
+the mention penalty and source breadth — were removed on this evidence, and the kind-refusal veto
+and contradiction sort were removed with them.
+
+
 ## Open questions to settle before touching behaviour
 
 1. ~~Two-fits: option A, B, or C?~~ **A shipped** — see the measurement above; the lone-word gate stays on the answer corpus.

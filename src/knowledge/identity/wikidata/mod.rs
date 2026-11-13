@@ -6,6 +6,7 @@ mod candidate;
 pub(crate) mod decision;
 mod kind;
 pub(crate) mod plan;
+mod pool;
 mod property_query;
 mod query;
 mod ranking;

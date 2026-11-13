@@ -302,6 +302,24 @@ fn search(
     choose(entity, &admitted, &ranking, WikidataKind::Search)
 }
 
+/// The candidates that are referents at all — a menu is not a thing to identify, and an answer that
+/// carried only one proves nothing. Everything else about a candidate (which name it bears, which
+/// kind it is) is the pooled ranking's question, so the pool filters here and scores there;
+/// [`admit`] keeps the type gate for the ladder path `inspect` still replays.
+pub(crate) fn referents(
+    raw: &Answer<Vec<WikidataCandidate>>,
+) -> Result<Vec<WikidataCandidate>, &'static str> {
+    if !raw.outcome.answered() {
+        return Err("the answer carried no candidate");
+    }
+    let mut candidates = raw.body.clone().unwrap_or_default();
+    candidates.retain(|candidate| !answer::is_menu(candidate));
+    if candidates.is_empty() {
+        return Err("the answer carried only a disambiguation page");
+    }
+    Ok(candidates)
+}
+
 /// The gates every answer passes before a rung decides: a menu is not a referent, and the right
 /// name can still be the wrong kind of thing. Returns the surviving candidates, or the reason the
 /// answer was rejected outright. Only recognised classes reject — an unknown one passes (see

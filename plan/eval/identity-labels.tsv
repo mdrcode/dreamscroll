@@ -1,0 +1,205 @@
+# Identity evaluation set — 100 random wikidata identities, judged 2026-11-13.
+# Columns: observation_id | name | entity_type | claimed_qid | verdict | note
+# verdict: ok = the claimed item is the entity; wrong = it is not.
+# Protocol: fixed once, never re-drawn. Every ranking change is measured against this file,
+# not against a fresh sample. 'avoided' counts wrong rows whose wrong QID is gone.
+1915	Heavy Metal	movie	Q105789	wrong	concept, not the 1981 film
+826	Simon Heffer	real_person	Q7518942	ok	
+231	Bash	software	Q189248	ok	
+1688	Alessandro Michele	real_person	Q21055337	ok	
+2360	Reginald Barclay	fictional_character	Q627820	ok	
+753	Demosthenes	real_person	Q117253	ok	
+2508	Club Pilates	brand	Q109328844	ok	
+605	John Barth	real_person	Q315683	ok	
+932	Richard Stanley	real_person	Q323285	ok	
+305	New Hampshire	place	Q759	ok	
+684	Google Research	organization	Q28943742	ok	
+2002	Ennis House	place	Q578184	ok	
+1140	Paul McCartney	real_person	Q2599	ok	
+2214	Northern cardinal	unknown	Q726389	ok	
+95	Gustav Wunderwald	real_person	Q121692	ok	
+792	Tensor Processing Unit	product	Q25106376	ok	
+1137	Alan Durband	real_person	Q4706552	ok	
+1757	Prisoners of the American Dream	book	Q139791631	ok	
+2199	Coca-Cola	brand	Q2813	ok	
+1590	The Secret Agent	movie	Q132531438	ok	
+1080	Infinite Jest	book	Q1077445	ok	
+666	Orson Welles	real_person	Q24829	ok	
+1087	A Short Walk in the Hindu Kush	book	Q4659484	ok	
+624	Prescott Bush	real_person	Q324742	ok	
+776	Branko Grünbaum	real_person	Q898670	ok	
+1667	Barbara Fredrickson	real_person	Q4858897	ok	
+2265	Tenebrism	unknown	Q1464842	ok	
+346	Scorbunny	fictional_character	Q61905431	ok	
+2700	Standard diving dress	product	Q3590981	ok	
+2319	Punch	publication	Q849759	ok	
+618	Aristotle	real_person	Q868	ok	
+146	HyperNormalisation	movie	Q27518177	ok	
+1255	Miri	software	Q141060690	ok	
+1392	Dahlia	unknown	Q130918	ok	
+2085	Kōji Yakusho	real_person	Q975146	ok	
+1439	Zstandard	software	Q26737171	ok	
+1361	GameFAQs	online_community	Q693757	ok	
+1458	The Daughter of Erlik Khan	book	Q7729082	ok	
+833	Yes Chad	meme	Q64101782	ok	
+1338	Claire Honeycutt	real_person	Q89929752	ok	
+2472	Wasteland Weekend	event	Q27987124	ok	
+2111	Hiroshi Nagai	real_person	Q11549722	ok	
+306	Massachusetts	place	Q771	ok	
+1666	Amos Tversky	real_person	Q474333	ok	
+2243	Death Bunny	art_work	Q137387068	wrong	short story, not the painting
+230	Qwen	software	Q130234299	ok	
+181	Charles C. Mann	real_person	Q1749059	ok	
+625	Skull and Bones	organization	Q195604	ok	
+1072	Twenty-six Martyrs of Japan	event	Q578963	ok	
+1633	Søren Kierkegaard	real_person	Q6512	ok	
+1196	Robert E. Howard	real_person	Q207640	ok	
+1868	Chudjak	meme	Q135914217	ok	
+1064	South Dakota	place	Q1211	ok	
+636	Thunderball	book	Q1952957	ok	
+2325	GQ	publication	Q311249	ok	
+2194	Jean-Léon Gérôme	real_person	Q212499	ok	
+2557	James Purdy	real_person	Q984415	ok	
+67	Genpei Akasegawa	real_person	Q3082929	ok	
+2614	Musée Unterlinden	place	Q32310323	wrong	Wikimedia category, not the museum
+1948	Theory of Colours	book	Q112667736	ok	
+2069	Jackson Yee	real_person	Q22966646	ok	
+992	W. Herbert Burk	real_person	Q30687496	ok	
+102	Sydney Sweeney	real_person	Q49561909	ok	
+824	Henry Green	real_person	Q1285562	ok	
+960	University of California, Berkeley	organization	Q168756	ok	
+2159	Charlemagne	real_person	Q3044	ok	
+2731	Hunter Hancock	real_person	Q136149756	ok	
+2143	Susan Penhaligon	real_person	Q7648277	ok	
+1665	Daniel Kahneman	real_person	Q233950	ok	
+643	Brother Cadfael	fictional_character	Q2483726	ok	
+285	Abercrombie & Fitch	brand	Q319344	ok	
+1900	Roam Research	software	Q98066309	ok	
+1800	Mishima: A Life in Four Chapters	movie	Q1740171	ok	
+1863	Shards of Earth	book	Q131382888	ok	
+908	WeatherTech	brand	Q108469060	ok	
+1020	Lee Marvin	real_person	Q76895	ok	
+783	Peter Thiel	real_person	Q705525	ok	
+1967	Adderall	product	Q935761	ok	
+295	Heat	movie	Q42198	ok	
+1782	Rumi	real_person	Q43347	ok	
+1522	Nikolaus Geyrhalter	real_person	Q90354	ok	
+1324	Comprehensive Psychiatry	publication	Q15749263	ok	
+355	Western United States	place	Q12612	ok	
+1325	Elsevier	organization	Q746413	ok	
+10	Wojak	meme	Q58841951	ok	
+696	James Turrell	real_person	Q740966	ok	
+1706	3Blue1Brown	organization	Q55345122	ok	
+361	Jed York	real_person	Q6172644	ok	
+1145	John Roberts	real_person	Q5294608	ok	
+91	Old Post Office, Ghent	place	Q2526465	ok	
+1718	Brandon Estate	place	Q42291511	ok	
+2293	Freedom of Speech	art_work	Q713211	ok	
+1089	Hindu Kush	place	Q5472	ok	
+713	Steve Jobs	real_person	Q19837	ok	
+271	Milton Friedman	real_person	Q47426	ok	
+209	East of Eden	book	Q849701	ok	
+320	Alien	movie	Q103569	ok	
+559	Europe	place	Q46	ok	
+2641	Kathryn Bigelow	real_person	Q34816	ok	
+1452	Karl Popper	real_person	Q81244	ok	
+1084	Die Kinder der Toten	book	Q60690641	wrong	the 2019 film adaptation, not the novel
+1870	Building a Second Brain	book	Q125911682	ok	
+2495	Royal Museums of Fine Arts of Belgium	organization	Q377500	ok	
+1342	Harry Crews	real_person	Q1586451	ok	
+976	Rust	software	Q575650	ok	
+27	Gary Bond	real_person	Q5524729	ok	
+2202	Brittany Broski	real_person	Q99656431	ok	
+613	Organisation for Economic Co-operation and Development	organization	Q41550	ok	
+2073	Manohla Dargis	real_person	Q441327	ok	
+825	The Daily Telegraph	publication	Q192621	ok	
+68	Rentarō Mikuni	real_person	Q1321767	ok	
+1520	arXiv	organization	Q118398	ok	
+198	Jonathan Frakes	real_person	Q346595	ok	
+1073	Nagasaki	place	Q38234	ok	
+669	Dudley Crafts Watson	real_person	Q105770447	ok	
+2655	Roger Ebert	real_person	Q212173	ok	
+190	Dustin Hoffman	real_person	Q42930	ok	
+941	Schwerin	place	Q1709	ok	
+3	Michel Simon	real_person	Q124112	ok	
+724	Richard Zeckhauser	real_person	Q7330150	ok	
+2144	John McEnery	real_person	Q1701025	ok	
+2713	The Gates of the Inferno	art_work	Q90457373	wrong	a scientific article, not the painting
+1626	Epictetus	real_person	Q183144	ok	
+1254	Aria Beingessner	real_person	Q112572563	ok	
+2083	@astrorahul_	social_media_account	Q136047783	ok	
+1098	Hell or High Water	movie	Q20026847	ok	
+255	Kpler	organization	Q126709116	ok	
+872	YouTube	brand	Q866	ok	
+1114	Arnold Böcklin	real_person	Q123071	ok	
+2246	4"/50 caliber gun	product	Q4637032	ok	
+1390	YouTube Premium	product	Q18643737	ok	
+1203	Chicago	place	Q1297	ok	
+1725	Nat Friedman	real_person	Q92955	ok	
+1192	Costa-Gavras	real_person	Q296698	ok	
+1244	Antônio Carlos Jobim	real_person	Q200131	ok	
+1793	Jambon-beurre	product	Q3160836	ok	
+2134	Wojciech Siudmak	real_person	Q3569606	ok	
+662	John Vaughan Campbell	real_person	Q6261877	ok	
+2152	Billy Costigan	fictional_character	Q172975	wrong	the film, not the character
+664	137th (Staffordshire) Brigade	organization	Q18639773	ok	
+898	The MIT Museum	place	Q6716306	ok	
+2021	Little Golden Books	brand	Q2382344	ok	
+2623	Heir to the Empire	book	Q2076844	ok	
+1792	A Christmas Carol	book	Q62879	ok	
+282	M. John Harrison	real_person	Q963799	ok	
+1112	Musée d'Orsay	organization	Q23402	ok	
+1690	Palazzo Alberini	place	Q3889513	ok	
+801	Stephen Mangan	real_person	Q2067683	ok	
+1001	Derek Sivers	real_person	Q5262357	ok	
+340	Bethlehem Shipbuilding Corporation	organization	Q2082380	ok	
+2675	Dune (2021 film)	movie	Q60834962	ok	
+1712	Surfer	publication	Q44525	ok	
+317	Ridley Scott	real_person	Q56005	ok	
+879	Stendhal	real_person	Q502	ok	
+598	Kai Brightstar	fictional_character	Q118204515	ok	
+77	Sten Mk III	product	Q211782	wrong	the family, not the Mk III variant
+2197	Walters Art Museum	organization	Q210081	ok	
+2097	Ralph Fiennes	real_person	Q28493	ok	
+1798	History Museum of Armenia	organization	Q1138228	ok	
+1116	Notre-Dame de Paris	place	Q2981	ok	
+174	Willy Wonka & the Chocolate Factory	movie	Q936327	ok	
+2225	Daniel Day-Lewis	real_person	Q166389	ok	
+1683	4chan	online_community	Q238330	ok	
+2053	William Boyd	real_person	Q722103	ok	
+1320	Pat Buchanan	real_person	Q149127	ok	
+1440	Robin Hobb	real_person	Q234403	ok	
+1815	Mary Poppins	movie	Q209170	ok	
+659	Mont-Saint-Michel	place	Q20883	ok	
+574	Nintendo 64	product	Q184839	ok	
+333	Antipode	publication	Q110280907	wrong	a 1966 painting, not the journal
+1562	E. H. Carr	real_person	Q274764	ok	
+756	A Mathematical Theory of Communication	publication	Q724029	ok	
+1449	Nasdaq-100	financial	Q507306	ok	
+1351	Yo-Yo Ma	real_person	Q234891	ok	
+2064	Polaroid SX-70 Alpha 1	product	Q71177175	wrong	a scientific article, not the camera
+1307	Emi Gal	real_person	Q137049246	ok	
+114	James Elkins	real_person	Q10305071	ok	
+1453	The Myth of the Framework	book	Q19570131	ok	
+1403	Starlink	brand	Q19867977	ok	
+1402	Wavian	brand	Q141467456	ok	
+1055	Symphony No. 10 (Shostakovich)	music	Q164652	ok	
+1917	Métal Hurlant	publication	Q3333440	wrong	a television series, not the magazine
+1574	Boris Magaš	real_person	Q12628144	ok	
+2556	Narrow Rooms	book	Q121767173	wrong	a scientific article, not the novel
+1004	Vioxx	product	Q81230348	wrong	a scientific article, not the drug
+2367	Joy Boushel	real_person	Q6297043	ok	
+2691	Richard Jordan	real_person	Q492169	ok	
+1485	Star Trek	brand	Q1092	ok	
+953	The Great Game: The Struggle for Empire in Central Asia	book	Q5702945	ok	
+987	California	place	Q5020197	wrong	a song, not the state
+1033	Herman Melville	real_person	Q4985	ok	
+1045	Turing Award	event	Q185667	ok	
+155	All Things Are Full of Gods: The Mysteries of Mind and Life	book	Q134713623	wrong	the hardcover edition, not the work
+1455	Stewart Brand	real_person	Q971994	ok	
+1897	Ilmari Tapiovaara	real_person	Q368414	ok	
+2678	The Four Feathers	movie	Q1248698	wrong	the 1902 novel, not the 1929 film
+1584	United States Geological Survey	organization	Q193755	ok	
+1337	Thomas Aquinas College	organization	Q7787106	ok	
+2055	Arc de Triomphe	place	Q64436	ok	
+2056	German military administration in occupied France during World War II	event	Q2748708	ok	

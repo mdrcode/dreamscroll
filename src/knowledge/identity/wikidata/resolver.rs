@@ -13,15 +13,16 @@
 //! cached payloads for free. Only `fetch` touches the network, and nothing here calls it directly:
 //! it goes through `Gateway::answers_for`, which keeps the cache, the pace and the budget.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
-use crate::fetch::{Answers, Gateway, Request, Transport};
+use crate::fetch::{Answers, Gateway, Outcome, Request, Transport};
 use crate::knowledge::evidence::Identity;
 use crate::knowledge::identity::Resolver;
 use crate::model;
 
+use super::ranking::HANDLE_CONFIDENCE;
 use super::transport::Wire;
-use super::{WikidataCandidate, WikidataKind, decision, plan};
+use super::{WikidataCandidate, WikidataKind, answer, decision, plan, pool};
 
 /// One authority: its decisions, and the wire it speaks through.
 pub struct Wikidata {
@@ -49,125 +50,128 @@ impl Resolver for Wikidata {
     }
 }
 
-/// The ladder: handle, title and exact label in one pass; search for what is left; then the
-/// surface-only title. Generic over the wire, so a test can drive the ordering against a fake
-/// with no database and no client — [`Resolver::resolve`] supplies the real one.
+/// One entity's questions: its id, and every `(step, request)` the planner built for it.
+type Planned = (i32, Vec<(plan::Step, Request<WikidataKind>)>);
+
+/// Ask every rung, then decide once.
 ///
-/// A free function, like [`accumulate`] and [`last_resort`]: it takes the transport it speaks through,
-/// never the authority. Nothing in the ladder reads `Wikidata`.
-///
-/// The engine sees only the identities that come back.
+/// The ladder used to decide per rung and stop at the first claim; this asks all of them and pools
+/// the answers (see `pool`). Offline rebuilds are unaffected — `answers_for` serves the cache — and
+/// the cost ordering is deliberately gone for now: the pool needs every answer, and a budget
+/// question can only be answered after the quality question is.
 async fn ladder<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataCandidate>>>(
     transport: &T,
     entities: &[model::knowledge_entity::Model],
     gateway: &Gateway<'_>,
 ) -> Vec<(i32, Identity)> {
-    let mut identities = Vec::new();
-    let mut resolved: HashSet<i32> = HashSet::new();
+    let planned: Vec<Planned> = entities
+        .iter()
+        .map(|entity| (entity.id, plan::all_steps(entity)))
+        .collect();
 
-    // One step, one wave. The boundary lives here because no other authority knows that search
-    // is the expensive route, and every wave must run offline too: `answers_for` decides
-    // what to fetch, so it serves cached answers and silently fetches nothing — skipping a step
-    // once threw those answers away, and an offline rebuild then reproduced less than the cache
-    // held.
-    for step in plan::Step::ORDER {
-        // Who is still open, then what this rung asks them. Kept apart because the filter is the
-        // ladder's state and the mapping is `plan`'s business.
-        let still_unresolved: Vec<&model::knowledge_entity::Model> = entities
-            .iter()
-            .filter(|entity| !resolved.contains(&entity.id))
-            .collect();
-
-        let requests_for_step: Vec<(&model::knowledge_entity::Model, Request<WikidataKind>)> =
-            still_unresolved
-                .into_iter()
-                .flat_map(|entity| {
-                    plan::step(step, entity)
-                        .into_iter()
-                        .map(move |request| (entity, request))
-                })
-                .collect();
-
-        if requests_for_step.is_empty() {
-            continue;
-        }
-
-        let requests_cloned: Vec<Request<WikidataKind>> = requests_for_step
-            .iter()
-            .map(|(_, request)| request.clone())
-            .collect();
-        let answers = gateway.answers_for(transport, &requests_cloned).await;
-
-        // `SurfaceTitle` is not a question — it re-decides the title answer — so it takes the
-        // last-resort pass rather than the normal accumulate. See `last_resort`.
-        if step == plan::Step::SurfaceTitle {
-            last_resort(&requests_for_step, &answers, &mut identities, &mut resolved);
-        } else {
-            accumulate(&requests_for_step, &answers, &mut identities, &mut resolved);
+    // One request per question: `SurfaceTitle` re-plans the title request, so the set is deduped.
+    let mut unique: Vec<Request<WikidataKind>> = Vec::new();
+    let mut seen: HashSet<Request<WikidataKind>> = HashSet::new();
+    for (_, steps) in &planned {
+        for (_, request) in steps {
+            if seen.insert(request.clone()) {
+                unique.push(request.clone());
+            }
         }
     }
+    let answers = gateway.answers_for(transport, &unique).await;
 
+    let mut identities = Vec::new();
+    for entity in entities {
+        let Some((_, steps)) = planned.iter().find(|(id, _)| *id == entity.id) else {
+            continue;
+        };
+        // A property match *is* the identity, so nothing is pooled against it.
+        if let Some(identity) = by_handle(steps, &answers) {
+            identities.push((entity.id, identity));
+            continue;
+        }
+        match pool::decide(entity, &gather(steps, &answers, Outcome::Found)) {
+            Ok(identity) => identities.push((entity.id, identity)),
+            Err(_) => {
+                // A degraded answer may have held the claim we are discarding. Deciding the
+                // degraded pool only to report it is the same rule as `decision::trusted`.
+                if let Ok(identity) =
+                    pool::decide(entity, &gather(steps, &answers, Outcome::Degraded))
+                {
+                    tracing::warn!(
+                        entity = %entity.name,
+                        qid = %identity.external_id,
+                        method = identity.method.as_deref().unwrap_or(""),
+                        "a degraded answer would have claimed; discarded"
+                    );
+                }
+            }
+        }
+    }
     identities
 }
 
-/// Turn one wave of answers into annotations. First request to speak wins for an entity, which
-/// is why `plan` orders them: a handle is a stronger statement than a title, than a label, than
-/// a search. An answer that supports no identity is not a failure — see the comment below.
-fn accumulate(
-    requests: &[(&model::knowledge_entity::Model, Request<WikidataKind>)],
+/// The handle answer, when there is one: the item asserting this property value is the account
+/// itself, and no other candidate can outrank a property match.
+fn by_handle(
+    steps: &[(plan::Step, Request<WikidataKind>)],
     answers: &Answers<WikidataKind, Vec<WikidataCandidate>>,
-    identities: &mut Vec<(i32, Identity)>,
-    resolved: &mut HashSet<i32>,
-) {
-    for (entity, request) in requests {
-        if resolved.contains(&entity.id) {
-            continue;
-        }
-        // The answer is keyed by the question itself, so the lookup borrows the request the
-        // planner already built — no key to reassemble.
-        let Some(raw) = answers.get(request) else {
-            continue;
-        };
-        // The refusal is `inspect`'s business; the resolver only needs the identity.
-        let Ok(identity) = decision::decide(entity, request.kind, raw) else {
-            // Not wrong, just not usable here: a disambiguation page, a different kind of
-            // thing, or a name with no item. The answer is still a fact about the provider, so
-            // it keeps its full life in the cache — only a new `shape` may re-ask it.
-            continue;
-        };
-        resolved.insert(entity.id);
-        identities.push((entity.id, identity));
+) -> Option<Identity> {
+    let (_, request) = steps.iter().find(|(step, _)| *step == plan::Step::Handle)?;
+    let raw = answers.get(request)?;
+    if raw.outcome != Outcome::Found {
+        return None;
     }
+    let property = request.kind.property()?;
+    let candidates = decision::referents(raw).ok()?;
+    let first = candidates.first()?;
+    Some(answer::identity(
+        first,
+        property.as_str(),
+        HANDLE_CONFIDENCE,
+    ))
 }
 
-/// The last resort, and the one thing here that is not a question.
+/// One entity's pool from every answer of one outcome, deduplicated by QID.
 ///
-/// [`plan::Step::SurfaceTitle`] plans the *identical* request as [`plan::Step::Title`], so this
-/// asks nothing new: the cached answer is simply decided a second way — no ranking, just the
-/// article that bears this exact name. That makes it a **decision wearing a step's clothes**,
-/// which is why it needs a branch here and a matching one in `inspect`, and why it is marked as
-/// a hack in `plan`. The shape it wants to become is a post-pass over the title answer once
-/// every real question has been asked (see R6 in `plan/wikidata-cleanup-20261112.md`).
-fn last_resort(
-    requests: &[(&model::knowledge_entity::Model, Request<WikidataKind>)],
+/// `admit` still gates what is not a referent at all — a menu, a category, an impossible kind — but
+/// no rung's *name* rule applies: which candidate is ours is the ranking's question now.
+fn gather(
+    steps: &[(plan::Step, Request<WikidataKind>)],
     answers: &Answers<WikidataKind, Vec<WikidataCandidate>>,
-    identities: &mut Vec<(i32, Identity)>,
-    resolved: &mut HashSet<i32>,
-) {
-    for (entity, request) in requests {
-        if resolved.contains(&entity.id) {
+    outcome: Outcome,
+) -> Vec<pool::Pooled> {
+    let mut by_id: BTreeMap<String, pool::Pooled> = BTreeMap::new();
+    for (step, request) in steps {
+        // The handle is claimed whole, and `SurfaceTitle` asks the title's question again.
+        if matches!(step, plan::Step::Handle | plan::Step::SurfaceTitle) {
             continue;
         }
         let Some(raw) = answers.get(request) else {
             continue;
         };
-        // `admit` runs again on an answer the title wave already gated. It is pure, so the
-        // cost is a clone — the alternative is threading gated candidates between waves.
-        if let Ok(identity) = decision::surface_only(entity, raw) {
-            resolved.insert(entity.id);
-            identities.push((entity.id, identity));
+        if raw.outcome != outcome {
+            continue;
+        }
+        let Ok(candidates) = decision::referents(raw) else {
+            continue;
+        };
+        for (position, candidate) in candidates.into_iter().enumerate() {
+            by_id
+                .entry(candidate.id.clone())
+                .or_insert_with(|| pool::Pooled {
+                    candidate,
+                    sources: Vec::new(),
+                })
+                .sources
+                .push(pool::Source {
+                    step: *step,
+                    position,
+                });
         }
     }
+    by_id.into_values().collect()
 }
 
 #[cfg(test)]
@@ -267,18 +271,19 @@ mod tests {
         entity
     }
 
-    /// The ladder, driven end to end against a fake wire: `resolve` consults the title before the
-    /// label, and only searches for the entity the first pass left unresolved.
+    /// Every rung is asked, and the pool decides: here two answers offer the same surface, so the
+    /// description separates them. The point of the fixture is that the *title* answer is no longer
+    /// privileged by position — it wins on evidence.
     #[tokio::test]
-    async fn resolve_prefers_a_title_and_searches_only_what_is_left() {
+    async fn the_pool_ranks_by_surface_then_description_and_asks_every_rung() {
         let seed = |kind: WikidataKind, query: &str, answer: Answer<Vec<WikidataCandidate>>| {
             (kind, query.to_string(), answer)
         };
 
-        let title_wins = found(json!([
-            {"id": "Q2", "label": "Train Dreams (novella)", "description": "novella by Denis Johnson"}
+        let title_answer = found(json!([
+            {"id": "Q2", "label": "Train Dreams", "description": "novella by Denis Johnson"}
         ]));
-        let label_loses = found(json!([
+        let label_answer = found(json!([
             {"id": "Q1", "label": "Train Dreams", "description": "something else entirely"}
         ]));
         let nothing = Answer::<Vec<WikidataCandidate>>::nothing(Outcome::Empty);
@@ -286,14 +291,11 @@ mod tests {
             {"id": "Q892", "label": "J. R. R. Tolkien", "description": "English writer and philologist"}
         ]));
 
-        // The title answers for the first entity, so its label must never be consulted — and a
-        // different QID there makes the ordering visible.
         let fake = Canned::new([
-            seed(WikidataKind::Title, "Train Dreams", title_wins),
-            seed(WikidataKind::Label, "Train Dreams", label_loses),
-            // The second entity misses both lookups and has to be searched for.
+            seed(WikidataKind::Title, "Train Dreams", title_answer),
+            seed(WikidataKind::Label, "Train Dreams", label_answer),
             seed(WikidataKind::Title, "J.R.R. Tolkien", nothing.clone()),
-            seed(WikidataKind::Label, "J.R.R. Tolkien", nothing),
+            seed(WikidataKind::Label, "J.R.R. Tolkien", nothing.clone()),
             seed(WikidataKind::Search, "J.R.R. Tolkien", by_search),
         ]);
 
@@ -304,7 +306,7 @@ mod tests {
             second
         }];
 
-        let allowance = Allowance::new(8, std::time::Duration::ZERO);
+        let allowance = Allowance::new(16, std::time::Duration::ZERO);
         let gateway = Gateway::new(None, Some(&allowance), true);
         let identities = ladder(&fake, &entities, &gateway).await;
 
@@ -314,31 +316,16 @@ mod tests {
             .collect();
         assert_eq!(ids, vec![(1, "Q2"), (2, "Q892")], "{identities:?}");
         assert!(
-            fake.asked(WikidataKind::Search, "J.R.R. Tolkien"),
-            "the unresolved entity is searched for"
-        );
-        assert!(
-            !fake.asked(WikidataKind::Search, "Train Dreams"),
-            "the resolved one is not searched"
-        );
-        assert!(
-            !fake.asked(WikidataKind::Label, "Train Dreams"),
-            "the title resolved it, so the label wave never asks"
-        );
-        // Title × 2, label × 1 (Train Dreams dropped), search × 1 (Tolkien only).
-        assert_eq!(
-            fake.seen.lock().unwrap().len(),
-            4,
-            "the bundled pass would have asked five"
+            fake.asked(WikidataKind::Search, "Train Dreams"),
+            "the pool needs every answer, so nothing is skipped after a claim"
         );
     }
 
-    /// The exact title is the last resort, not the first answer. `Orthodoxy` the article is the
-    /// concept; the label rung, which carries the book, must get to speak first. And when no rung
-    /// can corroborate anything — the `Paris` shape, no description, no hint — the title still
-    /// answers, because a surface this exact is better than nothing at all.
+    /// A surface tie is decided by the description: `Orthodoxy` the book corroborates, the concept
+    /// does not. And when no rung can corroborate — the `Paris` shape — the exact surface still
+    /// answers, because it is the only evidence there is.
     #[tokio::test]
-    async fn a_surface_only_title_waits_for_every_other_rung() {
+    async fn the_pool_prefers_the_corroborated_candidate() {
         let seed = |kind: WikidataKind, query: &str, answer: Answer<Vec<WikidataCandidate>>| {
             (kind, query.to_string(), answer)
         };
@@ -369,7 +356,6 @@ mod tests {
                     }
                 ])),
             ),
-            // `Paris`: the title is the only answer, and nothing contradicts it.
             seed(
                 WikidataKind::Title,
                 "Paris",
@@ -397,7 +383,7 @@ mod tests {
             },
         ];
 
-        let allowance = Allowance::new(8, std::time::Duration::ZERO);
+        let allowance = Allowance::new(16, std::time::Duration::ZERO);
         let gateway = Gateway::new(None, Some(&allowance), true);
         let identities = ladder(&fake, &entities, &gateway).await;
 
@@ -407,12 +393,8 @@ mod tests {
             .collect();
         assert_eq!(ids, vec![(1, "Q200"), (2, "Q300")], "{identities:?}");
         assert!(
-            !fake.asked(WikidataKind::Search, "Orthodoxy"),
-            "the entity the label answered was never searched for"
-        );
-        assert!(
-            fake.asked(WikidataKind::Search, "Paris"),
-            "the entity every rung refused fell through to search"
+            fake.asked(WikidataKind::Search, "Orthodoxy"),
+            "pooling asks every rung, including for the entity the label answered"
         );
     }
 }
