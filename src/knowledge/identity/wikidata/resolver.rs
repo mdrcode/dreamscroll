@@ -17,7 +17,7 @@ use std::collections::HashSet;
 
 use crate::fetch::{Gateway, Outcome, Request, Transport};
 use crate::knowledge::evidence::Identity;
-use crate::knowledge::identity::Resolver;
+use crate::knowledge::identity::IdentityResolver;
 use crate::model;
 
 use super::transport::Wire;
@@ -35,7 +35,7 @@ impl Wikidata {
 }
 
 #[async_trait::async_trait]
-impl Resolver for Wikidata {
+impl IdentityResolver for Wikidata {
     fn id(&self) -> &'static str {
         super::ID
     }
@@ -136,7 +136,7 @@ mod tests {
             assert_eq!(request.provider, crate::knowledge::identity::wikidata::ID);
         }
         assert_eq!(
-            Resolver::id(&engine()),
+            IdentityResolver::id(&engine()),
             crate::knowledge::identity::wikidata::ID
         );
     }

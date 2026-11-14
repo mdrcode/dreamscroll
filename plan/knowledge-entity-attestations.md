@@ -108,7 +108,7 @@ they justify `attested`, not a higher identity confidence.
 If source quality should affect confidence later, that is a separate policy with its own risks
 (SEO spam, duplicated syndication, five Reddit threads). Start with status only.
 
-## Resolver / attestor seam
+## IdentityResolver / attestor seam
 
 The current contract cannot express “I found references but no identity”:
 
@@ -132,7 +132,7 @@ One web-search pass can return both identity claims and references. This is the 
 single agent does both. Selection becomes “ask this provider while it has neither a claim nor a
 reference,” with an include-already flag for re-resolution.
 
-### Option B — split `Resolver` and `Attestor`
+### Option B — split `IdentityResolver` and `Attestor`
 
 ```rust
 trait Attestor {
@@ -141,7 +141,7 @@ trait Attestor {
 }
 ```
 
-Clearer vocabulary: `Resolver` means identity, `Attestor` means documentation. Selection is
+Clearer vocabulary: `IdentityResolver` means identity, `Attestor` means documentation. Selection is
 naturally per provider and per kind: a resolver skips entities it already claimed, an attestor skips
 entities it already referenced. The cost is a second pass if one agent owns both jobs.
 

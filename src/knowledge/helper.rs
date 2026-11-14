@@ -234,14 +234,14 @@ async fn write_observation_identities(
 mod tests {
     use super::*;
     use crate::fetch::Gateway;
-    use crate::knowledge::identity::{Options, Resolver};
+    use crate::knowledge::identity::{IdentityResolver, Options};
     use crate::test_support::{db_or_skip, fixtures};
 
     /// An identity resolver that answers nothing: the helper tests are about scope, not identities.
     struct Empty;
 
     #[async_trait::async_trait]
-    impl Resolver for Empty {
+    impl IdentityResolver for Empty {
         fn id(&self) -> &'static str {
             "fake"
         }

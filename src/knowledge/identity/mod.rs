@@ -3,8 +3,8 @@
 //! The rule is inherited from [`crate::fetch`]: **a resolver cannot fetch, only ask for answers**. A
 //! resolver owns its own strategy — one request or a series of them, one pass or several — but its
 //! only route to the world is [`crate::fetch::Gateway::answers_for`], which consults the cache
-//! first, paces the call and charges the budget. Adding a provider means implementing [`Resolver`]; it
-//! cannot forget the cache, because there is no other door.
+//! first, paces the call and charges the budget. Adding a provider means implementing
+//! [`IdentityResolver`]; it cannot forget the cache, because there is no other door.
 //!
 //! What lives here is everything that knows what a knowledge entity *is*: the authority contract and
 //! the run loop that drives it (`resolution`), and the authority that answers today (`wikidata`).
@@ -17,7 +17,7 @@ pub mod resolution;
 pub mod wikidata;
 
 pub use resolution::{
-    DryRunIdentity, Options, ProviderReport, ResolutionEngine, ResolutionReport, Resolver,
+    DryRunIdentity, IdentityResolver, Options, ProviderReport, ResolutionEngine, ResolutionReport,
 };
 
 /// Transport calls a plain resolve is allowed to make when the caller does not choose a budget.

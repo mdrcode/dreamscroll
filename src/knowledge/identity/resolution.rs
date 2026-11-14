@@ -19,11 +19,15 @@ use super::RESERVED_PROVIDER_IDS;
 
 /// One authority and its strategy for identifying entities.
 ///
+/// Named for what it returns: an [`Identity`](crate::knowledge::evidence::Identity) per entity, not a
+/// verdict about a pair or a document. A future provider answering a different question — an
+/// attestation, say — is a different trait, not a second implementor of this one.
+///
 /// `resolve` takes a *batch* of entities rather than one: batching across entities is the difference
 /// between a hundred transport calls for a corpus walk and five thousand, and only the resolver knows
 /// how to group its own requests.
 #[async_trait::async_trait]
-pub trait Resolver: Send + Sync {
+pub trait IdentityResolver: Send + Sync {
     /// The authority's id: the `provider` on every request and every identity it writes. Reserved
     /// ids are refused by [`ResolutionEngine::new`].
     fn id(&self) -> &'static str;
@@ -98,14 +102,14 @@ pub struct ProviderReport {
 pub struct ResolutionEngine {
     graph: KnowledgeGraph,
     options: Options,
-    resolvers: Vec<Box<dyn Resolver>>,
+    resolvers: Vec<Box<dyn IdentityResolver>>,
 }
 
 impl ResolutionEngine {
     pub fn new(
         graph: KnowledgeGraph,
         options: Options,
-        resolvers: Vec<Box<dyn Resolver>>,
+        resolvers: Vec<Box<dyn IdentityResolver>>,
     ) -> anyhow::Result<Self> {
         let mut ids = HashSet::new();
         for resolver in &resolvers {
@@ -386,7 +390,7 @@ mod tests {
     struct Fixed(Vec<(i32, Identity)>);
 
     #[async_trait::async_trait]
-    impl Resolver for Fixed {
+    impl IdentityResolver for Fixed {
         fn id(&self) -> &'static str {
             "wikidata"
         }
