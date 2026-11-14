@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::api;
 use crate::auth;
 use crate::database::DbHandle;
+use crate::logic::identity_resolve::IdentityResolveTask;
 use crate::logic::illuminate::IlluminationTask;
 use crate::logic::knowledge_link::KnowledgeLinkTask;
 use crate::logic::search_index::SearchIndexTask;
@@ -39,6 +40,7 @@ pub struct TaskMaster {
     search_index_queue: Box<dyn TaskQueue<SearchIndexTask>>,
     spark_queue: Box<dyn TaskQueue<SparkTask>>,
     knowledge_link_queue: Box<dyn TaskQueue<KnowledgeLinkTask>>,
+    identity_resolve_queue: Box<dyn TaskQueue<IdentityResolveTask>>,
 }
 
 /// The outcome of a Task submission.
@@ -157,6 +159,17 @@ impl TaskMaster {
         backfill_id: Option<&str>,
     ) -> anyhow::Result<SubmitOutcome> {
         self.submit_inner(self.knowledge_link_queue.as_ref(), task, backfill_id)
+            .await
+    }
+
+    /// Enqueue the identity resolution of one linked illumination. Called by the worker that
+    /// finished linking it, as a follow-up task of its own.
+    pub(crate) async fn submit_identity_resolve_from_worker(
+        &self,
+        task: IdentityResolveTask,
+        backfill_id: Option<&str>,
+    ) -> anyhow::Result<SubmitOutcome> {
+        self.submit_inner(self.identity_resolve_queue.as_ref(), task, backfill_id)
             .await
     }
 
@@ -399,6 +412,7 @@ pub struct TaskMasterBuilder {
     search_index_queue: Option<Box<dyn TaskQueue<SearchIndexTask>>>,
     spark_queue: Option<Box<dyn TaskQueue<SparkTask>>>,
     knowledge_link_queue: Option<Box<dyn TaskQueue<KnowledgeLinkTask>>>,
+    identity_resolve_queue: Option<Box<dyn TaskQueue<IdentityResolveTask>>>,
 }
 
 impl TaskMasterBuilder {
@@ -446,6 +460,14 @@ impl TaskMasterBuilder {
         self
     }
 
+    pub fn identity_resolve_queue(
+        mut self,
+        identity_resolve_queue: impl TaskQueue<IdentityResolveTask> + 'static,
+    ) -> Self {
+        self.identity_resolve_queue = Some(Box::new(identity_resolve_queue));
+        self
+    }
+
     pub fn build(self) -> anyhow::Result<TaskMaster> {
         let Some(db) = self.db else {
             anyhow::bail!("TaskMaster requires a database handle");
@@ -456,11 +478,13 @@ impl TaskMasterBuilder {
             Some(search_index_queue),
             Some(spark_queue),
             Some(knowledge_link_queue),
+            Some(identity_resolve_queue),
         ) = (
             self.illuminate_queue,
             self.search_index_queue,
             self.spark_queue,
             self.knowledge_link_queue,
+            self.identity_resolve_queue,
         )
         else {
             anyhow::bail!("TaskMaster requires all task queues");
@@ -482,6 +506,10 @@ impl TaskMasterBuilder {
         let knowledge_link_queue = self
             .knowledge_link_queue
             .unwrap_or_else(|| Box::new(TestNoopQueue::default()));
+        #[cfg(test)]
+        let identity_resolve_queue = self
+            .identity_resolve_queue
+            .unwrap_or_else(|| Box::new(TestNoopQueue::default()));
 
         // One estimator shared by both SSE adapters: it is a stateless handle over
         // the pool, so there is nothing for the two to disagree about.
@@ -500,6 +528,7 @@ impl TaskMasterBuilder {
             search_index_queue,
             spark_queue,
             knowledge_link_queue,
+            identity_resolve_queue,
         })
     }
 }

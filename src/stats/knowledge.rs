@@ -76,6 +76,10 @@ pub struct KnowledgeStats {
     pub confidence: ConfidenceSpread,
     /// Entities with an identity resolver identity annotation — the number `resolve` moves.
     pub with_identity: u64,
+    /// Live entities no *identity resolver* has annotated. The backlog `identity resolve` and the
+    /// (tabled) nightly drain read; counts a handle-only entity as awaiting, because a QID is what
+    /// corroboration needs.
+    pub awaiting_resolver: u64,
     /// Identity annotations grouped by who supplied them and in which scheme. `provider` is the
     /// source (a resolver id, `illuminator`, `model`); `scheme` is the namespace the identifier
     /// lives in. Both halves are needed: one identity resolver may answer in several schemes, and one
@@ -105,6 +109,16 @@ impl KnowledgeStats {
         }
         1.0 - self.entities as f64 / self.observations as f64
     }
+}
+
+/// The provider ids that are *not* identity resolvers, as an SQL list. Reserved ids name our own
+/// pipeline, so an entity holding only those has not been asked by a resolver yet.
+fn reserved_providers_sql() -> String {
+    crate::knowledge::identity::RESERVED_PROVIDER_IDS
+        .iter()
+        .map(|provider| format!("'{provider}'"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<KnowledgeStats> {
@@ -198,18 +212,23 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
         .conn
         .query_one_raw(Statement::from_string(
             DatabaseBackend::Postgres,
-            "SELECT count(*) AS entities, \
-                    count(*) FILTER (WHERE identities = 0) AS zero, \
-                    count(*) FILTER (WHERE identities = 1) AS one, \
-                    count(*) FILTER (WHERE identities = 2) AS two, \
-                    count(*) FILTER (WHERE identities >= 3) AS three_plus \
-               FROM ( \
-                 SELECT e.id, count(i.id) AS identities \
-                   FROM knowledge_entities e \
-                   LEFT JOIN knowledge_identities i ON i.knowledge_entity_id = e.id \
-                  WHERE e.merged_into_id IS NULL \
-                  GROUP BY e.id \
-               ) counts",
+            format!(
+                "SELECT count(*) AS entities, \
+                        count(*) FILTER (WHERE identities = 0) AS zero, \
+                        count(*) FILTER (WHERE identities = 1) AS one, \
+                        count(*) FILTER (WHERE identities = 2) AS two, \
+                        count(*) FILTER (WHERE identities >= 3) AS three_plus, \
+                        count(*) FILTER (WHERE resolver_identities = 0) AS awaiting \
+                   FROM ( \
+                     SELECT e.id, count(i.id) AS identities, \
+                            count(i.id) FILTER (WHERE i.provider NOT IN ({})) AS resolver_identities \
+                       FROM knowledge_entities e \
+                       LEFT JOIN knowledge_identities i ON i.knowledge_entity_id = e.id \
+                      WHERE e.merged_into_id IS NULL \
+                      GROUP BY e.id \
+                   ) counts",
+                reserved_providers_sql()
+            ),
         ))
         .await?
         .expect("count always returns one row");
@@ -220,6 +239,7 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
         two: row.try_get_by_index::<i64>(3)? as u64,
         three_plus: row.try_get_by_index::<i64>(4)? as u64,
     };
+    stats.awaiting_resolver = row.try_get_by_index::<i64>(5)? as u64;
 
     let row = db
         .conn

@@ -7,17 +7,17 @@
 //! [`IdentityResolver`]; it cannot forget the cache, because there is no other door.
 //!
 //! What lives here is everything that knows what a knowledge entity *is*: the authority contract and
-//! the run loop that drives it (`resolution`), and the authority that answers today (`wikidata`).
+//! the run loop that drives it (`engine`), and the authority that answers today (`wikidata`).
 //!
 //! A resolver returns an entity's identities, not an edge to a shared row. The engine replaces that
 //! provider's complete set for every entity the run answered about.
 
 pub mod inspect;
-pub mod resolution;
+pub mod engine;
 pub mod wikidata;
 
-pub use resolution::{
-    DryRunIdentity, IdentityResolver, Options, ProviderReport, ResolutionEngine, ResolutionReport,
+pub use engine::{
+    DryRunIdentity, IdentityResolver, Options, ProviderReport, IdentityEngine, ResolutionReport,
 };
 
 /// Transport calls a plain resolve is allowed to make when the caller does not choose a budget.

@@ -123,13 +123,16 @@ fn interpret<P: DeserializeOwned>(row: &cached::Model) -> Stored<P> {
     }
 }
 
-pub struct FetchCache<'a> {
-    conn: &'a DatabaseConnection,
+/// A view over the cache table. It owns a pool handle, not a borrow: the cache outlives any one run,
+/// so it can be stored in the wiring (one per process) and handed to a run by reference.
+pub struct FetchCache {
+    conn: DatabaseConnection,
 }
 
-impl<'a> FetchCache<'a> {
-    pub fn new(conn: &'a DatabaseConnection) -> Self {
-        Self { conn }
+impl FetchCache {
+    /// Cheap: `DatabaseConnection` is a pool handle, not a socket.
+    pub fn new(conn: &DatabaseConnection) -> Self {
+        Self { conn: conn.clone() }
     }
 
     /// Drop answers that expired more than [`PRUNE_GRACE`] ago.
@@ -141,7 +144,7 @@ impl<'a> FetchCache<'a> {
         let cutoff = Utc::now() - PRUNE_GRACE;
         let result = cached::Entity::delete_many()
             .filter(cached::Column::ExpiresAt.lt(cutoff))
-            .exec(self.conn)
+            .exec(&self.conn)
             .await?;
         Ok(result.rows_affected)
     }
@@ -164,7 +167,7 @@ impl<'a> FetchCache<'a> {
             .filter(cached::Column::Shape.eq(shape))
             .filter(cached::Column::Query.is_in(queries.iter().cloned()))
             .filter(cached::Column::ExpiresAt.gt(Utc::now()))
-            .all(self.conn)
+            .all(&self.conn)
             .await?;
 
         let mut answers = HashMap::with_capacity(rows.len());
@@ -208,7 +211,7 @@ impl<'a> FetchCache<'a> {
             .filter(cached::Column::Kind.eq(kind.to_string()))
             .filter(cached::Column::Shape.eq(shape))
             .filter(cached::Column::Query.eq(query))
-            .one(self.conn)
+            .one(&self.conn)
             .await?;
         Ok(match row {
             None => Lookup {
@@ -272,7 +275,7 @@ impl<'a> FetchCache<'a> {
             ..Default::default()
         })
         .on_conflict(on_conflict)
-        .exec_without_returning(self.conn)
+        .exec_without_returning(&self.conn)
         .await?;
         Ok(())
     }
@@ -357,7 +360,7 @@ mod tests {
         assert!(!left.iter().any(|q| q == "ancient"), "{left:?}");
     }
 
-    async fn put(cache: &FetchCache<'_>, shape: &str, query: &str, outcome: Outcome) {
+    async fn put(cache: &FetchCache, shape: &str, query: &str, outcome: Outcome) {
         cache
             .put(
                 "probe",

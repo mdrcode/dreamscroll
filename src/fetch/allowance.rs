@@ -40,6 +40,16 @@ impl Refusal {
     }
 }
 
+/// What one run's [`Allowance`] is built from: calls allowed, and the pace between them.
+///
+/// Deployment policy, held by the wiring; an `Allowance` cannot be reused across runs because it
+/// carries the spent counter and the latched refusals.
+#[derive(Debug, Clone, Copy)]
+pub struct AllowanceConfig {
+    pub max_calls: usize,
+    pub min_interval: Duration,
+}
+
 /// One run's permission to call: paced, budgeted, and revocable per provider.
 pub struct Allowance {
     pacer: Mutex<Pacer>,
@@ -52,6 +62,11 @@ pub struct Allowance {
 }
 
 impl Allowance {
+    /// The allowance a configured policy grants: one run, built fresh.
+    pub fn configured(config: AllowanceConfig) -> Self {
+        Self::new(config.max_calls, config.min_interval)
+    }
+
     /// `max_calls` transport calls for the run, with at least `min_interval` between them.
     pub fn new(max_calls: usize, min_interval: Duration) -> Self {
         Self {

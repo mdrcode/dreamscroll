@@ -1,4 +1,4 @@
-use crate::{api::*, database, ignition, illumination, llms, storage};
+use crate::{api::*, database, ignition, illumination, llms, model, storage};
 
 #[derive(Clone)]
 pub struct ServiceApiClient {
@@ -23,11 +23,19 @@ impl ServiceApiClient {
             .collect())
     }
 
+    /// The entities one illumination references, and whether linking finished for its observations.
+    pub async fn illumination_entities(
+        &self,
+        illumination_id: i32,
+    ) -> Result<Vec<model::knowledge_entity::Model>, ApiError> {
+        super::get_illumination_entities(&self.db, illumination_id).await
+    }
+
     /// One illumination, with its observations loaded.
     pub async fn illumination(
         &self,
         illumination_id: i32,
-    ) -> Result<crate::model::illumination::ModelEx, ApiError> {
+    ) -> Result<model::illumination::ModelEx, ApiError> {
         super::get_illumination(&self.db, illumination_id).await
     }
 

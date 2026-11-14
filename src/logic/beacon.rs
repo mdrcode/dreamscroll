@@ -84,6 +84,33 @@ impl Beacon {
         Ok(())
     }
 
+    /// An illumination has just been "linked" into the knowledge graph, which
+    /// means that its "observed" entities have been properly incorporated into
+    /// the formal set of knowledge entities.
+    ///
+    /// Now, as a result, it's time to resolve the identities of any new or
+    /// updated entities.
+    pub async fn knowledge_linked(
+        &self,
+        illumination_id: i32,
+        entity_owner_id: i32,
+        backfill_id: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let outcome = self
+            .task_master
+            .submit_identity_resolve_from_worker(
+                identity_resolve::IdentityResolveTask {
+                    illumination_id,
+                    entity_owner_id,
+                },
+                backfill_id,
+            )
+            .await?;
+
+        Self::log_outcome("identity_resolve", illumination_id, outcome);
+        Ok(())
+    }
+
     fn log_outcome(task_type: &str, capture_id: i32, outcome: task::SubmitOutcome) {
         match outcome {
             task::SubmitOutcome::Enqueued { run_id, run_number } => tracing::debug!(
@@ -158,7 +185,9 @@ mod tests {
     /// What the recorded search-index queue received, shared with the assertions.
     type Queued = Arc<Mutex<Vec<task::TaskRun<search_index::SearchIndexTask>>>>;
 
-    fn search_queue_beacon(db: crate::database::DbHandle) -> (Arc<task::TaskMaster>, Beacon, Queued) {
+    fn search_queue_beacon(
+        db: crate::database::DbHandle,
+    ) -> (Arc<task::TaskMaster>, Beacon, Queued) {
         let queued = Arc::new(Mutex::new(Vec::new()));
         let task_master = Arc::new(
             task::TaskMaster::builder()
@@ -199,10 +228,12 @@ mod tests {
             .new_illumination(&raw_only_task, None, Some("raw-only-backfill"))
             .await
             .expect("raw-only backfill completion should not enqueue indexing");
-        assert!(queued
-            .lock()
-            .expect("queue mutex should not be poisoned")
-            .is_empty());
+        assert!(
+            queued
+                .lock()
+                .expect("queue mutex should not be poisoned")
+                .is_empty()
+        );
 
         beacon
             .new_illumination(&v1_task, None, None)
@@ -326,10 +357,12 @@ mod tests {
             .new_illumination(&task, None, None)
             .await
             .expect("a raw-only result must not enqueue a link");
-        assert!(queued
-            .lock()
-            .expect("queue mutex should not be poisoned")
-            .is_empty());
+        assert!(
+            queued
+                .lock()
+                .expect("queue mutex should not be poisoned")
+                .is_empty()
+        );
 
         beacon
             .new_illumination(&task, Some(77), Some("bf-1"))

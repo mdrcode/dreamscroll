@@ -41,8 +41,15 @@ fn default_session_always_save() -> bool {
     true
 }
 
-fn default_task_queue_name_knowledge_link() -> String {
-    "knowledge-link-illumination".to_string()
+fn default_task_wikidata_max_requests() -> usize {
+    // One illumination's worst observed cold cost is 58 calls (17 distinct entities; label, title,
+    // search_label, at most one hint, at most two handle queries each); p95 is 24. 80 covers the
+    // maximum with headroom and caps a retried task at 3 x this instead of 3 x 200.
+    80
+}
+
+fn default_task_wikidata_min_interval() -> u64 {
+    1000
 }
 
 fn default_task_max_attempts() -> i32 {
@@ -128,10 +135,17 @@ pub struct Config {
     pub task_queue_name_illuminate: String,
     pub task_queue_name_search_index: String,
     pub task_queue_name_spark: String,
-    /// Links one illumination into the knowledge graph. Defaulted rather than required so existing
-    /// environments boot unchanged; it must still match the webhook route suffix.
-    #[serde(default = "default_task_queue_name_knowledge_link")]
+    /// Links one illumination into the knowledge graph. Required, not defaulted: the name doubles
+    /// as the webhook route suffix, so a default would silently send deliveries to a 404.
     pub task_queue_name_knowledge_link: String,
+    /// Resolves the identities of the entities one illumination touched. Same rule as above.
+    pub task_queue_name_identity_resolve: String,
+    /// Transport calls one resolve delivery may make; the pace is the CLI's.
+    #[serde(default = "default_task_wikidata_max_requests")]
+    pub task_wikidata_max_requests: usize,
+    /// Milliseconds between transport calls: the pace the CLI already uses.
+    #[serde(default = "default_task_wikidata_min_interval")]
+    pub task_wikidata_min_interval: u64,
 
     #[serde(default = "default_jwt_user_expiration_secs")]
     pub jwt_user_expiration_secs: u64,
@@ -152,6 +166,20 @@ where
 {
     envy::from_iter::<_, PostgresConfig>(vars)
         .context("Failed to load Postgres config (missing required env vars or invalid values)")
+}
+
+impl Config {
+    /// Every queue this process may submit to, in the order they are declared above. The webhook
+    /// router registers one route per name; a name with no route is a 404 per delivery.
+    pub fn task_queue_names(&self) -> [&str; 5] {
+        [
+            self.task_queue_name_illuminate.as_str(),
+            self.task_queue_name_search_index.as_str(),
+            self.task_queue_name_spark.as_str(),
+            self.task_queue_name_knowledge_link.as_str(),
+            self.task_queue_name_identity_resolve.as_str(),
+        ]
+    }
 }
 
 pub fn make() -> anyhow::Result<Config> {
@@ -310,8 +338,13 @@ mod tests {
                 "http://localhost:8080".into(),
             ),
             ("TASK_QUEUE_NAME_ILLUMINATE".into(), "illuminate".into()),
-            ("TASK_QUEUE_NAME_SEARCH_INDEX".into(), "search_index".into()),
+            ("TASK_QUEUE_NAME_SEARCH_INDEX".into(), "search-index".into()),
             ("TASK_QUEUE_NAME_SPARK".into(), "spark".into()),
+            (
+                "TASK_QUEUE_NAME_KNOWLEDGE_LINK".into(),
+                "knowledge-link".into(),
+            ),
+            ("TASK_QUEUE_NAME_IDENTITY_RESOLVE".into(), "identity-resolve".into()),
         ]
     }
 
@@ -377,12 +410,23 @@ mod tests {
         assert_eq!(config.max_upload_bytes, 12 * 1024 * 1024);
         assert!(config.cookie_secure);
         assert!(config.session_always_save);
-        // Defaulted so legacy environments boot; it doubles as the webhook route suffix, so a
-        // silent change would send Cloud Tasks deliveries to a 404.
-        assert_eq!(
-            config.task_queue_name_knowledge_link,
-            "knowledge-link-illumination"
-        );
+        assert_eq!(config.task_wikidata_max_requests, 80);
+        assert_eq!(config.task_wikidata_min_interval, 1000);
+    }
+
+    #[test]
+    fn every_queue_name_is_required() {
+        for key in [
+            "TASK_QUEUE_NAME_KNOWLEDGE_LINK",
+            "TASK_QUEUE_NAME_IDENTITY_RESOLVE",
+        ] {
+            let mut vars = required_vars("gcloud");
+            vars.retain(|(candidate, _)| candidate != key);
+            assert!(
+                make_from_envy_iter(vars).is_err(),
+                "{key} must not fall back to a default"
+            );
+        }
     }
 
     #[test]

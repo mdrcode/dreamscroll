@@ -18,7 +18,7 @@ use super::transport::{Answer, Answers, FetchError, Outcome, Request, Transport}
 /// It knows nothing about requests in general: a caller brings its own [`Transport`], and the request
 /// kind and payload types come from it. Everything it may *do* is its three parameters.
 pub struct Gateway<'a> {
-    cache: Option<&'a FetchCache<'a>>,
+    cache: Option<&'a FetchCache>,
     allowance: Option<&'a Allowance>,
     fail_fast: bool,
     counters: Counters,
@@ -38,7 +38,7 @@ impl<'a> Gateway<'a> {
     /// The three are independent: with no allowance nothing exhausts, so `fail_fast` is moot; with no
     /// cache nothing can be harvested, so it is moot there too.
     pub fn new(
-        cache: Option<&'a FetchCache<'a>>,
+        cache: Option<&'a FetchCache>,
         allowance: Option<&'a Allowance>,
         fail_fast: bool,
     ) -> Self {

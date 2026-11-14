@@ -15,13 +15,16 @@ use std::sync::Arc;
 use sea_orm::sea_query::{Expr, Query};
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 
-use super::replay::ReplayReport;
 use crate::database::DbHandle;
-use crate::knowledge::blocker::Blocker;
+use crate::knowledge::blocker::{Blocker, SqlBlocker};
 use crate::knowledge::evidence::{Evidence, Identity, IdentityWrite};
+use crate::knowledge::linker::heuristic::HeuristicLinker;
 use crate::knowledge::linker::Linker;
 use crate::knowledge::verdicts::{Cause, VerdictStore, VetoReport};
+use crate::knowledge::LinkReport;
 use crate::model;
+
+use super::replay::ReplayReport;
 
 /// The knowledge graph, as seen by anyone who writes to it.
 ///
@@ -77,8 +80,8 @@ impl KnowledgeGraph {
     pub fn with_heuristic_linking(db: &DbHandle) -> Self {
         Self::with_linking(
             db,
-            Box::new(crate::knowledge::blocker::SqlBlocker::new(db)),
-            Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker::new()),
+            Box::new(SqlBlocker::new(db)),
+            Arc::new(HeuristicLinker::new()),
         )
     }
 
@@ -190,10 +193,7 @@ impl KnowledgeGraph {
     pub async fn link(
         &self,
         observations: &[model::user_observed_entity::Model],
-    ) -> anyhow::Result<(
-        crate::knowledge::LinkReport,
-        std::collections::HashMap<i32, i32>,
-    )> {
+    ) -> anyhow::Result<(LinkReport, std::collections::HashMap<i32, i32>)> {
         super::link::link(self, observations).await
     }
 

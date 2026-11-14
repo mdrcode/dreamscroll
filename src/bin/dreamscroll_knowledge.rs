@@ -536,7 +536,7 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
         include_already_annotated: args.entity.is_some(),
         dry_run: args.dry_run,
     };
-    let engine = knowledge::identity::ResolutionEngine::new(
+    let engine = knowledge::identity::IdentityEngine::new(
         knowledge::KnowledgeGraph::new(db),
         options,
         vec![Box::new(knowledge::identity::wikidata::Wikidata::new()?)],
@@ -1257,6 +1257,10 @@ async fn main() -> anyhow::Result<()> {
                 stats.identity_counts.one,
                 stats.identity_counts.two,
                 stats.identity_counts.three_plus
+            );
+            println!(
+                "  awaiting a resolver {} (the backlog `identity resolve` reads)",
+                stats.awaiting_resolver
             );
             let number = |value: Option<f64>| {
                 value

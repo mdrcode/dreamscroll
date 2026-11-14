@@ -317,10 +317,14 @@ against a live queue has produced both failures it can produce: a link task atta
 taken from a half-built generation (53 rows where the finished graph supports 13). Neither is a bug
 in the command that reported it; both are two writers.
 
-Nothing else writes the batch. The live pipeline is `illuminate` → `knowledge_link`, and the link
-task links and stops; there is no resolve task, so resolution and both proximity passes are operator
-commands. A live capture updates entities immediately and leaves the proximity batch untouched until
-the next `proximity scan` — the table is a snapshot of when it was last asked.
+Nothing else writes the batch. The live pipeline is `illuminate` → `knowledge_link` →
+`identity_resolve`: the link task links and stops, and its webhook chains a resolve of exactly the
+entities that link touched (`logic/identity_resolve.rs`). The resolve is queued, budgeted and
+paced like any other delivery; a capture whose resolve was refused or failed keeps its entities
+`provisional`, and `knowledge identity resolve` is the manual catch-up until the nightly drain
+(`plan/knowledge-batch-job.md`, tabled) exists. Both proximity passes remain operator commands: a
+live capture updates entities immediately and leaves the proximity batch untouched until the next
+`proximity scan` — the table is a snapshot of when it was last asked.
 
 `reset` snapshots the projection, then empties it — entities, identities, proximities and the index
 rows, all of it derived. It keeps the newest **ten snapshot suffixes** and drops older
@@ -352,8 +356,8 @@ one.
 | `graph/merge.rs` | fold one entity into another |
 | `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `Basis` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `auto_merge.rs` folds what it can on its own and leaves the rest. Both take the connection and the `Heuristic` as arguments |
 | `verdicts/` | the register: the modification log and the standing vetoes, held by `KnowledgeGraph`. `store.rs` is the type, its connection, `record` (the one write that takes the caller's transaction, so a merge's row commits with the fold) and the reads the replay and `stats` share; `veto.rs` holds `veto`/`unveto`/`vetoed`; `origin.rs` turns an origin into the entity it names now. Applying the log is the graph's command (`graph/replay.rs`), exposed as `KnowledgeGraph::replay_verdicts`; `pair_key` is shared with `stats` |
-|`identity/`|`mod.rs` (module declarations) · `resolution` (the `IdentityResolver` trait a provider implements, the run loop, candidate selection, vetoes) · `wikidata/` (today's only identity resolver). The identities it returns, and where they become rows, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
-| `identity/wikidata/` | one identity resolver, entirely in its own vocabulary: `kind` (its request kinds, and the cache key's name and shape for each) and `candidate` (the item it offers) · `resolver.rs` fans one batch out — every strategy, for every entity — and asks through the gateway · request planning in `plan.rs` · SPARQL text in `sparql.rs` · a platform link turned into the property and value form to ask (`property_query.rs`) · what an answer becomes: the referent filter, the menu rule and the stored annotation (`answer.rs`) · `gather.rs` builds the `CandidateSet` · `measure.rs` prices each piece of evidence (surface, head noun, year, description fit) · `ranking.rs` composes the score and orders the set · `decide.rs` applies the floors and the margin · `P31` class families in `classes.rs` · HTTP in `transport.rs` |
+|`identity/`|`mod.rs` (module declarations) · `engine` (the `IdentityResolver` trait a provider implements, the run loop, candidate selection, vetoes) · `wikidata/` (today's only identity resolver). The identities it returns, and where they become rows, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
+| `identity/wikidata/` | one identity resolver, entirely in its own vocabulary: `kind` (its request kinds, and the cache key's name and shape for each) and `candidate` (the item it offers) · `resolver.rs` fans one batch out — every strategy, for every entity — and asks through the gateway · request planning in `plan.rs` · SPARQL text in `sparql.rs` · a platform link turned into the property and value form to ask (`property_query.rs`) · what an answer becomes: the referent filter, the menu rule and the stored annotation (`answer.rs`) · `gather.rs` builds the `CandidateSet` · `measure.rs` prices each piece of evidence (surface, head noun, year, description fit) · `ranking.rs` composes the score and orders the set · `decide.rs` applies the floors and the margin · `P31` class families in `classes.rs` · HTTP in `transport.rs` · Wikidata's terms and our pacing/budget arithmetic in `wikidata.md` |
 |`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, with a TTL per outcome: found 180 days, empty 30, degraded 23 hours, failed 10 minutes) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
 | `identity/inspect.rs` | `identity inspect`: walks one entity through blocking, ranking and the plan, read-only |
 | `eval/` | offline diagnostics: `eval blocker` measures recall |

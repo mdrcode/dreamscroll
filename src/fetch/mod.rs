@@ -17,7 +17,7 @@ pub mod gateway;
 pub(crate) mod stats;
 pub mod transport;
 
-pub use allowance::{Allowance, Refusal};
+pub use allowance::{Allowance, AllowanceConfig, Refusal};
 pub use cache::FetchCache;
 pub use gateway::Gateway;
 pub use stats::{Stats, Tally};

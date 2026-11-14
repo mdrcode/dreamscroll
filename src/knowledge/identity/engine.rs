@@ -1,4 +1,4 @@
-//! Resolution: the authority contract, and the run loop that drives it.
+//! The engine: the authority contract, and the run loop that drives it.
 //!
 //! A resolver owns its strategy — one request or a series of them, one pass or several. `Gateway` is
 //! its only door to the world: the gateway consults the cache first, paces the call and charges the
@@ -29,7 +29,7 @@ use super::RESERVED_PROVIDER_IDS;
 #[async_trait::async_trait]
 pub trait IdentityResolver: Send + Sync {
     /// The authority's id: the `provider` on every request and every identity it writes. Reserved
-    /// ids are refused by [`ResolutionEngine::new`].
+    /// ids are refused by [`IdentityEngine::new`].
     fn id(&self) -> &'static str;
 
     /// The complete set of identities this authority asserts for each entity it answers about.
@@ -99,13 +99,13 @@ pub struct ProviderReport {
 }
 
 /// The harness: it holds the resolvers, invokes them, and stores their output.
-pub struct ResolutionEngine {
+pub struct IdentityEngine {
     graph: KnowledgeGraph,
     options: Options,
     resolvers: Vec<Box<dyn IdentityResolver>>,
 }
 
-impl ResolutionEngine {
+impl IdentityEngine {
     pub fn new(
         graph: KnowledgeGraph,
         options: Options,
@@ -139,7 +139,7 @@ impl ResolutionEngine {
     pub async fn resolve(
         &self,
         entities: &[model::knowledge_entity::Model],
-        cache: &FetchCache<'_>,
+        cache: &FetchCache,
         allowance: Option<&Allowance>,
     ) -> anyhow::Result<ResolutionReport> {
         // The caller may hand in a tombstone or a duplicate; neither is a question to ask.
@@ -165,7 +165,7 @@ impl ResolutionEngine {
 
 /// The mutable state of one engine-level `resolve`.
 struct ResolutionRun<'e, 'g, 'a> {
-    engine: &'e ResolutionEngine,
+    engine: &'e IdentityEngine,
     gateway: &'g Gateway<'a>,
     evidence: &'e Evidence,
     vetoes: HashSet<(i32, String, String)>,
@@ -177,7 +177,7 @@ struct ResolutionRun<'e, 'g, 'a> {
 
 impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
     async fn new(
-        engine: &'e ResolutionEngine,
+        engine: &'e IdentityEngine,
         entities: &[model::knowledge_entity::Model],
         gateway: &'g Gateway<'a>,
     ) -> anyhow::Result<Self> {
@@ -411,7 +411,7 @@ mod tests {
         dry_run: bool,
     ) -> ResolutionReport {
         let cache = FetchCache::new(&db.conn);
-        ResolutionEngine::new(
+        IdentityEngine::new(
             KnowledgeGraph::new(db),
             Options {
                 include_already_annotated: true,

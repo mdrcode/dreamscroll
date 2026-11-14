@@ -8,8 +8,9 @@
 //! The blocker reads `knowledge_blocking_index` and holds nothing, so a new instance pays nothing at boot and
 //! a link costs one query per observation. `logic_state` builds it once; `exec` borrows it.
 //!
-//! The task links and stops. Resolution and the proximity passes are separate steps, run in the
-//! order `src/knowledge/knowledge.md` §Rebuild records; nothing here may hide one of them.
+//! The task links and stops. Its webhook chains `identity_resolve` for the entities it touched; the
+//! proximity passes remain operator commands, in the order `src/knowledge/knowledge.md` §Rebuild
+//! records. Nothing here hides either of them.
 
 use serde::{Deserialize, Serialize};
 
@@ -58,11 +59,7 @@ pub async fn exec(
     Ok(())
 }
 
-/// The work itself: the graph and nothing else, so it can be exercised without a `LogicState`.
-///
-/// This is where the payload is checked against the world. A task names its owner and an
-/// illumination row has one, but the graph does not: entities are shared by everyone who observed
-/// them, so an owner-scoped read belongs to the caller that was handed both ids.
+/// Factored out so it can be exercised without a `LogicState` for test.
 pub(crate) async fn link(
     graph: &crate::knowledge::KnowledgeGraph,
     service_api: &crate::api::ServiceApiClient,

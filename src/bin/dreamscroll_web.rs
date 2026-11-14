@@ -54,6 +54,9 @@ async fn main() -> anyhow::Result<()> {
 async fn initialize()
 -> anyhow::Result<(TcpListener, axum::Router, tokio::sync::watch::Sender<bool>)> {
     let cfg = config::make()?;
+    // A configured queue with no route is a 404 per delivery, and the retry policy makes that a
+    // retry storm rather than a warning.
+    webhook::validate_queue_names(cfg.task_queue_names())?;
 
     if cfg.services.is_empty() {
         return Err(anyhow::anyhow!("No services enabled, nothing to do"));
@@ -171,11 +174,28 @@ async fn initialize()
         let vector_store = search::gcloud::VertexVectorStore::from_config(&cfg).await?;
         let webhook_oidc = webhook::oidc_from_config(&cfg)?;
 
+        // One graph, two handles: the state writes through it, the resolve engine reads and
+        // annotates through the same one, and the engine owns its fetch cache.
+        let knowledge = knowledge::KnowledgeGraph::with_heuristic_linking(&db);
+        let identity_engine = knowledge::identity::IdentityEngine::new(
+            knowledge.clone(),
+            Default::default(),
+            vec![Box::new(knowledge::identity::wikidata::Wikidata::new()?)],
+        )?;
+
         let webhook_router = webhook::make_webhook_router(
             webhook::WebhookState {
                 logic: logic::LogicState {
                     service_api,
-                    knowledge: crate::knowledge::KnowledgeGraph::with_heuristic_linking(&db),
+                    cache: dreamscroll::fetch::FetchCache::new(&db.conn),
+                    knowledge,
+                    identity_engine,
+                    wikidata_allowance: dreamscroll::fetch::AllowanceConfig {
+                        max_calls: cfg.task_wikidata_max_requests,
+                        min_interval: std::time::Duration::from_millis(
+                            cfg.task_wikidata_min_interval,
+                        ),
+                    },
                     storage: stg,
                     inference_client: Box::new(inference_client),
                     firestarter,

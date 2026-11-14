@@ -22,7 +22,17 @@ pub async fn post(
         return Ok(axum::http::StatusCode::NO_CONTENT);
     };
 
-    let result = logic::knowledge_link::exec(&state.logic, &task_run, attempt).await;
+    let result = match logic::knowledge_link::exec(&state.logic, &task_run, attempt).await {
+        Ok(()) => logic::Beacon::new(state.task_master.clone())
+            .knowledge_linked(
+                task_run.task.illumination_id,
+                task_run.task.entity_owner_id,
+                task_run.backfill_id.as_deref(),
+            )
+            .await
+            .map_err(api::ApiError::internal),
+        Err(error) => Err(error),
+    };
 
     let outcome = state
         .task_master

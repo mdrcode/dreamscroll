@@ -10,6 +10,7 @@ pub use maker::*;
 pub mod localclient;
 
 mod http_status_for_task_run;
+pub mod r_identity_resolve;
 pub mod r_illuminate;
 pub mod r_knowledge_link;
 pub mod r_search_index;

@@ -26,10 +26,7 @@ pub async fn get_illumination_raw(
 mod tests {
     use super::*;
     use crate::{
-        ignition::test_support::UnusedFirestarter,
-        llms::test_support::TestInferenceClient,
-        search::test_support::{UnusedEmbedder, UnusedVectorStore},
-        storage::test_support::TestStorageProvider,
+        ignition::test_support::UnusedFirestarter, llms::test_support::TestInferenceClient, logic, search::test_support::{UnusedEmbedder, UnusedVectorStore}, storage::test_support::TestStorageProvider,
     };
 
     #[tokio::test]
@@ -127,10 +124,23 @@ mod tests {
                 .build()
                 .unwrap(),
         );
+        let knowledge = crate::knowledge::KnowledgeGraph::with_heuristic_linking(&db);
+        let identity_engine = crate::knowledge::identity::IdentityEngine::new(
+            knowledge.clone(),
+            Default::default(),
+            vec![Box::new(crate::knowledge::identity::wikidata::Wikidata::new().unwrap())],
+        )
+        .unwrap();
         let state = std::sync::Arc::new(crate::webhook::WebhookState {
-            logic: crate::logic::LogicState {
+            logic: logic::LogicState {
+                cache: crate::fetch::FetchCache::new(&db.conn),
+                identity_engine,
+                wikidata_allowance: crate::fetch::AllowanceConfig {
+                    max_calls: 0,
+                    min_interval: std::time::Duration::ZERO,
+                },
                 service_api,
-                knowledge: crate::knowledge::KnowledgeGraph::with_heuristic_linking(&db),
+                knowledge,
                 storage: Box::new(TestStorageProvider),
                 inference_client: Box::new(TestInferenceClient::new(vec![
                     serde_json::json!({"summary": "missing required fields"}),
@@ -155,7 +165,7 @@ mod tests {
             task_master: task_master.clone(),
         });
         let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user_id));
-        let task = crate::logic::illuminate::IlluminationTask::new(
+        let task = logic::illuminate::IlluminationTask::new(
             capture_id,
             user_id,
             "test-model",
@@ -187,7 +197,7 @@ mod tests {
             .as_object_mut()
             .unwrap()
             .remove("persist_projection");
-        let first_task_run: crate::task::TaskRun<crate::logic::illuminate::IlluminationTask> =
+        let first_task_run: crate::task::TaskRun<logic::illuminate::IlluminationTask> =
             serde_json::from_value(legacy_payload).unwrap();
         assert!(first_task_run.task.persist_projection);
 
@@ -255,7 +265,7 @@ mod tests {
         assert_eq!(indexing.backfill_id.as_deref(), Some("webhook-backfill"));
         // Settle the existing index run so an accidental raw-only enqueue cannot
         // be hidden by TaskMaster's in-flight deduplication.
-        let index_task = crate::logic::search_index::SearchIndexTask {
+        let index_task = logic::search_index::SearchIndexTask {
             capture_id,
             entity_owner_id: user_id,
         };

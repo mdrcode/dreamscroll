@@ -6,6 +6,7 @@ use google_cloud_tasks_v2::model::OidcToken;
 use crate::config;
 use crate::database::DbHandle;
 use crate::logic::illuminate::IlluminationTask;
+use crate::logic::identity_resolve::IdentityResolveTask;
 use crate::logic::knowledge_link::KnowledgeLinkTask;
 use crate::logic::search_index::SearchIndexTask;
 use crate::logic::spark::SparkTask;
@@ -79,6 +80,20 @@ pub async fn make_task_master(
                 })
             };
 
+            let identity_resolve_queue = {
+                let url = make_prod_webhook_url(
+                    &cfg.task_webhook_base_url,
+                    &cfg.task_queue_name_identity_resolve,
+                );
+                // Two, matching the production queue cap: each run paces at 1 s, so two is
+                // 120 req/min (see `src/knowledge/identity/wikidata/wikidata.md`).
+                LocalTaskQueue::connect(2, move |task: TaskRun<IdentityResolveTask>| {
+                    let client = LocalWebhookClient::new();
+                    let url = url.clone();
+                    async move { client.post_task(&url, &task).await }
+                })
+            };
+
             Ok(Arc::new(
                 TaskMaster::builder()
                     .db(db)
@@ -88,6 +103,7 @@ pub async fn make_task_master(
                     .search_index_queue(search_index_queue)
                     .spark_queue(spark_queue)
                     .knowledge_link_queue(knowledge_link_queue)
+                    .identity_resolve_queue(identity_resolve_queue)
                     .build()?,
             ))
         }
@@ -143,10 +159,25 @@ pub async fn make_task_master(
                     &cfg.task_webhook_base_url,
                     &cfg.task_queue_name_knowledge_link,
                 ),
-                oidc_token,
+                oidc_token.clone(),
             )
             .await
             .context("Failed to initialize Cloud Tasks Queue: KnowledgeLink")?;
+
+            let identity_resolve_queue = CloudTaskQueue::connect(
+                make_cloud_tasks_queue_path(
+                    &cfg.gcloud_project_id,
+                    &cfg.gcloud_region,
+                    &cfg.task_queue_name_identity_resolve,
+                ),
+                make_prod_webhook_url(
+                    &cfg.task_webhook_base_url,
+                    &cfg.task_queue_name_identity_resolve,
+                ),
+                oidc_token,
+            )
+            .await
+            .context("Failed to initialize Cloud Tasks Queue: IdentityResolve")?;
 
             Ok(Arc::new(
                 TaskMaster::builder()
@@ -157,6 +188,7 @@ pub async fn make_task_master(
                     .search_index_queue(search_index_queue)
                     .spark_queue(spark_queue)
                     .knowledge_link_queue(knowledge_link_queue)
+                    .identity_resolve_queue(identity_resolve_queue)
                     .build()?,
             ))
         }

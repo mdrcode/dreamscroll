@@ -1,18 +1,19 @@
-//! The illumination composition: what to link, what to annotate, and what to resolve.
+//! The illumination composition: what to link and annotate, and the corpus-wide resolve.
 //!
 //! [`KnowledgeGraph::link`] knows only about a collection of observations, and
-//! [`ResolutionEngine::resolve`] knows only about a collection of entities. Everything that knows they
+//! [`IdentityEngine::resolve`] knows only about a collection of entities. Everything that knows they
 //! arrive one illumination at a time lives here: the batch is one illumination's observations, a
-//! capture's identities are written after its entities exist, and the entities are then offered to
-//! the identity resolvers.
+//! capture's identities are written after its entities exist. The per-illumination resolve is not
+//! here: the read that turns an illumination into its entity batch is the service API's join, and
+//! the task that owns that read hands the batch straight to the engine.
 //!
 //! [`link_all_pending`] and [`resolve_all_pending`] are the same compositions over the whole
 //! outstanding set — the rebuild steps, and the only places that decide what a corpus run touches.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 use sea_orm::sea_query::{Expr, ExprTrait, Query};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
 use crate::fetch::FetchCache;
@@ -20,7 +21,7 @@ use crate::knowledge::evidence::{
     Identity, IdentitySelection, PLATFORM_LINK_PROVIDER_ID, platform_link,
 };
 use crate::knowledge::graph::{KnowledgeGraph, LinkReport};
-use crate::knowledge::identity::{ResolutionEngine, ResolutionReport};
+use crate::knowledge::identity::{IdentityEngine, ResolutionReport};
 use crate::model;
 
 /// Link one illumination: its observations become entities, then their handles become identities.
@@ -105,65 +106,15 @@ pub async fn link_all_pending(db: &DbHandle) -> anyhow::Result<LinkAllReport> {
     Ok(report)
 }
 
-/// Resolve the entities one illumination references.
-///
-/// The illumination is already linked; an unlinked observation is a pipeline error, not a silent
-/// skip. The engine receives one batch so a resolver's wavefront can span the whole illumination.
-pub async fn resolve_illumination(
-    db: &DbHandle,
-    engine: &ResolutionEngine,
-    illumination: &model::illumination::ModelEx,
-    cache: &FetchCache<'_>,
-    allowance: Option<&crate::fetch::Allowance>,
-) -> anyhow::Result<ResolutionReport> {
-    anyhow::ensure!(
-        illumination.observations.is_loaded(),
-        "illumination {} was handed to resolve_illumination with no observations loaded; fetch it \
-         with Entity::load().with(model::user_observed_entity::Entity)",
-        illumination.id
-    );
-
-    let ids: BTreeSet<i32> = illumination
-        .observations
-        .iter()
-        .map(|observation| {
-            observation.knowledge_entity_id.ok_or_else(|| {
-                anyhow::anyhow!(
-                    "illumination {} has unlinked observation {}; run link first",
-                    illumination.id,
-                    observation.id
-                )
-            })
-        })
-        .collect::<Result<_, _>>()?;
-
-    if ids.is_empty() {
-        return engine.resolve(&[], cache, allowance).await;
-    }
-
-    let entities = model::knowledge_entity::Entity::find()
-        .filter(model::knowledge_entity::Column::Id.is_in(ids.iter().copied()))
-        .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
-        .all(&db.conn)
-        .await?;
-    anyhow::ensure!(
-        entities.len() == ids.len(),
-        "illumination {} references {} live entities but {} were loaded; re-link before resolving",
-        illumination.id,
-        ids.len(),
-        entities.len()
-    );
-    engine.resolve(&entities, cache, allowance).await
-}
-
 /// Resolve every entity still pending for any configured provider.
 ///
 /// The engine receives the whole pending set in one call, so the wavefront still fills its batches.
-/// This is the rebuild/drain path; a live capture should call [`resolve_illumination`].
+/// This is the rebuild/drain path; a live capture resolves through the service API's
+/// illumination read, which also reports whether linking finished.
 pub async fn resolve_all_pending(
     db: &DbHandle,
-    engine: &ResolutionEngine,
-    cache: &FetchCache<'_>,
+    engine: &IdentityEngine,
+    cache: &FetchCache,
     allowance: Option<&crate::fetch::Allowance>,
     limit: Option<usize>,
     newest_first: bool,
@@ -228,120 +179,4 @@ async fn write_observation_identities(
         graph.update_projection(entity).await?;
     }
     Ok(vetoed)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::fetch::Gateway;
-    use crate::knowledge::identity::{IdentityResolver, Options};
-    use crate::test_support::{db_or_skip, fixtures};
-
-    /// An identity resolver that answers nothing: the helper tests are about scope, not identities.
-    struct Empty;
-
-    #[async_trait::async_trait]
-    impl IdentityResolver for Empty {
-        fn id(&self) -> &'static str {
-            "fake"
-        }
-
-        async fn resolve(
-            &self,
-            _entities: &[model::knowledge_entity::Model],
-            _gateway: &Gateway<'_>,
-        ) -> Vec<(i32, Identity)> {
-            Vec::new()
-        }
-    }
-
-    fn engine(db: &DbHandle) -> ResolutionEngine {
-        ResolutionEngine::new(
-            KnowledgeGraph::new(db),
-            Options::default(),
-            vec![Box::new(Empty)],
-        )
-        .expect("the fake provider is not reserved")
-    }
-
-    async fn loaded_illumination(db: &DbHandle, id: i32) -> model::illumination::ModelEx {
-        model::illumination::Entity::load()
-            .filter(model::illumination::Column::Id.eq(id))
-            .with(model::user_observed_entity::Entity)
-            .one(&db.conn)
-            .await
-            .unwrap()
-            .unwrap()
-    }
-
-    /// The helper resolves exactly the entities the illumination linked, once per distinct entity.
-    #[tokio::test]
-    async fn resolve_illumination_scopes_to_its_linked_entities() {
-        db_or_skip!(db);
-        let capture = fixtures::Capture::new(&db, "resolve_illumination").await;
-        fixtures::observe(
-            &db,
-            &capture,
-            0,
-            "Train Dreams",
-            None,
-            "book",
-            Some("x_twitter"),
-            Some("@td"),
-        )
-        .await;
-        crate::test_support::link::link_all(&db)
-            .await
-            .expect("link");
-
-        let illumination = loaded_illumination(&db, capture.illumination_id).await;
-        let cache = FetchCache::new(&db.conn);
-        let allowance = crate::fetch::Allowance::new(10, std::time::Duration::ZERO);
-        let report =
-            resolve_illumination(&db, &engine(&db), &illumination, &cache, Some(&allowance))
-                .await
-                .expect("resolve");
-
-        assert_eq!(report.considered, 1, "{report:?}");
-        assert!(!report.offline);
-    }
-
-    /// An illumination handed over before `link` is a pipeline error, not an empty resolve.
-    #[tokio::test]
-    async fn resolve_illumination_refuses_unlinked_observations() {
-        db_or_skip!(db);
-        let capture = fixtures::Capture::new(&db, "resolve_unlinked").await;
-        fixtures::observe(&db, &capture, 0, "Train Dreams", None, "book", None, None).await;
-
-        let illumination = loaded_illumination(&db, capture.illumination_id).await;
-        let cache = FetchCache::new(&db.conn);
-        let allowance = crate::fetch::Allowance::new(10, std::time::Duration::ZERO);
-        let error =
-            resolve_illumination(&db, &engine(&db), &illumination, &cache, Some(&allowance))
-                .await
-                .expect_err("an unlinked observation must be refused");
-
-        assert!(error.to_string().contains("unlinked"), "{error}");
-    }
-
-    /// The primitive resolves the slice it is given; it does not consult the pending selection.
-    #[tokio::test]
-    async fn resolve_takes_the_explicit_scope() {
-        db_or_skip!(db);
-        let id = fixtures::knowledge_entity_with_member(&db, "Explicit").await;
-        let entity = model::knowledge_entity::Entity::find_by_id(id)
-            .one(&db.conn)
-            .await
-            .unwrap()
-            .unwrap();
-
-        let cache = FetchCache::new(&db.conn);
-        let allowance = crate::fetch::Allowance::new(10, std::time::Duration::ZERO);
-        let report = engine(&db)
-            .resolve(std::slice::from_ref(&entity), &cache, Some(&allowance))
-            .await
-            .expect("resolve");
-
-        assert_eq!(report.considered, 1, "{report:?}");
-    }
 }

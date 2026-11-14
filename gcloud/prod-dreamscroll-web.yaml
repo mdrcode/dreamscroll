@@ -81,6 +81,10 @@ spec:
           value: spark
         - name: TASK_QUEUE_NAME_SEARCH_INDEX
           value: search-index
+        - name: TASK_QUEUE_NAME_KNOWLEDGE_LINK
+          value: knowledge-link
+        - name: TASK_QUEUE_NAME_IDENTITY_RESOLVE
+          value: identity-resolve
         - name: SEARCH_EMBED_COLLECTION_ID
           value: dreamscroll-prod-collection1
         - name: SEARCH_EMBED_VECTOR_FIELD
