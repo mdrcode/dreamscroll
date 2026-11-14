@@ -103,9 +103,9 @@ pub(crate) fn rank(
                 by_name.max(by_hint).max(by_alias)
             };
             let (tier, strategy) = aggregate
-                .sources
+                .strategies
                 .iter()
-                .map(|source| (tier_of(source.strategy), source.strategy))
+                .map(|strategy| (tier_of(*strategy), *strategy))
                 .min_by_key(|(tier, _)| *tier)
                 .unwrap_or((2, plan::Strategy::SearchLabel));
             Ranked {

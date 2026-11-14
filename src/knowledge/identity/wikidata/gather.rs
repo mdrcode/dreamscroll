@@ -16,19 +16,13 @@ use super::{WikidataCandidate, WikidataKind, plan};
 /// A property match: the item *is* the account, so it is claimed before the set is asked.
 const HANDLE_CONFIDENCE: f32 = 0.95;
 
-/// Where one candidate was seen: which strategy produced it, and where the answer put it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Source {
-    pub(crate) strategy: plan::Strategy,
-    pub(crate) position: usize,
-}
-
 /// A candidate and every strategy that produced it. One QID from two answers is one item with two
-/// pieces of provenance, not two candidates.
+/// pieces of provenance, not two candidates. The strongest strategy is what `ranking` prices, and
+/// all of them are what a diagnostic can show.
 #[derive(Debug, Clone)]
 pub(crate) struct Aggregate {
     pub(crate) candidate: WikidataCandidate,
-    pub(crate) sources: Vec<Source>,
+    pub(crate) strategies: Vec<plan::Strategy>,
 }
 
 /// Every candidate one entity's answers offered, deduplicated by QID, each carrying the strategies
@@ -59,18 +53,15 @@ pub(crate) fn gather(
         let Ok(candidates) = answer::referents(raw) else {
             continue;
         };
-        for (position, candidate) in candidates.into_iter().enumerate() {
+        for candidate in candidates {
             by_id
                 .entry(candidate.id.clone())
                 .or_insert_with(|| Aggregate {
                     candidate,
-                    sources: Vec::new(),
+                    strategies: Vec::new(),
                 })
-                .sources
-                .push(Source {
-                    strategy: *strategy,
-                    position,
-                });
+                .strategies
+                .push(*strategy);
         }
     }
     by_id.into_values().collect()

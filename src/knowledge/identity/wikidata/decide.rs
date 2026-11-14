@@ -83,7 +83,7 @@ fn account_only(entity: &model::knowledge_entity::Model) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::knowledge::identity::wikidata::gather::{Aggregate, Source};
+    use crate::knowledge::identity::wikidata::gather::Aggregate;
     use crate::knowledge::identity::wikidata::{WikidataCandidate, plan};
 
     fn candidate(id: &str, label: &str, description: &str) -> Aggregate {
@@ -94,10 +94,7 @@ mod tests {
                 description: Some(description.to_string()),
                 classes: Vec::new(),
             },
-            sources: vec![Source {
-                strategy: plan::Strategy::SearchLabel,
-                position: 0,
-            }],
+            strategies: vec![plan::Strategy::SearchLabel],
         }
     }
 
@@ -148,7 +145,7 @@ mod tests {
         // without description corroboration. The same candidate found by search would not.
         let labelled = |id: &str, label: &str, description: &str| {
             let mut candidate = candidate(id, label, description);
-            candidate.sources[0].strategy = plan::Strategy::Title;
+            candidate.strategies[0] = plan::Strategy::Title;
             candidate
         };
         let candidate_set = vec![

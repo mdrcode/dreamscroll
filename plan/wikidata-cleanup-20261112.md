@@ -253,7 +253,7 @@ machinery it reviewed was replaced. Current state:
 | --- | --- | --- | --- | --- |
 | 1 | `resolver.rs` | 338 | done | R1–R11. `ladder` → `resolve_batch`. Open: no precedence test; the `Canned` footgun |
 | 2 | `plan.rs` | 298 | done | P1, P2. `Step` → `Strategy`, `ORDER` → `ALL`, `all_steps` → `all_requests`, `step` → `requests` |
-| 3 | `gather.rs` | 100 | done | the `CandidateSet`: admission without ranking, provenance per QID, and the handle short-circuit. `Source.position` is written and unread — the ladder's old tie-break index |
+| 3 | `gather.rs` | 87 | done | the `CandidateSet`: admission without ranking, provenance per QID, and the handle short-circuit. `Source` is gone with its unread `position`; an `Aggregate` now carries `strategies: Vec<Strategy>` |
 | 4 | `measure.rs` | 457 | done | every evidence term: surface bands, the 172-line head-noun table, year relation, `Weights`/`fit` (corpus IDF), and the score→confidence pricing. Tests: the three `Weights` rules and the surface order |
 | 4a | `ranking.rs` | 186 | done | the composition point: `Ranked`, the six weight constants, `rank`, `score`, `tier_of`, `method`, `confidence`. It ranks and does not decide |
 | 4b | `decide.rs` | 207 | done | eligibility floors (0.6 exact / 0.7 search), `SCORE_FLOOR` 0.50, `MARGIN`, `account_only`, and the four decision tests |
