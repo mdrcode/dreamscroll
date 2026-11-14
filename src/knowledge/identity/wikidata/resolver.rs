@@ -65,7 +65,7 @@ async fn resolve_batch<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataC
 ) -> Vec<(i32, Identity)> {
     let planned: Vec<Planned> = entities
         .iter()
-        .map(|entity| (entity.id, plan::asks(entity)))
+        .map(|entity| (entity.id, plan::all_requests(entity)))
         .collect();
 
     // One request per question: `SurfaceTitle` re-plans the title request, so the set is deduped.
@@ -132,7 +132,7 @@ mod tests {
     #[test]
     fn every_planned_request_carries_the_authority_id() {
         let entity = entity("Train Dreams", Some("a 2011 novella"));
-        for (_, request) in plan::asks(&entity) {
+        for (_, request) in plan::all_requests(&entity) {
             assert_eq!(request.provider, crate::knowledge::identity::wikidata::ID);
         }
         assert_eq!(

@@ -63,7 +63,7 @@ impl Strategy {
 ///
 /// The resolver asks every strategy for every entity in one batch; this per-entity view is what
 /// `inspect` prints.
-pub(crate) fn asks(
+pub(crate) fn all_requests(
     entity: &model::knowledge_entity::Model,
 ) -> Vec<(Strategy, Request<WikidataKind>)> {
     Strategy::ALL
@@ -160,7 +160,7 @@ mod tests {
         entity.platform = Some("x_twitter".to_string());
         entity.platform_handle = Some("tsoding".to_string());
 
-        let asked: Vec<(Strategy, WikidataKind, String)> = asks(&entity)
+        let asked: Vec<(Strategy, WikidataKind, String)> = all_requests(&entity)
             .into_iter()
             .map(|(strategy, request)| (strategy, request.kind, request.query))
             .collect();

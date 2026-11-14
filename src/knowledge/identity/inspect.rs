@@ -217,7 +217,7 @@ async fn walk(
     vetoes: &HashSet<(i32, String, String)>,
 ) -> anyhow::Result<Walked> {
     let cache = FetchCache::new(&db.conn);
-    let planned = plan::asks(entity);
+    let planned = plan::all_requests(entity);
     let mut asked = Vec::with_capacity(planned.len());
     let mut answers: HashMap<Request<WikidataKind>, Answer<Vec<WikidataCandidate>>> =
         HashMap::new();
@@ -490,7 +490,7 @@ mod tests {
             .unwrap();
         // The title answer: an uncorroborated label is not eligible (a label is a name, not a
         // fact), while a title answer vouches for its candidate on surface alone.
-        let request = plan::asks(&entity)
+        let request = plan::all_requests(&entity)
             .into_iter()
             .map(|(_, request)| request)
             .find(|request| request.kind == WikidataKind::Title)
