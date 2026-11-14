@@ -1,6 +1,6 @@
 //! Walk one entity through the whole pipeline, in the order it happens.
 //!
-//! Recall, then ranking, then the resolver's plan — each step printed with what the cache held
+//! Recall, then ranking, then the resolver's plan — each question printed with what the cache held
 //! and what the decision was. Nothing here re-implements a stage: it calls the same blocker, the
 //! same `Rank` and the same `decision` the engine calls, and reads `fetch_cache` with the same
 //! expiry rule, and it applies the same standing vetoes. That is the point: if the inspector and
@@ -28,7 +28,7 @@ pub struct Report {
     pub candidates: Vec<Candidate>,
     /// Candidates `Rank` would choose, best first, with the score it gave them.
     pub ranked: Vec<(i32, String, f32)>,
-    pub steps: Vec<Step>,
+    pub asked: Vec<Asked>,
     /// The ranked field: every candidate, best first, with the numbers that put it there.
     pub field: Vec<FieldRow>,
     /// The identity the field supports, when it supports one.
@@ -53,9 +53,9 @@ pub struct Candidate {
     pub by_words: bool,
 }
 
-/// One step of the resolver's plan.
+/// One question the plan asked, and what the cache held for it.
 #[derive(Debug)]
-pub struct Step {
+pub struct Asked {
     pub kind: String,
     pub query: String,
     pub cache: State,
@@ -156,7 +156,7 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
         probe,
         candidates,
         ranked,
-        steps: walked.steps,
+        asked: walked.asked,
         field: walked.field,
         decision: walked.decision,
         refusal: walked.refusal,
@@ -201,7 +201,7 @@ async fn index_keys(db: &DbHandle, id: i32) -> anyhow::Result<(Vec<String>, Vec<
 
 /// Everything a walk produced: what each question answered, and what the field made of it.
 struct Walked {
-    steps: Vec<Step>,
+    asked: Vec<Asked>,
     field: Vec<FieldRow>,
     decision: Option<FieldDecision>,
     refusal: Option<&'static str>,
@@ -215,8 +215,8 @@ async fn walk(
     vetoes: &HashSet<(i32, String, String)>,
 ) -> anyhow::Result<Walked> {
     let cache = FetchCache::new(&db.conn);
-    let planned = plan::all_steps(entity);
-    let mut steps = Vec::with_capacity(planned.len());
+    let planned = plan::asks(entity);
+    let mut asked = Vec::with_capacity(planned.len());
     let mut answers: HashMap<Request<WikidataKind>, Answer<Vec<WikidataCandidate>>> =
         HashMap::new();
 
@@ -243,7 +243,7 @@ async fn walk(
                 },
             );
         }
-        steps.push(Step {
+        asked.push(Asked {
             kind: request.kind.to_string(),
             query: request.query.clone(),
             cache: lookup.state,
@@ -307,7 +307,7 @@ async fn walk(
         .collect();
 
     Ok(Walked {
-        steps,
+        asked,
         field,
         decision,
         refusal,
@@ -370,15 +370,15 @@ impl Report {
                     "score": score,
                 }))
                 .collect::<Vec<_>>(),
-            "steps": self
-                .steps
+            "asked": self
+                .asked
                 .iter()
-                .map(|step| serde_json::json!({
-                    "kind": step.kind,
-                    "query": step.query,
-                    "cache": step.cache.as_str(),
-                    "outcome": step.outcome.map(|outcome| outcome.as_str()),
-                    "top": step
+                .map(|ask| serde_json::json!({
+                    "kind": ask.kind,
+                    "query": ask.query,
+                    "cache": ask.cache.as_str(),
+                    "outcome": ask.outcome.map(|outcome| outcome.as_str()),
+                    "top": ask
                         .top
                         .iter()
                         .map(|(id, label, description)| serde_json::json!({
@@ -387,7 +387,7 @@ impl Report {
                             "description": description,
                         }))
                         .collect::<Vec<_>>(),
-                    "hidden": step.hidden,
+                    "hidden": ask.hidden,
                 }))
                 .collect::<Vec<_>>(),
             "field": self
@@ -488,7 +488,7 @@ mod tests {
             .unwrap();
         // The title answer: an uncorroborated label is not eligible (a label is a name, not a
         // fact), while a title answer vouches for its candidate on surface alone.
-        let request = plan::all_steps(&entity)
+        let request = plan::asks(&entity)
             .into_iter()
             .map(|(_, request)| request)
             .find(|request| request.kind == WikidataKind::Title)

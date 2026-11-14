@@ -398,19 +398,19 @@ fn print_inspection(report: &knowledge::identity::inspect::Report) {
     }
 
     println!("\n-- answers --");
-    for step in &report.steps {
-        let cache = match step.cache {
+    for ask in &report.asked {
+        let cache = match ask.cache {
             dreamscroll::fetch::cache::State::Fresh => "cached",
             dreamscroll::fetch::cache::State::Expired => "expired → miss",
             dreamscroll::fetch::cache::State::Missing => "not asked",
         };
-        let outcome = step.outcome.map(|outcome| outcome.as_str()).unwrap_or("—");
-        println!("  {:<16} {:?}  [{cache} {outcome}]", step.kind, step.query);
-        for (id, label, description) in &step.top {
+        let outcome = ask.outcome.map(|outcome| outcome.as_str()).unwrap_or("—");
+        println!("  {:<16} {:?}  [{cache} {outcome}]", ask.kind, ask.query);
+        for (id, label, description) in &ask.top {
             println!("      {id:<12} {label:<34} {description}");
         }
-        if step.hidden > 0 {
-            println!("      … {} more", step.hidden);
+        if ask.hidden > 0 {
+            println!("      … {} more", ask.hidden);
         }
     }
 

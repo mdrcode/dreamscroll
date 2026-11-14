@@ -49,12 +49,12 @@ impl Resolver for Wikidata {
     }
 }
 
-/// One entity's questions: its id, and every `(step, request)` the planner built for it.
-type Planned = (i32, Vec<(plan::Step, Request<WikidataKind>)>);
+/// One entity's questions: its id, and every `(strategy, request)` the planner built for it.
+type Planned = (i32, Vec<(plan::Strategy, Request<WikidataKind>)>);
 
-/// Ask every step, then decide once.
+/// Apply every strategy, then decide once.
 ///
-/// The ladder used to decide per step and stop at the first claim; this asks all of them and
+/// The ladder used to decide per strategy and stop at the first claim; this applies all of them and
 /// aggregates the answers (see `aggregate`). Offline rebuilds are unaffected — `answers_for` serves
 /// the cache — and the cost ordering is deliberately gone for now: the field needs every answer,
 /// and a budget question can only be answered after the quality question is.
@@ -65,14 +65,14 @@ async fn resolve_batch<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataC
 ) -> Vec<(i32, Identity)> {
     let planned: Vec<Planned> = entities
         .iter()
-        .map(|entity| (entity.id, plan::all_steps(entity)))
+        .map(|entity| (entity.id, plan::asks(entity)))
         .collect();
 
     // One request per question: `SurfaceTitle` re-plans the title request, so the set is deduped.
     let mut unique: Vec<Request<WikidataKind>> = Vec::new();
     let mut seen: HashSet<Request<WikidataKind>> = HashSet::new();
-    for (_, steps) in &planned {
-        for (_, request) in steps {
+    for (_, asks) in &planned {
+        for (_, request) in asks {
             if seen.insert(request.clone()) {
                 unique.push(request.clone());
             }
@@ -82,22 +82,22 @@ async fn resolve_batch<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataC
 
     let mut identities = Vec::new();
     for entity in entities {
-        let Some((_, steps)) = planned.iter().find(|(id, _)| *id == entity.id) else {
+        let Some((_, asks)) = planned.iter().find(|(id, _)| *id == entity.id) else {
             continue;
         };
         // A property match *is* the identity, so nothing is aggregated against it.
-        if let Some(identity) = aggregate::by_handle(steps, &answers) {
+        if let Some(identity) = aggregate::by_handle(asks, &answers) {
             identities.push((entity.id, identity));
             continue;
         }
-        match aggregate::decide(entity, &aggregate::gather(steps, &answers, Outcome::Found)) {
+        match aggregate::decide(entity, &aggregate::gather(asks, &answers, Outcome::Found)) {
             Ok(identity) => identities.push((entity.id, identity)),
             Err(_) => {
                 // A degraded answer may have held the claim we are discarding. Deciding the
                 // degraded field only to report it is the same rule as `decision::trusted`.
                 if let Ok(identity) = aggregate::decide(
                     entity,
-                    &aggregate::gather(steps, &answers, Outcome::Degraded),
+                    &aggregate::gather(asks, &answers, Outcome::Degraded),
                 ) {
                     tracing::warn!(
                         entity = %entity.name,
@@ -133,7 +133,7 @@ mod tests {
     #[test]
     fn every_planned_request_carries_the_authority_id() {
         let entity = entity("Train Dreams", Some("a 2011 novella"));
-        for (_, request) in plan::all_steps(&entity) {
+        for (_, request) in plan::asks(&entity) {
             assert_eq!(request.provider, crate::knowledge::identity::wikidata::ID);
         }
         assert_eq!(
@@ -209,11 +209,11 @@ mod tests {
         entity
     }
 
-    /// Every step is asked, and the field decides: here two answers offer the same surface, so the
-    /// description separates them. The point of the fixture is that the *title* answer is no longer
-    /// privileged by position — it wins on evidence.
+    /// Every strategy is applied, and the field decides: here two answers offer the same surface, so
+    /// the description separates them. The point of the fixture is that the *title* answer is no
+    /// longer privileged by position — it wins on evidence.
     #[tokio::test]
-    async fn the_field_ranks_by_surface_then_description_and_asks_every_step() {
+    async fn the_field_ranks_by_surface_then_description_and_applies_every_strategy() {
         let seed = |kind: WikidataKind, query: &str, answer: Answer<Vec<WikidataCandidate>>| {
             (kind, query.to_string(), answer)
         };
@@ -260,7 +260,7 @@ mod tests {
     }
 
     /// A surface tie is decided by the description: `Orthodoxy` the book corroborates, the concept
-    /// does not. And when no step can corroborate — the `Paris` shape — the exact surface still
+    /// does not. And when no strategy can corroborate — the `Paris` shape — the exact surface still
     /// answers, because it is the only evidence there is.
     #[tokio::test]
     async fn the_field_prefers_the_corroborated_candidate() {
@@ -332,7 +332,7 @@ mod tests {
         assert_eq!(ids, vec![(1, "Q200"), (2, "Q300")], "{identities:?}");
         assert!(
             fake.asked(WikidataKind::Search, "Orthodoxy"),
-            "aggregation asks every step, including for the entity the label answered"
+            "aggregation applies every strategy, including for the entity the label answered"
         );
     }
 }

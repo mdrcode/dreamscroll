@@ -22,16 +22,16 @@ fn request(kind: WikidataKind, query: &str) -> Request<WikidataKind> {
     }
 }
 
-/// One step of the plan, and which decision applies to its answer.
+/// One strategy of the plan, and which decision applies to its answer.
 ///
-/// The steps are request kinds, not bundled passes: the resolver asks every step for every entity
-/// in one batch, and decides once over all the answers. A step that resolves nothing costs its
-/// answer and nothing else, so the plan stays complete even when a step is redundant.
+/// The strategies are ways of asking, not bundled passes: the resolver applies every strategy to
+/// every entity in one batch, and decides once over all the answers. A strategy that finds nothing
+/// costs its answer and nothing else, so the plan stays complete even when a strategy is redundant.
 ///
-/// One definition, used by the resolver and by `inspect`: a step that exists in one and not the
+/// One definition, used by the resolver and by `inspect`: a strategy that exists in one and not the
 /// other is what lets a diagnostic report identities the resolver would not make.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Step {
+pub(crate) enum Strategy {
     /// A platform link's handle, through the property that holds it (`P2002`, …).
     Handle,
     /// A Wikipedia article title.
@@ -44,12 +44,12 @@ pub(crate) enum Step {
     SearchLabel,
 }
 
-impl Step {
-    /// The plan's steps, in the order of their authority. The resolver asks all of them — this
-    /// array is enumeration, not a sequence — and the order documents what each question can prove:
-    /// a platform property and an article title name the item, a label is a name, and search is a
-    /// guess.
-    pub(crate) const ORDER: [Self; 5] = [
+impl Strategy {
+    /// Every strategy, in the order of its authority. The resolver applies all of them — this
+    /// array is enumeration, not a sequence — and the order documents what each way of asking can
+    /// prove: a platform property and an article title name the item, a label is a name, and search
+    /// is a guess.
+    pub(crate) const ALL: [Self; 5] = [
         Self::Handle,
         Self::Title,
         Self::Label,
@@ -58,36 +58,36 @@ impl Step {
     ];
 }
 
-/// Every step for one entity, in [`Step::ORDER`] — a flattening, not a one-to-one map: one step can
-/// yield several requests (a platform link asks a query per value it may hold).
+/// Every strategy's requests for one entity, in [`Strategy::ALL`] — a flattening, not a one-to-one
+/// map: one strategy can yield several requests (a platform link asks a query per value it may
+/// hold).
 ///
-/// The resolver never calls this: it asks one step across the *whole* batch, wave by wave, which is
-/// what makes batching worth anything. This is the per-entity view `inspect` prints, and where the
-/// order is documented.
-pub(crate) fn all_steps(
+/// The resolver asks every strategy for every entity in one batch; this per-entity view is what
+/// `inspect` prints.
+pub(crate) fn asks(
     entity: &model::knowledge_entity::Model,
-) -> Vec<(Step, Request<WikidataKind>)> {
-    Step::ORDER
+) -> Vec<(Strategy, Request<WikidataKind>)> {
+    Strategy::ALL
         .into_iter()
         .flat_map(|each| {
-            step(each, entity)
+            requests(each, entity)
                 .into_iter()
                 .map(move |request| (each, request))
         })
         .collect()
 }
 
-/// One step's requests for one entity. Pure, so the order is testable without a network.
-pub(crate) fn step(
-    step: Step,
+/// One strategy's requests for one entity. Pure, so the order is testable without a network.
+pub(crate) fn requests(
+    strategy: Strategy,
     entity: &model::knowledge_entity::Model,
 ) -> Vec<Request<WikidataKind>> {
-    match step {
-        Step::Handle => handle(entity),
-        Step::Title => title(entity).into_iter().collect(),
-        Step::Label => label(entity).into_iter().collect(),
-        Step::SearchHint => search_hint(entity).into_iter().collect(),
-        Step::SearchLabel => search_label(entity).into_iter().collect(),
+    match strategy {
+        Strategy::Handle => handle(entity),
+        Strategy::Title => title(entity).into_iter().collect(),
+        Strategy::Label => label(entity).into_iter().collect(),
+        Strategy::SearchHint => search_hint(entity).into_iter().collect(),
+        Strategy::SearchLabel => search_label(entity).into_iter().collect(),
     }
 }
 
@@ -152,45 +152,45 @@ mod tests {
         stub_entity(1, label, "unknown")
     }
 
-    /// The order is the rule: a handle is stronger than a name, a title is unique where a label is
-    /// not, and the last resort re-asks the title question so it can be answered from the cache.
+    /// The array documents authority, not a sequence: a handle is stronger than a name, a title is
+    /// unique where a label is not, and search is the guess that runs beside them, not after them.
     #[test]
-    fn the_steps_ask_a_handle_then_a_title_then_a_label_then_search() {
+    fn the_strategies_name_a_handle_a_title_a_label_then_search() {
         let mut entity = stub_entity(1, "Alexey Kutepov", "real_person");
         entity.search_query = Some("Tsoding".to_string());
         entity.platform = Some("x_twitter".to_string());
         entity.platform_handle = Some("tsoding".to_string());
 
-        let asked: Vec<(Step, WikidataKind, String)> = all_steps(&entity)
+        let asked: Vec<(Strategy, WikidataKind, String)> = asks(&entity)
             .into_iter()
-            .map(|(step, request)| (step, request.kind, request.query))
+            .map(|(strategy, request)| (strategy, request.kind, request.query))
             .collect();
 
         assert_eq!(
             asked,
             vec![
                 (
-                    Step::Handle,
+                    Strategy::Handle,
                     WikidataKind::Handle(PropertyId::X_USERNAME),
                     "tsoding".to_string()
                 ),
                 (
-                    Step::Title,
+                    Strategy::Title,
                     WikidataKind::Title,
                     "Alexey Kutepov".to_string()
                 ),
                 (
-                    Step::Label,
+                    Strategy::Label,
                     WikidataKind::Label,
                     "Alexey Kutepov".to_string()
                 ),
                 (
-                    Step::SearchHint,
+                    Strategy::SearchHint,
                     WikidataKind::Search,
                     "Tsoding".to_string()
                 ),
                 (
-                    Step::SearchLabel,
+                    Strategy::SearchLabel,
                     WikidataKind::Search,
                     "Alexey Kutepov".to_string()
                 ),
@@ -199,16 +199,16 @@ mod tests {
     }
 
     /// An entity can carry a platform with no handle. Asking `VALUES { "" }` spends a call to
-    /// cache a negative about nobody, so that step is skipped and the name steps still run.
+    /// cache a negative about nobody, so that strategy is skipped and the name strategies still run.
     #[test]
     fn a_platform_without_a_handle_asks_nothing() {
         let mut entity = stub_entity(1, "Alexey Kutepov", "real_person");
         entity.platform = Some("x_twitter".to_string());
         entity.platform_handle = Some("   ".to_string());
 
-        assert!(step(Step::Handle, &entity).is_empty());
-        assert_eq!(step(Step::Title, &entity).len(), 1);
-        assert_eq!(step(Step::Label, &entity).len(), 1);
+        assert!(requests(Strategy::Handle, &entity).is_empty());
+        assert_eq!(requests(Strategy::Title, &entity).len(), 1);
+        assert_eq!(requests(Strategy::Label, &entity).len(), 1);
     }
 
     /// The database string is the seam that fails silently: a platform spelled differently parses to
@@ -257,7 +257,7 @@ mod tests {
             entity.platform = Some(platform.to_string());
             entity.platform_handle = Some(handle.to_string());
 
-            let asked = step(Step::Handle, &entity);
+            let asked = requests(Strategy::Handle, &entity);
             assert!(
                 asked.iter().any(|request| request.kind == property),
                 "{platform}/{handle}: {asked:?}"
@@ -268,7 +268,7 @@ mod tests {
         let mut unknown = entity("someone");
         unknown.platform = Some("myspace".to_string());
         unknown.platform_handle = Some("tom".to_string());
-        assert!(step(Step::Handle, &unknown).is_empty());
+        assert!(requests(Strategy::Handle, &unknown).is_empty());
     }
 
     /// The hint is a *query*, not only a scoring signal: `Commission of Tears` alone finds meniscal
@@ -278,11 +278,11 @@ mod tests {
         let mut target = entity("Commission of Tears");
         target.search_query = Some("Commission of Tears Antonio Lobo Antunes".to_string());
 
-        let hints = step(Step::SearchHint, &target);
+        let hints = requests(Strategy::SearchHint, &target);
         assert_eq!(hints.len(), 1);
         assert_eq!(hints[0].query, "Commission of Tears Antonio Lobo Antunes");
         assert_eq!(
-            step(Step::SearchLabel, &target)[0].query,
+            requests(Strategy::SearchLabel, &target)[0].query,
             "Commission of Tears"
         );
     }
@@ -293,7 +293,7 @@ mod tests {
         let mut target = entity("Tsoding");
         target.search_query = Some("  TSODING ".to_string());
 
-        assert!(step(Step::SearchHint, &target).is_empty());
-        assert_eq!(step(Step::SearchLabel, &target)[0].query, "Tsoding");
+        assert!(requests(Strategy::SearchHint, &target).is_empty());
+        assert_eq!(requests(Strategy::SearchLabel, &target)[0].query, "Tsoding");
     }
 }

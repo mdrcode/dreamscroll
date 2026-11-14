@@ -719,8 +719,10 @@ the unbatched calls.
 the *field* (`aggregate::decide(entity, &field)`). A pool implies undifferentiated members; this file
 ranks them and decides one.
 
-**The words of the design, after the ladder:** a resolver **fans out** — one batch, every step, every
-entity; the answers merge into one **field** per entity; one **decision** names a referent or refuses
-with a reason. "Ladder" and "rung" are retired vocabulary: they name sequence, authority ordering and
-early exit, and the resolver has none of the three — it asks every question regardless of what the
-others said. The words survive in this file only as dated history.
+**The words of the design, after the ladder:** a resolver **fans out** — one batch, every
+**strategy**, every entity; the answers merge into one **field** per entity; one **decision** names a
+referent or refuses with a reason. A **strategy** is a way of asking (`Strategy::Handle`, `::Title`,
+`::Label`, `::SearchHint`, `::SearchLabel`); it is *applied*, not selected and not sequenced — the
+resolver applies every one regardless of what the others said. "Ladder" and "rung" are retired
+vocabulary: they name sequence, authority ordering and early exit, and the resolver has none of the
+three. The words survive in this file only as dated history.

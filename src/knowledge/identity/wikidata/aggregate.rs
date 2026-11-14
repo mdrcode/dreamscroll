@@ -1,17 +1,17 @@
 //! One field, one ranking.
 //!
-//! The ladder decided per step: every question had its own admission rule and its own decision,
-//! and the first claim stopped the climb. Measured against the graph, the failures were decided
-//! *before* the ranking — the right item was present and refused:
+//! The ladder decided per strategy: every way of asking had its own admission rule and its own
+//! decision, and the first claim stopped the climb. Measured against the graph, the failures were
+//! decided *before* the ranking — the right item was present and refused:
 //!
 //! - `BBC` had `Q9531` (British Broadcasting Corporation) at the top of two answers and refused it
-//!   twice, because an acronym's expansion shares no token with the acronym; the search step then
-//!   claimed `BBC News`, a division that does.
+//!   twice, because an acronym's expansion shares no token with the acronym; the search strategy
+//!   then claimed `BBC News`, a division that does.
 //! - `Industrial Revolution` had `Q2269` first in every answer and refused it at each, because its
-//!   description shares one word with ours; the search step claimed a book *about* it.
+//!   description shares one word with ours; the search strategy claimed a book *about* it.
 //!
-//! So: ask every step, aggregate what came back, and rank once. The score has four components, each a
-//! measure with a reason of its own, plus one provenance policy:
+//! So: apply every strategy, aggregate what came back, and rank once. The score has four
+//! components, each a measure with a reason of its own, plus one provenance policy:
 //!
 //! | term | what it measures |
 //! | --- | --- |
@@ -67,7 +67,7 @@ const YEAR_DISAGREES: f32 = 0.20;
 /// Where one candidate was seen: which question produced it, and where the answer put it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Source {
-    pub(crate) step: plan::Step,
+    pub(crate) strategy: plan::Strategy,
     pub(crate) position: usize,
 }
 
@@ -98,7 +98,7 @@ pub(crate) struct Ranked {
     /// `1` when the descriptions agree on a year, `-1` when they carry disjoint years, `0` when
     /// either side has none.
     pub(crate) year: i8,
-    pub(crate) step: plan::Step,
+    pub(crate) strategy: plan::Strategy,
 }
 
 /// How strongly a surface bears a name: 1.0 is the same name, 0.0 is a different one.
@@ -181,12 +181,12 @@ pub(crate) fn rank(entity: &model::knowledge_entity::Model, field: &[Aggregate])
                     .fold(0.0f32, f32::max);
                 by_name.max(by_hint).max(by_alias)
             };
-            let (tier, step) = aggregate
+            let (tier, strategy) = aggregate
                 .sources
                 .iter()
-                .map(|source| (tier_of(source.step), source.step))
+                .map(|source| (tier_of(source.strategy), source.strategy))
                 .min_by_key(|(tier, _)| *tier)
-                .unwrap_or((2, plan::Step::SearchLabel));
+                .unwrap_or((2, plan::Strategy::SearchLabel));
             Ranked {
                 index,
                 tier,
@@ -196,7 +196,7 @@ pub(crate) fn rank(entity: &model::knowledge_entity::Model, field: &[Aggregate])
                 kind: super::types::compatible(&entity_types, &aggregate.candidate.classes),
                 head: head_agrees(&entity_types, &theirs),
                 year: year_relation(entity, &theirs),
-                step,
+                strategy,
             }
         })
         .collect();
@@ -219,8 +219,8 @@ pub(crate) fn decide(
     // `social_media_account` entities carrying a Wikidata identity, one was right — the handle
     // match — and 25 were another bearer of the same word (`Bear` → a gay-culture term, `Blue` → a
     // colour, `Drake` → a botanist). A profile's description says what it posts, never who it is,
-    // so no name-based question can answer for it. The handle step claims before the field is asked,
-    // which is why refusing here leaves exactly the handle match standing.
+    // so no name-based question can answer for it. The handle strategy claims before the field is
+    // asked, which is why refusing here leaves exactly the handle match standing.
     if account_only(entity) {
         return Err("a profile is identified by its platform link, not by a name");
     }
@@ -256,7 +256,7 @@ pub(crate) fn decide(
     let candidate = &field[best.index].candidate;
     Ok(answer::identity(
         candidate,
-        method(best.step, best.surface),
+        method(best.strategy, best.surface),
         confidence(&best),
     ))
 }
@@ -288,23 +288,25 @@ pub(crate) fn score(ranked: &Ranked) -> f32 {
 
 /// The authority of the question that produced a candidate: a handle is a property match, a title
 /// is unique where a label is not, an exact label is a name, and search is a guess.
-fn tier_of(step: plan::Step) -> u8 {
-    match step {
-        plan::Step::Handle | plan::Step::Title => 0,
-        plan::Step::Label => 1,
-        plan::Step::SearchHint | plan::Step::SearchLabel => 2,
+fn tier_of(strategy: plan::Strategy) -> u8 {
+    match strategy {
+        plan::Strategy::Handle | plan::Strategy::Title => 0,
+        plan::Strategy::Label => 1,
+        plan::Strategy::SearchHint | plan::Strategy::SearchLabel => 2,
     }
 }
 
-/// The step that produced the winner, in the vocabulary the rest of the system records.
-fn method(step: plan::Step, surface: f32) -> &'static str {
-    match step {
-        plan::Step::Handle => "handle",
-        plan::Step::Title => "wikipedia_title",
-        plan::Step::Label => "exact_label",
+/// The strategy that produced the winner, in the vocabulary the rest of the system records.
+fn method(strategy: plan::Strategy, surface: f32) -> &'static str {
+    match strategy {
+        plan::Strategy::Handle => "handle",
+        plan::Strategy::Title => "wikipedia_title",
+        plan::Strategy::Label => "exact_label",
         // An exact surface found by search is the shortcut's old `search_lookup`.
-        plan::Step::SearchHint | plan::Step::SearchLabel if surface >= 1.0 => "search_lookup",
-        plan::Step::SearchHint | plan::Step::SearchLabel => "search_ranked",
+        plan::Strategy::SearchHint | plan::Strategy::SearchLabel if surface >= 1.0 => {
+            "search_lookup"
+        }
+        plan::Strategy::SearchHint | plan::Strategy::SearchLabel => "search_ranked",
     }
 }
 
@@ -538,17 +540,17 @@ fn head_agrees(entity_types: &[&str], theirs: &[String]) -> Option<bool> {
 
 /// One entity's field from every answer of one outcome, deduplicated by QID.
 ///
-/// `decision::referents` still gates what is not a referent at all — a menu — but no step's name
+/// `decision::referents` still gates what is not a referent at all — a menu — but no strategy's name
 /// rule applies: which candidate is ours is the ranking's question.
 pub(crate) fn gather(
-    steps: &[(plan::Step, Request<WikidataKind>)],
+    asks: &[(plan::Strategy, Request<WikidataKind>)],
     answers: &Answers<WikidataKind, Vec<WikidataCandidate>>,
     outcome: Outcome,
 ) -> Vec<Aggregate> {
     let mut by_id: BTreeMap<String, Aggregate> = BTreeMap::new();
-    for (step, request) in steps {
+    for (strategy, request) in asks {
         // A handle is claimed whole; it is not scored against the field.
-        if *step == plan::Step::Handle {
+        if *strategy == plan::Strategy::Handle {
             continue;
         }
         let Some(raw) = answers.get(request) else {
@@ -569,7 +571,7 @@ pub(crate) fn gather(
                 })
                 .sources
                 .push(Source {
-                    step: *step,
+                    strategy: *strategy,
                     position,
                 });
         }
@@ -580,10 +582,12 @@ pub(crate) fn gather(
 /// The handle answer, when there is one: the item asserting this property value is the account
 /// itself, and no other candidate can outrank a property match.
 pub(crate) fn by_handle(
-    steps: &[(plan::Step, Request<WikidataKind>)],
+    asks: &[(plan::Strategy, Request<WikidataKind>)],
     answers: &Answers<WikidataKind, Vec<WikidataCandidate>>,
 ) -> Option<Identity> {
-    let (_, request) = steps.iter().find(|(step, _)| *step == plan::Step::Handle)?;
+    let (_, request) = asks
+        .iter()
+        .find(|(strategy, _)| *strategy == plan::Strategy::Handle)?;
     let raw = answers.get(request)?;
     if raw.outcome != Outcome::Found {
         return None;
@@ -619,7 +623,7 @@ mod tests {
                 classes: Vec::new(),
             },
             sources: vec![Source {
-                step: plan::Step::SearchLabel,
+                strategy: plan::Strategy::SearchLabel,
                 position: 0,
             }],
         }
@@ -683,7 +687,7 @@ mod tests {
         // without description corroboration. The same candidate found by search would not.
         let labelled = |id: &str, label: &str, description: &str| {
             let mut candidate = candidate(id, label, description);
-            candidate.sources[0].step = plan::Step::Title;
+            candidate.sources[0].strategy = plan::Strategy::Title;
             candidate
         };
         let field = vec![
