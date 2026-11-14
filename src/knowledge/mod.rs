@@ -44,7 +44,6 @@ pub mod helper;
 pub mod identity;
 pub mod linker;
 pub mod proximity;
-pub mod scoring;
 pub mod snapshot;
 pub mod text;
 pub mod verdicts;
@@ -54,4 +53,3 @@ pub use helper::{
     LinkAllReport, link_all_pending, link_illumination, resolve_all_pending, resolve_illumination,
 };
 pub use proximity::AutoMergeReport;
-pub use scoring::{Rank, Scoring, Similarity, TotalCmp};

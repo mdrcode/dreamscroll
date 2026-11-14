@@ -7,10 +7,8 @@
 //! - [`linker`] is the procedure that applies a ranking: attach, or create.
 //!
 //! The linker holds this policy as a member, and a pass that measures is handed one; nothing else in
-//! `knowledge` names a heuristic type. Swap this module for another pair of verbs and the rest of the
-//! graph is unchanged.
-//!
-//! [`Scoring`]: crate::knowledge::scoring::Scoring
+//! `knowledge` names a heuristic type. Swap this module for another implementation and the rest of
+//! the graph is unchanged — the seam is the type, not a trait.
 
 pub mod linker;
 pub mod scoring;

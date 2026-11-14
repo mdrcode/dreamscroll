@@ -8,7 +8,7 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOr
 
 use crate::knowledge::graph::KnowledgeGraph;
 use crate::knowledge::graph::merge::Outcome;
-use crate::knowledge::scoring::{Scoring, TotalCmp};
+use crate::knowledge::linker::heuristic::Heuristic;
 use crate::knowledge::verdicts::{Cause, pair_key};
 use crate::model;
 
@@ -36,7 +36,7 @@ pub struct AutoMergeReport {
 pub async fn auto_merge(
     conn: &DatabaseConnection,
     graph: &KnowledgeGraph,
-    scoring: &dyn Scoring,
+    scoring: &Heuristic,
     apply: bool,
 ) -> anyhow::Result<AutoMergeReport> {
     let mut report = AutoMergeReport::default();
@@ -75,7 +75,7 @@ pub async fn auto_merge(
         }
 
         // The more substantiated side survives; ties go to the lower id.
-        let (winner, loser) = if right.confidence.total_cmp(&left.confidence) == Ordering::Greater {
+        let (winner, loser) = if confidence_greater(&right.confidence, &left.confidence) {
             (right, left)
         } else {
             (left, right)
@@ -111,6 +111,13 @@ pub async fn auto_merge(
         }
     }
     Ok(report)
+}
+
+/// Whether `a` is the more substantiated side. `None` is the least worth there is.
+fn confidence_greater(a: &Option<f32>, b: &Option<f32>) -> bool {
+    a.unwrap_or(f32::NEG_INFINITY)
+        .total_cmp(&b.unwrap_or(f32::NEG_INFINITY))
+        == Ordering::Greater
 }
 
 /// The batch, most likely first.

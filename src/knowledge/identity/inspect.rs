@@ -138,8 +138,8 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
         });
     }
 
-    // The same `Scoring` the linker asks, so "would it attach" here means what it means there.
-    let scoring = Heuristic::scoring();
+    // The same heuristic the linker asks, so "would it attach" here means what it means there.
+    let scoring = Heuristic;
     let ranked = match &probe {
         Some(observation) => scoring
             .link(observation, &found)

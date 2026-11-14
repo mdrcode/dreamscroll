@@ -4,6 +4,7 @@
 //! annotation; a veto deletes one key across providers; a merge re-points them. Keeping every change
 //! here means the veto rule, the provider scope and the uniqueness rule are one thing to read.
 
+use std::cmp::Ordering;
 use std::collections::HashSet;
 
 use sea_orm::sea_query::{Expr, ExprTrait, OnConflict, Query};
@@ -14,7 +15,6 @@ use sea_orm::{
 
 use super::identity::{Identity, IdentityKey};
 use super::selection::IdentitySelection;
-use crate::knowledge::scoring::TotalCmp;
 use crate::model;
 
 /// What one provider replacement did.
@@ -156,9 +156,9 @@ impl Evidence {
 
     /// The live entities holding this key, most substantiated first.
     ///
-    /// The ordering is [`TotalCmp`], asked here rather than written into the SQL: `merge` picks its
-    /// survivor with the same function, and two spellings of "most substantiated" disagreed on
-    /// `NULL` for as long as they existed.
+    /// Asked here rather than written into the SQL: `merge` picks its survivor with the same
+    /// comparison, and two spellings of "most substantiated" disagreed on `NULL` for as long as they
+    /// existed.
     pub async fn query_entities_for_identity(
         &self,
         key: &IdentityKey,
@@ -191,7 +191,7 @@ impl Evidence {
             .filter(Expr::col(model::knowledge_entity::Column::Id).in_subquery(holders))
             .all(&self.conn)
             .await?;
-        entities.sort_by(|a, b| b.confidence.total_cmp(&a.confidence).then(a.id.cmp(&b.id)));
+        entities.sort_by(|a, b| confidence_cmp(&b.confidence, &a.confidence).then(a.id.cmp(&b.id)));
         Ok(entities)
     }
 
@@ -324,6 +324,13 @@ fn vetoed_key(
         identity.scheme.clone(),
         identity.external_id.clone(),
     ))
+}
+
+/// `f32::total_cmp` over optional confidences, `None` least: an identity with no score
+/// substantiates nothing, and a tie is not a win for either side.
+fn confidence_cmp(a: &Option<f32>, b: &Option<f32>) -> Ordering {
+    a.unwrap_or(f32::NEG_INFINITY)
+        .total_cmp(&b.unwrap_or(f32::NEG_INFINITY))
 }
 
 #[cfg(test)]

@@ -1,16 +1,14 @@
 //! The default linker: take the best candidate that clears the bar, otherwise create.
 //!
-//! A procedure, not a policy. It asks one question —
-//! [`Rank::rank`](crate::knowledge::scoring::Rank::rank) — and applies the answer: the
-//! best qualifying candidate is where the observation attaches, and no qualifying candidate is a
-//! new entity. The bar lives in the policy's `qualifies`, because it is a conjunction over what
-//! was compared and a number cannot carry that.
+//! A procedure, not a policy. It asks one question — [`Heuristic::link`] — and applies the answer:
+//! the best qualifying candidate is where the observation attaches, and no qualifying candidate is
+//! a new entity. The bar lives in `Features::qualifies`, because it is a conjunction over what was
+//! compared and a number cannot carry that.
 
 use crate::model;
 
 use crate::knowledge::evidence::{Evidence, IdentityKey, platform_link};
 use crate::knowledge::linker::{Action, Decision, Linker};
-use crate::knowledge::scoring::Scoring;
 
 use super::Heuristic;
 
@@ -20,11 +18,11 @@ use super::Heuristic;
 /// else.
 #[derive(Clone)]
 pub struct HeuristicLinker {
-    scoring: &'static dyn Scoring,
+    scoring: Heuristic,
 }
 
 impl std::fmt::Debug for HeuristicLinker {
-    /// `Scoring` holds trait objects, so there is nothing to print but the type.
+    /// Nothing to print: the heuristic is a unit struct.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HeuristicLinker").finish_non_exhaustive()
     }
@@ -33,9 +31,7 @@ impl std::fmt::Debug for HeuristicLinker {
 impl HeuristicLinker {
     /// The heuristic's own policy.
     pub fn new() -> Self {
-        Self {
-            scoring: Heuristic::scoring(),
-        }
+        Self { scoring: Heuristic }
     }
 }
 

@@ -9,10 +9,11 @@
 //! folds the pairs that score as one thing and leaves the rest, which are the questions still owed to
 //! a person.
 //!
-//! Both passes take what they act on — the connection and the [`Scoring`] to measure with, and, for
-//! [`auto_merge`], the store it folds into — rather than reading them off a facade.
+//! Both passes take what they act on — the connection and the
+//! [`Heuristic`] to measure with, and, for [`auto_merge`], the store it folds into — rather than
+//! reading them off a facade.
 //!
-//! [`Scoring`]: crate::knowledge::scoring::Scoring
+//! [`Heuristic`]: crate::knowledge::linker::heuristic::Heuristic
 
 mod auto_merge;
 mod scan;

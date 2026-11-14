@@ -29,7 +29,7 @@ use crate::model;
 /// build [`KnowledgeGraph::new`]. Linking additionally needs a decider and a blocker, both injected by
 /// [`KnowledgeGraph::with_linking`].
 ///
-/// The store holds no policy: a [`Linker`] is a procedure over the `Scoring` it was built with, and a
+/// The store holds no policy: a [`Linker`] is a procedure over the heuristic it was built with, and a
 /// pass that measures — [`proximity`](crate::knowledge::proximity) — is handed the policy as an argument.
 ///
 /// The blocker is built once and kept for the run's links. It queries `knowledge_blocking_index`,

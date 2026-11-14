@@ -5,7 +5,7 @@ use std::collections::HashSet;
 use sea_orm::{ConnectionTrait, DatabaseConnection, EntityTrait, Set, TransactionTrait};
 
 use crate::knowledge::evidence::Evidence;
-use crate::knowledge::scoring::Scoring;
+use crate::knowledge::linker::heuristic::Heuristic;
 use crate::model;
 
 use super::Basis;
@@ -13,8 +13,9 @@ use super::Basis;
 /// Derive the candidate set and replace the table with it. Returns how many rows the batch holds.
 ///
 /// `conn` must be the store's own connection: the replacement is committed on it, and the holders are
-/// read through it. `scoring` is the store's policy, passed in rather than read from a facade.
-pub async fn scan(conn: &DatabaseConnection, scoring: &dyn Scoring) -> anyhow::Result<usize> {
+/// read through it. `scoring` is the policy the caller measures with, passed in rather than read
+/// from a facade.
+pub async fn scan(conn: &DatabaseConnection, scoring: &Heuristic) -> anyhow::Result<usize> {
     let evidence = Evidence::from_connection(conn.clone());
     let keys = evidence.shared_identity_keys().await?;
 

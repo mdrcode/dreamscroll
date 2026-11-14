@@ -1,24 +1,32 @@
 //! The heuristic: every number the graph guesses, in one file.
 //!
-//! Two verbs, implemented for the pairs the graph asks about:
+//! Three questions, answered concretely for the pairs the graph asks about:
 //!
-//! - [`Similarity`] — the weighted total of `name`, `description` and type agreement.
-//! - [`Policy`] — the same features for a candidate set, the corroboration conjunction, and the
-//!   total as the order key. `Rank` (qualifying candidates, best first) follows from it.
+//! - [`Heuristic::link`] — a capture against the graph's entities: the qualifying candidates, best
+//!   first. Empty means start a new entity.
+//! - [`Heuristic::merge`] — two entities, as a verdict. A set of one is the pair question.
+//! - [`Heuristic::pair`] — two entities, as the number a proximity row stores.
 //!
 //! The filter is the part a number could not carry: `same` is a conjunction — a name match *and*
-//! something corroborating it — which is why [`Rank`] exists rather than a threshold on the score.
-//! A pair that fails the conjunction still reports its total, so "same name, different type: 0.74"
-//! stays visible on the proximity list even though it will never be folded.
+//! something corroborating it — which is why the questions answer with a filtered, ordered list
+//! rather than a threshold on the score. A pair that fails the conjunction still answers
+//! [`Heuristic::pair`], so "same name, different type: 0.74" stays visible on the proximity list
+//! even though it will never be folded.
 //!
-//! Not here: the confidence scale for resolver answers (that is the identity resolver's own calibration,
-//! in `identity/wikidata/ranking.rs`), the best identity over a set (`best_confidence`), and the order
-//! of two confidences (`scoring::TotalCmp`).
+//! One implementation, so this is a type and not a trait bundle. A second policy would reintroduce
+//! the seam; git history has the version that was measured out.
+//!
+//! Not here: the confidence scale for resolver answers (that is the identity resolver's own
+//! calibration), and the best identity over a set (`best_confidence`).
 
 use crate::model;
 
-use crate::knowledge::scoring::{Entity, Observation, Order, Policy, Scoring, Similarity};
 use crate::knowledge::text;
+
+/// The graph's own side of a comparison.
+type Entity = model::knowledge_entity::Model;
+/// What a capture asserted: one observation, no alternatives.
+type Observation = model::user_observed_entity::Model;
 
 pub const WEIGHT_NAME: f32 = 0.60;
 pub const WEIGHT_DESCRIPTION: f32 = 0.30;
@@ -42,64 +50,45 @@ const TYPE_UNKNOWN_MATCH: f32 = 0.5;
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Heuristic;
 
-/// The one instance: a unit struct has nothing to own, so borrowing it costs nothing.
-static HEURISTIC: Heuristic = Heuristic;
-
 impl Heuristic {
-    /// This policy as the graph's three questions. Stateless, so one instance serves every caller.
-    pub fn scoring() -> &'static dyn Scoring {
-        &HEURISTIC
+    /// A capture against the graph's entities: the qualifying candidates, best first.
+    ///
+    /// Empty means start a new entity. The bar is [`Features::qualifies`] — a conjunction, not a
+    /// threshold on the total, which is why this returns a filtered list.
+    pub fn link(&self, observation: &Observation, candidates: &[Entity]) -> Vec<(usize, f32)> {
+        ranked(
+            candidates
+                .iter()
+                .map(|candidate| features(observation, candidate)),
+        )
     }
-}
 
-impl Similarity<Observation, Entity> for Heuristic {
-    fn score(&self, observation: &Observation, candidate: &Entity) -> f32 {
-        features(observation, candidate).total
+    /// Two entities, as a verdict. A set of one is the pair question.
+    pub fn merge(&self, subject: &Entity, candidates: &[Entity]) -> Vec<(usize, f32)> {
+        ranked(
+            candidates
+                .iter()
+                .map(|candidate| features_of_entities(subject, candidate)),
+        )
     }
-}
 
-impl Similarity<Entity, Entity> for Heuristic {
-    fn score(&self, a: &Entity, b: &Entity) -> f32 {
+    /// Two entities, as the number a proximity row stores. No qualification: a pair that will never
+    /// be folded still has a score to show.
+    pub fn pair(&self, a: &Entity, b: &Entity) -> f32 {
         features_of_entities(a, b).total
     }
 }
 
-impl Policy<Observation, Entity> for Heuristic {
-    type Evidence = Features;
-
-    fn evaluate(&self, observation: &Observation, candidates: &[Entity]) -> Vec<Features> {
-        candidates
-            .iter()
-            .map(|candidate| features(observation, candidate))
-            .collect()
-    }
-
-    fn qualifies(&self, features: &Features) -> bool {
-        features.qualifies()
-    }
-
-    fn order(&self, features: &Features) -> Order {
-        features.order()
-    }
-}
-
-impl Policy<Entity, Entity> for Heuristic {
-    type Evidence = Features;
-
-    fn evaluate(&self, a: &Entity, candidates: &[Entity]) -> Vec<Features> {
-        candidates
-            .iter()
-            .map(|candidate| features_of_entities(a, candidate))
-            .collect()
-    }
-
-    fn qualifies(&self, features: &Features) -> bool {
-        features.qualifies()
-    }
-
-    fn order(&self, features: &Features) -> Order {
-        features.order()
-    }
+/// The filter-and-order procedure, written once: qualifying evidence, best first, stable.
+fn ranked(evidence: impl Iterator<Item = Features>) -> Vec<(usize, f32)> {
+    let mut ranked: Vec<(usize, f32)> = evidence
+        .enumerate()
+        .filter(|(_, features)| features.qualifies())
+        .map(|(index, features)| (index, features.total))
+        .collect();
+    // Stable, so equal totals keep the order the caller supplied.
+    ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+    ranked
 }
 
 /// What one candidate earns against one subject, per feature and in total.
@@ -125,11 +114,6 @@ impl Features {
     pub fn qualifies(&self) -> bool {
         self.name >= NAME_FLOOR
             && (self.type_match >= AGREEMENT_FLOOR || self.description >= AGREEMENT_FLOOR)
-    }
-
-    /// Where these features sort: the total is the whole judgement, so there is no tie to break.
-    pub fn order(&self) -> Order {
-        Order::of(self.total)
     }
 }
 
@@ -376,7 +360,6 @@ fn tokens_of(comparable: &str) -> Vec<String> {
 mod tests {
     use super::*;
 
-    use crate::knowledge::scoring::{Rank, Similarity};
     use crate::test_support::fixtures;
 
     fn observation(name: &str, description: Option<&str>, ty: &str) -> Observation {
@@ -450,7 +433,7 @@ mod tests {
         let (a, b) = train_dreams_pair();
 
         for (subject, candidate) in [(&a, &b), (&b, &a)] {
-            let ranked = Heuristic.rank(subject, std::slice::from_ref(candidate));
+            let ranked = Heuristic.merge(subject, std::slice::from_ref(candidate));
             assert_eq!(
                 ranked.len(),
                 1,
@@ -462,7 +445,7 @@ mod tests {
     #[test]
     fn article_or_word_order_alone_still_clears() {
         let candidate = entity(1, "Train Dreams", None, "book");
-        let ranked = Heuristic.rank(&observation("The Train Dreams", None, "book"), &[candidate]);
+        let ranked = Heuristic.link(&observation("The Train Dreams", None, "book"), &[candidate]);
         assert_eq!(
             ranked.len(),
             1,
@@ -481,7 +464,7 @@ mod tests {
         let features = features(&probe, &candidate);
         assert!((features.total - 0.59).abs() < 1e-6, "{features:?}");
         assert_eq!(
-            Heuristic.rank(&probe, &[candidate]).len(),
+            Heuristic.link(&probe, &[candidate]).len(),
             1,
             "the conjunction accepts what its own floors accept"
         );
@@ -493,7 +476,7 @@ mod tests {
         let candidate = entity(1, "Dominic Ng", None, "book");
         let probe = observation("Dominic Ng", None, "software");
         assert!(
-            Heuristic.rank(&probe, &[candidate]).is_empty(),
+            Heuristic.link(&probe, &[candidate]).is_empty(),
             "same name, disagreeing type, no text"
         );
     }
@@ -516,7 +499,7 @@ mod tests {
             (features.total - WEIGHT_NAME).abs() < 1e-6,
             "the total is the name weight alone: {features:?}"
         );
-        assert!(Heuristic.rank(&frame, &[django]).is_empty());
+        assert!(Heuristic.link(&frame, &[django]).is_empty());
     }
 
     /// The other arm of the corroboration: a shared description carries a name match on its own,
@@ -532,7 +515,7 @@ mod tests {
             features.description >= AGREEMENT_FLOOR,
             "the text agrees: {features:?}"
         );
-        assert_eq!(Heuristic.rank(&probe, &[candidate]).len(), 1);
+        assert_eq!(Heuristic.link(&probe, &[candidate]).len(), 1);
     }
 
     /// The extractor could not type either side: that is an absence of information, so an exact
@@ -540,7 +523,7 @@ mod tests {
     #[test]
     fn an_unknown_type_does_not_disqualify_a_name() {
         let candidate = entity(1, "Wojak", None, "concept");
-        let ranked = Heuristic.rank(&observation("Wojak", None, "unknown"), &[candidate]);
+        let ranked = Heuristic.link(&observation("Wojak", None, "unknown"), &[candidate]);
         assert_eq!(
             ranked.len(),
             1,
@@ -551,7 +534,7 @@ mod tests {
     /// The filter is a filter, not a reordering: the strongest candidate wins, and the ones that do
     /// not qualify are absent rather than last.
     #[test]
-    fn rank_keeps_only_qualifying_candidates_best_first() {
+    fn link_keeps_only_qualifying_candidates_best_first() {
         let weak = entity(1, "Train Dreams", None, "book");
         let strong = entity(
             2,
@@ -560,26 +543,13 @@ mod tests {
             "book",
         );
         let unrelated = entity(3, "Dune", None, "book");
-        let ranked = Heuristic.rank(
+        let ranked = Heuristic.link(
             &observation("Train Dreams", Some("a novella by Denis Johnson"), "book"),
             &[weak, strong, unrelated],
         );
         assert_eq!(ranked.len(), 2, "{ranked:?}");
         assert_eq!(ranked[0].0, 1, "the corroborated one leads: {ranked:?}");
         assert!(ranked.iter().all(|(index, _)| *index != 2));
-    }
-
-    /// `None` is the least worth there is, and a tie is not a win for either side.
-    #[test]
-    fn cmp_confidence_puts_nothing_last() {
-        use crate::knowledge::scoring::TotalCmp;
-        let none: Option<f32> = None;
-        assert_eq!(none.total_cmp(&Some(0.5)), std::cmp::Ordering::Less);
-        assert_eq!(Some(0.5f32).total_cmp(&none), std::cmp::Ordering::Greater);
-        assert_eq!(
-            Some(0.5f32).total_cmp(&Some(0.5)),
-            std::cmp::Ordering::Equal
-        );
     }
 
     /// Confidence is the best claim, not a sum or a bonus.
@@ -605,8 +575,8 @@ mod tests {
 
         let candidate = fixtures::stub_entity(9, "Alex Lei", "real_person");
         assert_eq!(
-            Heuristic.score(&plain, &candidate),
-            Heuristic.score(&present, &candidate),
+            Heuristic.link(&plain, std::slice::from_ref(&candidate)),
+            Heuristic.link(&present, std::slice::from_ref(&candidate)),
         );
     }
 }
