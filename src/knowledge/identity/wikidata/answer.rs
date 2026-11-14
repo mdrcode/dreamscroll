@@ -1,8 +1,8 @@
-//! What a Wikidata answer means: which items in it are referents, and what a decided one becomes.
+//! What a Wikidata answer means: which items in it are referents at all.
 //!
-//! Pure JSON in, candidates or an identity out. Nothing here fetches, and nothing here knows the
-//! request that produced the answer. An identity is the stored [`Identity`] itself, so a decided
-//! answer needs no second pass to become an annotation.
+//! Pure JSON in, candidates out. Nothing here fetches, and nothing here knows the request that
+//! produced the answer. The stored annotation a decided candidate becomes is `candidate`'s
+//! conversion, not this module's.
 //!
 //! This is the only filter the ranking keeps. Everything else about a candidate — which name it
 //! bears, which kind it is, which strategy produced it — is the ranking's question, answered by
@@ -11,10 +11,8 @@
 //! had `Q9531` at the top of two answers and still claimed a division — the right item was
 //! excluded, not outranked.
 
-use super::ID;
 use super::WikidataCandidate;
 use crate::fetch::Answer;
-use crate::knowledge::evidence::Identity;
 
 /// A menu, not a referent. Two classes because Wikidata's own hierarchy defeats equality: `Q22808320`
 /// ("Wikimedia human name disambiguation page") is a *subclass* of `Q4167410`, and every one of the 34
@@ -23,21 +21,6 @@ const MENUS: [&str; 2] = [
     "Q4167410",  // Wikimedia disambiguation page
     "Q22808320", // Wikimedia human name disambiguation page
 ];
-
-/// The annotation a decided candidate becomes: the authority's id, its method, and its confidence.
-pub(super) fn identity(candidate: &WikidataCandidate, method: &str, confidence: f32) -> Identity {
-    Identity {
-        scheme: ID.to_string(),
-        external_id: candidate.id.clone(),
-        method: Some(method.to_string()),
-        confidence: Some(confidence),
-        label: candidate.label.clone(),
-        description: candidate.description.clone(),
-        classes: candidate.classes.clone(),
-        // A provider answer is not a capture: no observation carried it.
-        observation_id: None,
-    }
-}
 
 /// A disambiguation page, or an item that is otherwise a list rather than a thing.
 ///

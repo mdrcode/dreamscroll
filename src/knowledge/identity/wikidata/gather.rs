@@ -92,9 +92,5 @@ pub(crate) fn by_handle(
     let property = request.kind.property()?;
     let candidates = answer::referents(raw).ok()?;
     let first = candidates.first()?;
-    Some(answer::identity(
-        first,
-        property.as_str(),
-        HANDLE_CONFIDENCE,
-    ))
+    Some(first.identity(property.as_str(), HANDLE_CONFIDENCE))
 }

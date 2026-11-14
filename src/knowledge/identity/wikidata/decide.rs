@@ -7,7 +7,6 @@
 use crate::knowledge::evidence::Identity;
 use crate::model;
 
-use super::answer;
 use super::gather::CandidateSet;
 use super::ranking::{self, Ranked};
 
@@ -67,8 +66,7 @@ pub(crate) fn decide(
         return Err("two candidates fit and neither wins");
     }
     let candidate = &candidate_set[best.index].candidate;
-    Ok(answer::identity(
-        candidate,
+    Ok(candidate.identity(
         ranking::method(best.strategy, best.surface),
         ranking::confidence(&best),
     ))
