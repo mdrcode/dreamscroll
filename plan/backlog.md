@@ -224,7 +224,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
      invisible in `proximity list`. The corpus never exceeds two holders, so nothing is missing yet.
 
   1 is ranker policy and belongs with the resolver, not the linker. Full statement, options and the
-  rebuild recipe: [wikidata-cleanup-20261112.md](wikidata-cleanup-20261112.md). Note that the scoring
+  rebuild recipe: [wikidata-cleanup-20261112.md](archive/wikidata-cleanup-20261112.md). Note that the scoring
   split (`scoring.rs` verbs, `linker/heuristic/scoring.rs` policy) makes it cheaper to state:
   `parse_search` builds `Weights` itself instead of asking the policy, which is the visible oddity
   rather than a hidden one.
@@ -234,7 +234,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   exist`. `reset` keeps a bounded number of snapshots and prunes by age, so one test's reset can drop
   another's snapshot tables while they are being read; the test passes alone and on rerun. Either
   serialise the snapshot tests or scope the prune to past the snapshot under test. Found while
-  verifying the wikidata review (`plan/wikidata-cleanup-20261112.md`), not caused by it.
+  verifying the wikidata review (`plan/archive/wikidata-cleanup-20261112.md`), not caused by it.
 
 - [ ] **Normalisation at the query boundary — watch, do not build.** Entity names reach Wikidata as
   `trim()`ed surfaces and nothing else. That is correct: the label question is an exact `rdfs:label`
@@ -324,8 +324,8 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 | `/events` catch-up query reduction                 | [event-streaming-optimization.md](archive/event-streaming-optimization.md)     | Connection count or DB load becomes material                  |
 | Crate upgrade sweep                                | [upgrade_3rd_party_crates.md](archive/upgrade_3rd_party_crates.md)             | Scheduled maintenance window                                  |
 | Client pulse + `upload_attempts`                   | [upload-attempts.md](archive/upload-attempts.md)                               | A client-side upload failure goes unexplained for a second time |
-| Identity `confidence`: label or probability         | [wikidata-cleanup-20261112.md](wikidata-cleanup-20261112.md)  | Anything starts sorting entities by confidence again |
-| The title step's own name-relatedness rule            | [wikidata-cleanup-20261112.md](wikidata-cleanup-20261112.md)  | A second provider answers title queries                          |
+| Identity `confidence`: label or probability         | [wikidata-cleanup-20261112.md](archive/wikidata-cleanup-20261112.md)  | Anything starts sorting entities by confidence again |
+| The title step's own name-relatedness rule            | [wikidata-cleanup-20261112.md](archive/wikidata-cleanup-20261112.md)  | A second provider answers title queries                          |
 | Media transcode and format policy                  | [upload-formats.md](upload-formats.md)                                 | `rejected_format` fires for a real user, uploads stay multi-MB on cellular, or a non-browser ingestion path carries originals |
 
 ## Product direction — not yet scoped

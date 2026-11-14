@@ -196,6 +196,20 @@ regardless. That shape is internal to the provider, not vocabulary the engine kn
 the *provider's* enum, so **adding an identity resolver means writing one `IdentityResolver` plus one
 `Transport`**, and a resolver is free to make one request or a dozen.
 
+Inside `Wikidata` the decision is a pipeline with one job per file, and none of it fetches:
+
+```
+answers ─gather──▶ candidate set ─ranking──▶ order ─decide──▶ identity | reason
+```
+
+`gather` admits what is an item at all (a disambiguation page is not a referent) and deduplicates by
+QID, keeping every strategy that named the candidate. `ranking` prices one row per candidate: the
+question's authority as a prior, the surface it bears, the description fit (rarity measured over the
+answer's own candidates), the head noun and the year. `decide` applies what a single number cannot —
+eligibility floors, a minimum score, a margin between the top two, and the account rule: a profile is
+identified by its platform link and by no name. A handle match skips the pipeline, because the
+property *is* the identity. `confidence` is a score, not a calibrated probability.
+
 The one thing a resolver cannot do is fetch. Its only route to the world is
 `Gateway::answers_for`, which consults the cache first, charges the budget and paces the call —
 which is why a resolver can own its own strategy without being able to bypass any of them. The door
@@ -339,7 +353,7 @@ one.
 | `verdicts/` | the register: the modification log and the standing vetoes, held by `KnowledgeGraph`. `store.rs` is the type, its connection, `record` (the one write that takes the caller's transaction, so a merge's row commits with the fold) and the reads the replay and `stats` share; `veto.rs` holds `veto`/`unveto`/`vetoed`; `origin.rs` turns an origin into the entity it names now. Applying the log is the graph's command (`graph/replay.rs`), exposed as `KnowledgeGraph::replay_verdicts`; `pair_key` is shared with `stats` |
 |`identity/`|`mod.rs` (module declarations) · `resolution` (the `IdentityResolver` trait a provider implements, the run loop, candidate selection, vetoes) · `wikidata/` (today's only identity resolver). The identities it returns, and where they become rows, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
 | `identity/wikidata/` | one identity resolver, entirely in its own vocabulary: `kind` (its request kinds, and the cache key's name and shape for each) and `candidate` (the item it offers) · `resolver.rs` fans one batch out — every strategy, for every entity — and asks through the gateway · request planning in `plan.rs` · SPARQL text in `sparql.rs` · a platform link turned into the property and value form to ask (`property_query.rs`) · what an answer becomes: the referent filter, the menu rule and the stored annotation (`answer.rs`) · `gather.rs` builds the `CandidateSet` · `measure.rs` prices each piece of evidence (surface, head noun, year, description fit) · `ranking.rs` composes the score and orders the set · `decide.rs` applies the floors and the margin · `P31` class families in `classes.rs` · HTTP in `transport.rs` |
-|`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, and their TTLs) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
+|`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, with a TTL per outcome: found 180 days, empty 30, degraded 23 hours, failed 10 minutes) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
 | `identity/inspect.rs` | `identity inspect`: walks one entity through blocking, ranking and the plan, read-only |
 | `eval/` | offline diagnostics: `eval blocker` measures recall |
 

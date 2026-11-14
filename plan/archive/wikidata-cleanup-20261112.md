@@ -1,8 +1,14 @@
 # Wikidata module — cleanup and review
 
-**Status:** Active. The mechanical cleanup shipped 2026-11-12 (behaviour-neutral, proven by a
-rebuild diff). The structural review is open: one known scoring defect and a set of design
-questions below, none of them started.
+**Status:** Archived 2026-11-13. The mechanical cleanup shipped 2026-11-12 (behaviour-neutral,
+proven by a rebuild diff) and the structural review closed with it: the ladder became one candidate
+set, ranked once and decided once, and the last two defects (a degraded answer claiming, an
+untyped handle kind) were fixed and measured. The reviews still marked `pending` on the refreshed
+table — `transport` (three concerns in `search`, a query chosen from `first.kind`, no
+degraded-branch test), `property_query` (never reviewed, no findings), `sparql` (a comment block
+inside `format!`) — were **accepted rather than fixed**; the module is merged and working, and none
+of them is a correctness claim. The one genuinely open design question is the confidence value:
+a score, not a calibrated probability (`plan/pragmatism.md`).
 
 **Purpose:** hold what `identity/wikidata/` is for, what was consolidated, what is actually wrong
 with it, and how to verify a change here without guessing.
