@@ -4,7 +4,9 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 
 use sea_orm::sea_query::{NullOrdering, Order};
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, Condition, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 
 use crate::knowledge::graph::KnowledgeGraph;
 use crate::knowledge::graph::merge::Outcome;
@@ -55,11 +57,13 @@ pub async fn auto_merge(
     for (a, b) in candidates(conn).await? {
         let (Ok(left), Ok(right)) = (graph.get(a).await, graph.get(b).await) else {
             // One side no longer names a row; the next scan will not raise the pair at all.
+            settle(conn, a, b).await?;
             report.moot += 1;
             continue;
         };
         // A tombstone on either side means some other path already answered this.
         if left.merged_into_id.is_some() || right.merged_into_id.is_some() {
+            settle(conn, a, b).await?;
             report.moot += 1;
             continue;
         }
@@ -101,8 +105,14 @@ pub async fn auto_merge(
             .merge(loser.id, winner.id, Cause::ProximityAuto)
             .await?
         {
-            Outcome::Merged => report.merged += 1,
-            Outcome::AlreadyMerged => report.moot += 1,
+            Outcome::Merged => {
+                settle(conn, a, b).await?;
+                report.merged += 1;
+            }
+            Outcome::AlreadyMerged => {
+                settle(conn, a, b).await?;
+                report.moot += 1;
+            }
             // A question, not an error: the pair stays in the batch for a person to answer.
             Outcome::RefusedSharedIllumination => report.refused += 1,
             // The batch check above should have caught it; a standing decision keeps them apart
@@ -111,6 +121,21 @@ pub async fn auto_merge(
         }
     }
     Ok(report)
+}
+
+/// Answer the pair: the batch is the list of open questions, so a pair this pass settled — or
+/// found already settled — leaves it. Both ids name one entity once the fold lands, so every row
+/// touching either side is stale; a row left behind reads as an open question that points at a
+/// tombstone until the next scan.
+async fn settle(conn: &DatabaseConnection, a: i32, b: i32) -> anyhow::Result<()> {
+    let stale = Condition::any()
+        .add(model::knowledge_proximities::Column::HolderId.is_in([a, b]))
+        .add(model::knowledge_proximities::Column::CounterpartId.is_in([a, b]));
+    model::knowledge_proximities::Entity::delete_many()
+        .filter(stale)
+        .exec(conn)
+        .await?;
+    Ok(())
 }
 
 /// Whether `a` is the more substantiated side. `None` is the least worth there is.

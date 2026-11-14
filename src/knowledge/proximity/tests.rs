@@ -69,9 +69,10 @@ async fn a_pair_sharing_two_identities_is_raised_once() {
     assert_eq!(batch_size(&db).await, 1);
 }
 
-/// The merge pass folds the pair and tombstones the loser; the row stays in the batch.
+/// The merge pass folds the pair and tombstones the loser, and the answered pair leaves the batch:
+/// a row left behind would point at a tombstone and read as an open question.
 #[tokio::test]
-async fn merging_folds_the_pair_it_answers() {
+async fn merging_folds_the_pair_and_answers_it() {
     db_or_skip!(db);
     let store = KnowledgeGraph::new(&db);
     claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
@@ -84,8 +85,8 @@ async fn merging_folds_the_pair_it_answers() {
     assert_eq!(report.merged, 1, "{report:?}");
     assert_eq!(
         batch_size(&db).await,
-        1,
-        "the candidate is left in the batch for the next scan to replace"
+        0,
+        "a folded pair is answered, not left for the next scan"
     );
     let tombstones = model::knowledge_entity::Entity::find()
         .filter(model::knowledge_entity::Column::MergedIntoId.is_not_null())

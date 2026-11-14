@@ -260,7 +260,8 @@ fold the pairs that look like one thing, and queue the ones the shared-illuminat
 it in one transaction, so what it holds is always what the graph looked like when it was last asked
 — a scan after a link, and again at the end of a resolve. **Auto-merge** answers the batch: it
 re-checks that both sides still exist, scores the pair with the heuristic it was handed and folds the
-convincing ones. The rest stay in the batch, which is where a person reads them.
+convincing ones, and the pairs it folds (or finds already folded) leave the batch. The rest stay in
+the batch, which is where a person reads them.
 
 Nothing in that table is a status or a verdict. A pair that keeps looking like one thing keeps
 reappearing; one that stops, stops. Human decisions that must outlive a rebuild go somewhere
