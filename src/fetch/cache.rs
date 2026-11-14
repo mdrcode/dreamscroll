@@ -20,9 +20,18 @@ use serde_json::Value;
 use super::transport::{Answer, Outcome};
 use crate::model::fetch_cache as cached;
 
-/// Seven days for everything, which is short enough that a provider gaining a new item is noticed
-/// and long enough that a rerun is free.
-pub const DEFAULT_TTL: Duration = Duration::days(7);
+/// How long a positive answer stands.
+///
+/// Wikidata claims — a label, an article title, a platform property — change slowly, and a row is
+/// keyed by the *exact* question, so a three-month-old answer is still the answer to that question
+/// in the overwhelming majority of cases. Seven days meant half the cache was stale within a week
+/// and every rebuild paid the network for questions whose answers had not moved.
+pub const FOUND_TTL: Duration = Duration::days(90);
+
+/// Shorter, because a negative is weaker evidence: "no item has this label" becomes false when
+/// someone creates the item. A month bounds how long a newly created referent stays invisible to an
+/// entity that was asked about before it existed.
+pub const EMPTY_TTL: Duration = Duration::days(30);
 
 /// The one exception: a provider that could not be reached is not a fact about the world, and
 /// caching "the provider was down" for a week would poison that part of the corpus.
@@ -32,7 +41,7 @@ pub const FAILED_TTL: Duration = Duration::minutes(10);
 /// answer we would have got from a healthy backend. One search API silently served prefix-only
 /// results when its index was unavailable, with HTTP 200 and `success: 1`; a week of that would
 /// quarantine a query behind a bad answer nobody could see was bad.
-pub const DEGRADED_TTL: Duration = Duration::minutes(60);
+pub const DEGRADED_TTL: Duration = Duration::hours(24);
 
 /// Expired rows are kept this long past their expiry before being pruned. Long enough that recent
 /// staleness stays inspectable — "we asked last week and the answer has aged out" is worth seeing —
@@ -44,7 +53,8 @@ fn ttl(outcome: Outcome) -> Duration {
     match outcome {
         Outcome::Failed => FAILED_TTL,
         Outcome::Degraded => DEGRADED_TTL,
-        Outcome::Found | Outcome::Empty => DEFAULT_TTL,
+        Outcome::Found => FOUND_TTL,
+        Outcome::Empty => EMPTY_TTL,
     }
 }
 
@@ -284,7 +294,10 @@ mod tests {
         assert!(Outcome::Found.answered());
         assert!(!Outcome::Empty.answered());
         assert!(!Outcome::Failed.answered());
-        assert!(ttl(Outcome::Degraded) < ttl(Outcome::Found));
+        // A positive outlives a negative, which outlives a degraded answer, which outlives a
+        // failure: the stronger the claim, the longer it stands.
+        assert!(ttl(Outcome::Found) > ttl(Outcome::Empty));
+        assert!(ttl(Outcome::Empty) > ttl(Outcome::Degraded));
         assert!(ttl(Outcome::Degraded) > ttl(Outcome::Failed));
         assert_eq!(Outcome::parse("degraded"), Some(Outcome::Degraded));
     }
