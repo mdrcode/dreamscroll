@@ -260,7 +260,7 @@ machinery it reviewed was replaced. Current state:
 | 5 | `classes.rs` | 386 | accepted | Two findings measured and declined: the gate reads one type, nine of twenty types unmapped |
 | 6 | `transport.rs` | 719 | pending | `search` mixes three concerns; `sparql` picks its query from `first.kind`; no degraded-branch test |
 | 7 | `property_query.rs` | 233 | pending | clean; unreviewed |
-| 8 | `query.rs` | 92 | pending | a comment block inside `format!`; its `P31` note still calls `incompatible` a gate, which the field made *evidence* |
+| 8 | `sparql.rs` | 92 | pending | a comment block inside `format!`; `escape` is covered by one test |
 | 9 | `answer.rs` | 72 | pending | now holds `referents` (from `decision.rs`); `is_menu`'s description signal is a convention, not a rule |
 | 10 | `kind.rs` | 112 | pending | now holds `shape()` (from `shape.rs`); `property()` has two callers, not one |
 | 11 | `candidate.rs` | 18 | pending | `classes` empty meaning "not asked" is load-bearing |

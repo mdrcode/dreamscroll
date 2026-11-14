@@ -11,9 +11,9 @@ mod kind;
 mod measure;
 pub(crate) mod plan;
 mod property_query;
-mod query;
 pub(crate) mod ranking;
 mod resolver;
+mod sparql;
 mod transport;
 
 pub use candidate::WikidataCandidate;

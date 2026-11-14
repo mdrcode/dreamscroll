@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use super::query;
+use super::sparql;
 use super::{LANGUAGE, WikidataCandidate, WikidataKind};
 use crate::fetch::{Answer, BATCH, FetchError, Outcome, Request, Transport};
 
@@ -459,9 +459,9 @@ impl Wire {
             return Ok(Vec::new());
         };
         let query = if let Some(property) = first.kind.property() {
-            query::for_handles(requests, property.as_str())
+            sparql::for_handles(requests, property.as_str())
         } else {
-            query::for_labels(requests)
+            sparql::for_labels(requests)
         };
         let response = self
             .client
