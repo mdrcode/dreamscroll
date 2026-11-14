@@ -206,16 +206,12 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   Moot if the Interactions API has no file-reference input; then the lever is
   shrinking uploads instead. See MEDIA_TRANSCODE in `plan/upload-formats.md`.
 
-- [ ] **Make the scoring agree with itself.** An audit of `src/knowledge` (2026-11-04) found four
-  places where a function contradicts its own rule. Item 2 is fixed; item 1 needs a before/after diff
-  (`reset` → `link` → `identity resolve --offline` → `compare`) to prove it moves, not just a unit test.
+- [x] **Make the scoring agree with itself.** An audit of `src/knowledge` (2026-11-04) found four
+  places where a function contradicts its own rule. Item 2 is fixed; item 1 is moot since the ladder.
 
-  1. **Two fits for one candidate.** `wikidata/policy.rs::parse_search` builds IDF weights over all
-     of the answer's candidates; `decide` builds them over the *admitted* subset. One candidate is
-     therefore scored against two weight sets inside one `parse`, so a search answer can be accepted
-     on one fit and ranked on another. `ranking.rs`'s own doc says the corpus is "the answers the
-     question returned", which sides with `parse_search` — so the fix is for `decide` to rank the
-     admitted subset against the full answer's weights, not for `parse_search` to narrow its corpus.
+  1. ~~**Two fits for one candidate.**~~ **Moot** (2026-11-13): `policy.rs::parse_search` and the
+     admitted-subset weights are gone. `aggregate::rank` builds one `Weights` over the field, so one
+     candidate is scored against one corpus.
   2. ~~**The margin guards the wrong competitor.**~~ **Fixed** (2026-11-12): `Ranking::rank` sorts
      by `fit` and lets the blend break ties only, so `decide`'s `runner_up` is the closest competitor
      *by the measure it margins*. Locked by

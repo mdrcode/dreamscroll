@@ -9,7 +9,7 @@ with it, and how to verify a change here without guessing.
 
 **See also:** `src/knowledge/knowledge.md` (the module map), `plan/lexicon.md` (vocabulary),
 `plan/backlog.md` (the queue entry for the scoring defect), `plan/pragmatism.md` (accepted
-shortcuts). Policy numbers and their provenance live in `ranking.rs` and `types.rs` themselves.
+shortcuts). Policy numbers and their provenance live in `aggregate.rs` and `types.rs` themselves.
 
 ## What the module is for
 
@@ -253,8 +253,8 @@ machinery it reviewed was replaced. Current state:
 | --- | --- | --- | --- | --- |
 | 1 | `resolver.rs` | 338 | done | R1–R11. `ladder` → `resolve_batch`. Open: no precedence test; the `Canned` footgun |
 | 2 | `plan.rs` | 298 | done | P1, P2. `Step` → `Strategy`, `ORDER` → `ALL`, `all_steps` → `asks`, `step` → `requests` |
-| 3 | `aggregate.rs` | 744 | in progress | absorbs `pool.rs` and the decision half of `decision.rs`. Open: size — gathering, the score terms and the decision share one file; a `field`/`score` split is unmeasured |
-| 4 | `ranking.rs` | 347 | done | S1–S5. `fit`/`blend` docs repointed to `aggregate`/`answer` |
+| 3 | `aggregate.rs` | 915 | in progress | absorbs `ranking.rs` (2026-11-13) and the decision half of `decision.rs`. Open: size — the field, the measure and the decision share one file; a `field`/`measure` split is the live question |
+| 4 | ~~`ranking.rs`~~ | — | done | S1–S5; then folded into `aggregate.rs`. What it still held was one measure and the pricing; the `Policy` impl, `Fit`, `blend`, `exact_label`, `hint_tokens` and nine constants were dead |
 | 5 | `types.rs` | 386 | accepted | Two findings measured and declined: the gate reads one type, nine of twenty types unmapped |
 | 6 | `transport.rs` | 719 | pending | `search` mixes three concerns; `sparql` picks its query from `first.kind`; no degraded-branch test |
 | 7 | `property_query.rs` | 233 | pending | clean; unreviewed |

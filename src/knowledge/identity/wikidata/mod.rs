@@ -8,7 +8,6 @@ mod kind;
 pub(crate) mod plan;
 mod property_query;
 mod query;
-mod ranking;
 mod resolver;
 mod transport;
 mod types;
