@@ -28,6 +28,18 @@ pub(crate) fn near_surface(theirs: &str, ours: &str) -> bool {
     levenshtein(theirs, ours) <= allowance
 }
 
+/// One folded surface is a whole-word prefix of the other: `m4` in `m4 carbine`, never `roy` in
+/// `royal`.
+///
+/// Both sides are already comparable, like [`near_surface`]'s: the caller owns the fold. The prefix
+/// must be *proper* — an equal surface returns false, because "one contains the other" is what this
+/// prices, and equality is a stronger claim the caller has already made. A prefix is weaker than a
+/// spelling difference: the longer surface is *about* a thing the shorter one names.
+pub(crate) fn word_prefix(short: &str, long: &str) -> bool {
+    long.strip_prefix(short)
+        .is_some_and(|rest| !rest.is_empty() && !rest.starts_with(char::is_alphanumeric))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -51,5 +63,16 @@ mod tests {
             &comparable("Royal Navy fleet aircraft carrier fleet"),
             &comparable("Royal Navy"),
         ));
+    }
+
+    /// The boundary is a word, not a character: `m4` is a whole-word prefix of `m4 carbine`, while
+    /// `roy` only starts the word `royal` and names nothing.
+    #[test]
+    fn a_prefix_stops_at_a_word_boundary() {
+        assert!(word_prefix("m4", "m4 carbine"));
+        assert!(word_prefix("paris", "paris saint germain"));
+        assert!(!word_prefix("roy", "royal navy"));
+        assert!(!word_prefix("m4", "m14"));
+        assert!(!word_prefix("m4", "m4"));
     }
 }

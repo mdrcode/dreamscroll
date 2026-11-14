@@ -9,8 +9,9 @@
 //!   *might* be the same thing, so it lives with blocking and the heuristic's name match.
 //! - [`tokens`] — *do these two texts talk about the same thing?* Words, stems, grams and set
 //!   overlap for a measure to price. Nothing here is ever stored.
-//! - [`surface::near_surface`] — is one surface a spelling of the other? Compares two *already
-//!   comparable* surfaces, so its caller owns the fold.
+//! - [`surface`] — is one surface a spelling of the other, or a whole-word prefix of it?
+//!   [`surface::near_surface`] and [`surface::word_prefix`] both compare two *already comparable*
+//!   surfaces, so their caller owns the fold.
 //!
 //! [`fingerprint::norm_fingerprint`] stamps the first two: any change to the fold or the word key
 //! moves it, which is what makes a stale `knowledge_blocking_index` visible instead of silent.
@@ -30,6 +31,6 @@ mod tokens;
 pub(crate) use fingerprint::norm_fingerprint;
 pub(crate) use fold::comparable;
 pub(crate) use key::word_key;
-pub(crate) use surface::near_surface;
+pub(crate) use surface::{near_surface, word_prefix};
 pub use tokens::jaccard;
 pub(crate) use tokens::{content_tokens, grams};

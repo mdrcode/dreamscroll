@@ -31,7 +31,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::fetch::{Answers, Outcome, Request};
 use crate::knowledge::evidence::Identity;
 use crate::knowledge::text;
-use crate::knowledge::text::{content_tokens, near_surface};
+use crate::knowledge::text::{content_tokens, near_surface, word_prefix};
 use crate::model;
 
 use super::ranking::{self, HANDLE_CONFIDENCE, Weights};
@@ -133,13 +133,6 @@ pub(super) fn surface(label: &str, ours: &str) -> f32 {
         return 0.7;
     }
     0.0
-}
-
-/// One folded surface is a whole-word prefix of the other: `m4` in `m4 carbine`, never `roy` in
-/// `royal`.
-fn word_prefix(short: &str, long: &str) -> bool {
-    long.strip_prefix(short)
-        .is_some_and(|rest| rest.chars().next().is_none_or(|c| !c.is_alphanumeric()))
 }
 
 /// The field in order: the score, then surface, then description fit. Stable, so the provider's own
