@@ -14,7 +14,7 @@ use crate::database::DbHandle;
 use crate::fetch::cache::{FetchCache, State};
 use crate::fetch::{Answer, Outcome, Request};
 use crate::knowledge::blocker::SqlBlocker;
-use crate::knowledge::identity::wikidata::{WikidataCandidate, WikidataKind, plan, pool};
+use crate::knowledge::identity::wikidata::{WikidataCandidate, WikidataKind, aggregate, plan};
 use crate::knowledge::linker::heuristic::Heuristic;
 use crate::knowledge::text;
 use crate::model;
@@ -29,10 +29,10 @@ pub struct Report {
     /// Candidates `Rank` would choose, best first, with the score it gave them.
     pub ranked: Vec<(i32, String, f32)>,
     pub steps: Vec<Step>,
-    /// The pooled ranking: every candidate, best first, with the numbers that put it there.
-    pub pool: Vec<PoolRow>,
-    /// The identity the pool supports, when it supports one.
-    pub decision: Option<PoolDecision>,
+    /// The ranked field: every candidate, best first, with the numbers that put it there.
+    pub field: Vec<FieldRow>,
+    /// The identity the field supports, when it supports one.
+    pub decision: Option<FieldDecision>,
     /// Why it did not, when it did not — recorded by the resolver, not inferred here.
     pub refusal: Option<&'static str>,
     /// The decided identity is refused by a standing veto, so the engine would not write it.
@@ -67,9 +67,9 @@ pub struct Step {
     pub hidden: usize,
 }
 
-/// One candidate in the pooled ranking, with the score that placed it.
+/// One candidate in the field, with the score that placed it.
 #[derive(Debug)]
-pub struct PoolRow {
+pub struct FieldRow {
     pub qid: String,
     pub label: String,
     pub description: String,
@@ -82,9 +82,9 @@ pub struct PoolRow {
     pub chosen: bool,
 }
 
-/// What the pool decided, when it decided.
+/// What the field decided, when it decided.
 #[derive(Debug)]
-pub struct PoolDecision {
+pub struct FieldDecision {
     pub qid: String,
     pub method: String,
     pub confidence: f32,
@@ -157,7 +157,7 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
         candidates,
         ranked,
         steps: walked.steps,
-        pool: walked.pool,
+        field: walked.field,
         decision: walked.decision,
         refusal: walked.refusal,
         vetoed: walked.vetoed,
@@ -199,11 +199,11 @@ async fn index_keys(db: &DbHandle, id: i32) -> anyhow::Result<(Vec<String>, Vec<
         .unwrap_or_default())
 }
 
-/// Everything a walk produced: what each question answered, and what the pool made of it.
+/// Everything a walk produced: what each question answered, and what the field made of it.
 struct Walked {
     steps: Vec<Step>,
-    pool: Vec<PoolRow>,
-    decision: Option<PoolDecision>,
+    field: Vec<FieldRow>,
+    decision: Option<FieldDecision>,
     refusal: Option<&'static str>,
     vetoed: bool,
 }
@@ -253,44 +253,45 @@ async fn walk(
         });
     }
 
-    let candidates = pool::gather(&planned, &answers, Outcome::Found);
-    let (decision, refusal, vetoed) = if let Some(identity) = pool::by_handle(&planned, &answers) {
-        let vetoed = vetoes.contains(&(
-            entity.id,
-            identity.scheme.clone(),
-            identity.external_id.clone(),
-        ));
-        let decision = PoolDecision {
-            qid: identity.external_id,
-            method: identity.method.unwrap_or_default(),
-            confidence: identity.confidence.unwrap_or_default(),
-        };
-        (Some(decision), None, vetoed)
-    } else {
-        match pool::decide(entity, &candidates) {
-            Ok(identity) => {
-                let vetoed = vetoes.contains(&(
-                    entity.id,
-                    identity.scheme.clone(),
-                    identity.external_id.clone(),
-                ));
-                let decision = PoolDecision {
-                    qid: identity.external_id,
-                    method: identity.method.unwrap_or_default(),
-                    confidence: identity.confidence.unwrap_or_default(),
-                };
-                (Some(decision), None, vetoed)
+    let candidates = aggregate::gather(&planned, &answers, Outcome::Found);
+    let (decision, refusal, vetoed) =
+        if let Some(identity) = aggregate::by_handle(&planned, &answers) {
+            let vetoed = vetoes.contains(&(
+                entity.id,
+                identity.scheme.clone(),
+                identity.external_id.clone(),
+            ));
+            let decision = FieldDecision {
+                qid: identity.external_id,
+                method: identity.method.unwrap_or_default(),
+                confidence: identity.confidence.unwrap_or_default(),
+            };
+            (Some(decision), None, vetoed)
+        } else {
+            match aggregate::decide(entity, &candidates) {
+                Ok(identity) => {
+                    let vetoed = vetoes.contains(&(
+                        entity.id,
+                        identity.scheme.clone(),
+                        identity.external_id.clone(),
+                    ));
+                    let decision = FieldDecision {
+                        qid: identity.external_id,
+                        method: identity.method.unwrap_or_default(),
+                        confidence: identity.confidence.unwrap_or_default(),
+                    };
+                    (Some(decision), None, vetoed)
+                }
+                Err(why) => (None, Some(why), false),
             }
-            Err(why) => (None, Some(why), false),
-        }
-    };
+        };
 
     let chosen = decision.as_ref().map(|decision| decision.qid.as_str());
-    let pool = pool::rank(entity, &candidates)
+    let field = aggregate::rank(entity, &candidates)
         .into_iter()
         .map(|ranked| {
             let candidate = &candidates[ranked.index].candidate;
-            PoolRow {
+            FieldRow {
                 qid: candidate.id.clone(),
                 label: candidate.label.clone().unwrap_or_default(),
                 description: candidate.description.clone().unwrap_or_default(),
@@ -299,7 +300,7 @@ async fn walk(
                 kind: ranked.kind,
                 head: ranked.head,
                 year: ranked.year,
-                score: pool::score(&ranked),
+                score: aggregate::score(&ranked),
                 chosen: chosen == Some(candidate.id.as_str()),
             }
         })
@@ -307,7 +308,7 @@ async fn walk(
 
     Ok(Walked {
         steps,
-        pool,
+        field,
         decision,
         refusal,
         vetoed,
@@ -389,8 +390,8 @@ impl Report {
                     "hidden": step.hidden,
                 }))
                 .collect::<Vec<_>>(),
-            "pool": self
-                .pool
+            "field": self
+                .field
                 .iter()
                 .map(|row| serde_json::json!({
                     "qid": row.qid,
@@ -473,7 +474,7 @@ mod tests {
     use crate::test_support::{db_or_skip, fixtures};
     use sea_orm::EntityTrait;
 
-    /// A veto is the engine's refusal, so the inspector must report it as one: the pool did decide,
+    /// A veto is the engine's refusal, so the inspector must report it as one: the field did decide,
     /// and the graph would not write the identity.
     #[tokio::test]
     async fn a_standing_veto_is_not_reported_as_an_identity() {
@@ -519,7 +520,7 @@ mod tests {
             .await
             .unwrap()
             .expect("entity");
-        let decision = report.decision.as_ref().expect("the pool decided");
+        let decision = report.decision.as_ref().expect("the field decided");
         assert_eq!(decision.qid, "Q42");
         assert_eq!(decision.method, "wikipedia_title");
         assert!(report.vetoed);

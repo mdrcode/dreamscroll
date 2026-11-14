@@ -47,6 +47,7 @@ pub(super) fn for_handles(requests: &[Request<WikidataKind>], property: &str) ->
 pub(super) fn escape(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

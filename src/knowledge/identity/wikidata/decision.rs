@@ -1,8 +1,8 @@
-//! Which candidates are referents at all — the only filter the pooled ranking keeps.
+//! Which candidates are referents at all — the only filter the aggregate ranking keeps.
 //!
 //! A menu is not a thing to identify, and an answer that carried only one proves nothing. Everything
 //! else about a candidate — which name it bears, which kind it is, which question produced it — is
-//! the pool's question, answered by scoring in [`super::pool`].
+//! the field's question, answered by scoring in [`super::aggregate`].
 //!
 //! The ladder's per-rung admission, its early exits and its type gate were removed with the ladder.
 //! They decided *before* the ranking, which is how `BBC` had `Q9531` at the top of two answers and

@@ -21,7 +21,7 @@ use crate::knowledge::identity::Resolver;
 use crate::model;
 
 use super::transport::Wire;
-use super::{WikidataCandidate, WikidataKind, plan, pool};
+use super::{WikidataCandidate, WikidataKind, aggregate, plan};
 
 /// One authority: its decisions, and the wire it speaks through.
 pub struct Wikidata {
@@ -54,10 +54,10 @@ type Planned = (i32, Vec<(plan::Step, Request<WikidataKind>)>);
 
 /// Ask every rung, then decide once.
 ///
-/// The ladder used to decide per rung and stop at the first claim; this asks all of them and pools
-/// the answers (see `pool`). Offline rebuilds are unaffected — `answers_for` serves the cache — and
-/// the cost ordering is deliberately gone for now: the pool needs every answer, and a budget
-/// question can only be answered after the quality question is.
+/// The ladder used to decide per rung and stop at the first claim; this asks all of them and
+/// aggregates the answers (see `aggregate`). Offline rebuilds are unaffected — `answers_for` serves
+/// the cache — and the cost ordering is deliberately gone for now: the field needs every answer,
+/// and a budget question can only be answered after the quality question is.
 async fn ladder<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataCandidate>>>(
     transport: &T,
     entities: &[model::knowledge_entity::Model],
@@ -85,19 +85,20 @@ async fn ladder<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataCandidat
         let Some((_, steps)) = planned.iter().find(|(id, _)| *id == entity.id) else {
             continue;
         };
-        // A property match *is* the identity, so nothing is pooled against it.
-        if let Some(identity) = pool::by_handle(steps, &answers) {
+        // A property match *is* the identity, so nothing is aggregated against it.
+        if let Some(identity) = aggregate::by_handle(steps, &answers) {
             identities.push((entity.id, identity));
             continue;
         }
-        match pool::decide(entity, &pool::gather(steps, &answers, Outcome::Found)) {
+        match aggregate::decide(entity, &aggregate::gather(steps, &answers, Outcome::Found)) {
             Ok(identity) => identities.push((entity.id, identity)),
             Err(_) => {
                 // A degraded answer may have held the claim we are discarding. Deciding the
-                // degraded pool only to report it is the same rule as `decision::trusted`.
-                if let Ok(identity) =
-                    pool::decide(entity, &pool::gather(steps, &answers, Outcome::Degraded))
-                {
+                // degraded field only to report it is the same rule as `decision::trusted`.
+                if let Ok(identity) = aggregate::decide(
+                    entity,
+                    &aggregate::gather(steps, &answers, Outcome::Degraded),
+                ) {
                     tracing::warn!(
                         entity = %entity.name,
                         qid = %identity.external_id,
@@ -208,11 +209,11 @@ mod tests {
         entity
     }
 
-    /// Every rung is asked, and the pool decides: here two answers offer the same surface, so the
+    /// Every rung is asked, and the field decides: here two answers offer the same surface, so the
     /// description separates them. The point of the fixture is that the *title* answer is no longer
     /// privileged by position — it wins on evidence.
     #[tokio::test]
-    async fn the_pool_ranks_by_surface_then_description_and_asks_every_rung() {
+    async fn the_field_ranks_by_surface_then_description_and_asks_every_rung() {
         let seed = |kind: WikidataKind, query: &str, answer: Answer<Vec<WikidataCandidate>>| {
             (kind, query.to_string(), answer)
         };
@@ -254,7 +255,7 @@ mod tests {
         assert_eq!(ids, vec![(1, "Q2"), (2, "Q892")], "{identities:?}");
         assert!(
             fake.asked(WikidataKind::Search, "Train Dreams"),
-            "the pool needs every answer, so nothing is skipped after a claim"
+            "the field needs every answer, so nothing is skipped after a claim"
         );
     }
 
@@ -262,7 +263,7 @@ mod tests {
     /// does not. And when no rung can corroborate — the `Paris` shape — the exact surface still
     /// answers, because it is the only evidence there is.
     #[tokio::test]
-    async fn the_pool_prefers_the_corroborated_candidate() {
+    async fn the_field_prefers_the_corroborated_candidate() {
         let seed = |kind: WikidataKind, query: &str, answer: Answer<Vec<WikidataCandidate>>| {
             (kind, query.to_string(), answer)
         };
@@ -331,7 +332,7 @@ mod tests {
         assert_eq!(ids, vec![(1, "Q200"), (2, "Q300")], "{identities:?}");
         assert!(
             fake.asked(WikidataKind::Search, "Orthodoxy"),
-            "pooling asks every rung, including for the entity the label answered"
+            "aggregation asks every rung, including for the entity the label answered"
         );
     }
 }

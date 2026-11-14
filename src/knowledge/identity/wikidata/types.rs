@@ -101,7 +101,7 @@ impl Family {
 ///
 /// Wider than [`incompatible`] on purpose. That one is a *gate* — the ladder path still refuses on
 /// it — and its arms were narrowed to the ones measured safe as refusals. This one is *evidence*
-/// for the pooled ranker, so every type we have an opinion about counts, including the eight whose
+/// for the aggregate ranker, so every type we have an opinion about counts, including the eight whose
 /// arms turned out too blunt to refuse on (`place`, `organization`, `publication`, …). A candidate
 /// possible under any one of the entity's types is possible.
 pub(super) fn compatible(types: &[&str], classes: &[String]) -> Option<bool> {

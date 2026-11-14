@@ -679,10 +679,10 @@ and contradiction sort were removed with them.
 
 ## Staged asking: measured twice, declined (2026-11-13)
 
-The pool asks every question for every entity, so a rebuild spends ~2,900 transport calls where the
-old ladder spent ~2,400. Nearly all of the difference is the two CirrusSearch questions, which cannot
-be batched: `search_label` ~2,279 calls, `search_hint` ~517. Provenance over the 1,601 pool-decided
-identities (the other ~36 are handle matches, which bypass the pool) prices them:
+The field asks every question for every entity, so a rebuild spends ~3,500 transport calls: the
+three exact questions batch 50 per call (~100 calls together), while the two CirrusSearch questions
+cannot be batched at all — `search_label` 2,279 calls, `search_hint` 1,146. Provenance over the 1,601
+field-decided identities (the other ~36 are handle matches, which bypass the field) prices them:
 
 | question | winners it produced | sole source of the winner |
 | --- | --- | --- |
@@ -691,8 +691,8 @@ identities (the other ~36 are handle matches, which bypass the pool) prices them
 | `search_label` | 1249 | 91 |
 | `search_hint` | 517 | 11 |
 
-Two stagings were built, each keeping the single `pool::decide` and one combined pool — staging the
-*asking*, never the admission:
+Two stagings were built, each keeping the single `aggregate::decide` and one combined field — staging
+the *asking*, never the admission:
 
 | staging | requests | identities | fixed set | verdict |
 | --- | --- | --- | --- | --- |
@@ -709,3 +709,7 @@ both the title and the label, and search still finds the item the description su
 So search stays asked for every non-handle entity. The cost is deferred rather than solved: an
 offline rebuild answers 7,956 of 8,466 questions from the cache, and only a first-contact run pays
 the unbatched calls.
+
+**Renamed 2026-11-13:** `pool` → `aggregate`, `Pooled` → `Aggregate`, and the collection it ranks is
+the *field* (`aggregate::decide(entity, &field)`). A pool implies undifferentiated members; this file
+ranks them and decides one.

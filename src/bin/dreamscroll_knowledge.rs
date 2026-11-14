@@ -414,12 +414,12 @@ fn print_inspection(report: &knowledge::identity::inspect::Report) {
         }
     }
 
-    println!("\n-- pool (ranked) --");
+    println!("\n-- field (ranked) --");
     println!(
         "  {:>6} {:>5} {:>5} {:>5} {:>4}  {:<12} {}",
         "score", "surf", "fit", "kind", "year", "qid", "label"
     );
-    for row in report.pool.iter().take(10) {
+    for row in report.field.iter().take(10) {
         let kind = match row.kind {
             Some(true) => "+",
             Some(false) => "-",
@@ -437,8 +437,8 @@ fn print_inspection(report: &knowledge::identity::inspect::Report) {
             if row.chosen { "  <=" } else { "" }
         );
     }
-    if report.pool.len() > 10 {
-        println!("  … {} more", report.pool.len() - 10);
+    if report.field.len() > 10 {
+        println!("  … {} more", report.field.len() - 10);
     }
     match (&report.decision, report.vetoed) {
         (Some(decision), true) => println!(

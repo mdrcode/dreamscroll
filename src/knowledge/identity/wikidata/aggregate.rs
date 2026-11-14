@@ -1,4 +1,4 @@
-//! One pool, one ranking.
+//! One field, one ranking.
 //!
 //! The ladder decided per rung: every question had its own admission rule and its own decision,
 //! and the first claim stopped the climb. Measured against the graph, the failures were decided
@@ -10,7 +10,7 @@
 //! - `Industrial Revolution` had `Q2269` first in every answer and refused it at each, because its
 //!   description shares one word with ours; the search rung claimed a book *about* it.
 //!
-//! So: ask every rung, pool what came back, and rank once. The score has four components, each a
+//! So: ask every rung, aggregate what came back, and rank once. The score has four components, each a
 //! measure with a reason of its own, plus one provenance policy:
 //!
 //! | term | what it measures |
@@ -52,7 +52,7 @@ const TIER_PRIOR: [f32; 3] = [0.15, 0.10, 0.00];
 /// incomplete, and an unknown class says nothing.
 const TYPE_AGREES: f32 = 0.15;
 const TYPE_DISAGREES: f32 = 0.30;
-/// A claim needs a minimum of evidence, not just a lead over the runner-up: with a pool of one,
+/// A claim needs a minimum of evidence, not just a lead over the runner-up: with a field of one,
 /// there is no runner-up to lose to, and a surface-only candidate would assert itself.
 const SCORE_FLOOR: f32 = 0.50;
 /// The head noun of a Wikidata description states the kind (`1902 novel by …`, `scientific
@@ -74,7 +74,7 @@ pub(crate) struct Source {
 /// A candidate and every question that produced it. One QID from two answers is one item with two
 /// pieces of provenance, not two candidates.
 #[derive(Debug, Clone)]
-pub(crate) struct Pooled {
+pub(crate) struct Aggregate {
     pub(crate) candidate: WikidataCandidate,
     pub(crate) sources: Vec<Source>,
 }
@@ -142,23 +142,28 @@ fn word_prefix(short: &str, long: &str) -> bool {
         .is_some_and(|rest| rest.chars().next().is_none_or(|c| !c.is_alphanumeric()))
 }
 
-/// The pool in order: the score, then surface, then description fit. Stable, so the provider's own
+/// The field in order: the score, then surface, then description fit. Stable, so the provider's own
 /// ordering breaks what is left.
-pub(crate) fn rank(entity: &model::knowledge_entity::Model, pool: &[Pooled]) -> Vec<Ranked> {
-    let candidates: Vec<WikidataCandidate> = pool.iter().map(|p| p.candidate.clone()).collect();
+pub(crate) fn rank(entity: &model::knowledge_entity::Model, field: &[Aggregate]) -> Vec<Ranked> {
+    let candidates: Vec<WikidataCandidate> = field.iter().map(|p| p.candidate.clone()).collect();
     let weights = Weights::over(&candidates);
     let ours = ranking::our_tokens(entity);
 
     let mut entity_types = vec![entity.entity_type.as_str()];
     entity_types.extend(entity.alt_types.iter().map(String::as_str));
 
-    let mut ranked: Vec<Ranked> = pool
+    let mut ranked: Vec<Ranked> = field
         .iter()
         .enumerate()
-        .map(|(index, pooled)| {
-            let label = pooled.candidate.label.as_deref().unwrap_or_default();
-            let theirs =
-                content_tokens(pooled.candidate.description.as_deref().unwrap_or_default());
+        .map(|(index, aggregate)| {
+            let label = aggregate.candidate.label.as_deref().unwrap_or_default();
+            let theirs = content_tokens(
+                aggregate
+                    .candidate
+                    .description
+                    .as_deref()
+                    .unwrap_or_default(),
+            );
             let fit = ours
                 .iter()
                 .map(|tokens| weights.fit(&theirs, tokens))
@@ -183,7 +188,7 @@ pub(crate) fn rank(entity: &model::knowledge_entity::Model, pool: &[Pooled]) -> 
                     .fold(0.0f32, f32::max);
                 by_name.max(by_hint).max(by_alias)
             };
-            let (tier, step) = pooled
+            let (tier, step) = aggregate
                 .sources
                 .iter()
                 .map(|source| (tier_of(source.step), source.step))
@@ -195,7 +200,7 @@ pub(crate) fn rank(entity: &model::knowledge_entity::Model, pool: &[Pooled]) -> 
                 surface,
                 fit,
                 label_less: label.is_empty(),
-                kind: super::types::compatible(&entity_types, &pooled.candidate.classes),
+                kind: super::types::compatible(&entity_types, &aggregate.candidate.classes),
                 head: head_agrees(&entity_types, &theirs),
                 year: year_relation(entity, &theirs),
                 step,
@@ -212,22 +217,22 @@ pub(crate) fn rank(entity: &model::knowledge_entity::Model, pool: &[Pooled]) -> 
     ranked
 }
 
-/// The one identity the pool supports, or the reason there is none.
+/// The one identity the field supports, or the reason there is none.
 pub(crate) fn decide(
     entity: &model::knowledge_entity::Model,
-    pool: &[Pooled],
+    field: &[Aggregate],
 ) -> Result<Identity, &'static str> {
     // A profile is identified by its platform link, never by a name. Measured 2026-11-13: of 26
     // `social_media_account` entities carrying a Wikidata identity, one was right — the handle
     // match — and 25 were another bearer of the same word (`Bear` → a gay-culture term, `Blue` → a
     // colour, `Drake` → a botanist). A profile's description says what it posts, never who it is,
-    // so no name-based question can answer for it. The handle rung claims before the pool is asked,
+    // so no name-based question can answer for it. The handle rung claims before the field is asked,
     // which is why refusing here leaves exactly the handle match standing.
     if account_only(entity) {
         return Err("a profile is identified by its platform link, not by a name");
     }
 
-    let ranked = rank(entity, pool);
+    let ranked = rank(entity, field);
     // A label-less candidate has no name to compare; the exact query is what vouches for it.
     //
     // A label match with no description corroboration is a name, not a fact: it is eligible only
@@ -255,7 +260,7 @@ pub(crate) fn decide(
     {
         return Err("two candidates fit and neither wins");
     }
-    let candidate = &pool[best.index].candidate;
+    let candidate = &field[best.index].candidate;
     Ok(answer::identity(
         candidate,
         method(best.step, best.surface),
@@ -538,7 +543,7 @@ fn head_agrees(entity_types: &[&str], theirs: &[String]) -> Option<bool> {
     Some(expected.iter().any(|heads| heads.contains(&head.as_str())))
 }
 
-/// One entity's pool from every answer of one outcome, deduplicated by QID.
+/// One entity's field from every answer of one outcome, deduplicated by QID.
 ///
 /// `decision::referents` still gates what is not a referent at all — a menu — but no rung's name
 /// rule applies: which candidate is ours is the ranking's question.
@@ -546,10 +551,10 @@ pub(crate) fn gather(
     steps: &[(plan::Step, Request<WikidataKind>)],
     answers: &Answers<WikidataKind, Vec<WikidataCandidate>>,
     outcome: Outcome,
-) -> Vec<Pooled> {
-    let mut by_id: BTreeMap<String, Pooled> = BTreeMap::new();
+) -> Vec<Aggregate> {
+    let mut by_id: BTreeMap<String, Aggregate> = BTreeMap::new();
     for (step, request) in steps {
-        // A handle is claimed whole; it is not scored against the pool.
+        // A handle is claimed whole; it is not scored against the field.
         if *step == plan::Step::Handle {
             continue;
         }
@@ -565,7 +570,7 @@ pub(crate) fn gather(
         for (position, candidate) in candidates.into_iter().enumerate() {
             by_id
                 .entry(candidate.id.clone())
-                .or_insert_with(|| Pooled {
+                .or_insert_with(|| Aggregate {
                     candidate,
                     sources: Vec::new(),
                 })
@@ -612,8 +617,8 @@ fn account_only(entity: &model::knowledge_entity::Model) -> bool {
 mod tests {
     use super::*;
 
-    fn candidate(id: &str, label: &str, description: &str) -> Pooled {
-        Pooled {
+    fn candidate(id: &str, label: &str, description: &str) -> Aggregate {
+        Aggregate {
             candidate: WikidataCandidate {
                 id: id.to_string(),
                 label: Some(label.to_string()),
@@ -655,7 +660,7 @@ mod tests {
             "The public service broadcaster of the United Kingdom.",
             Some("British Broadcasting Corporation"),
         );
-        let pool = vec![
+        let field = vec![
             candidate(
                 "Q1160945",
                 "BBC News",
@@ -667,7 +672,7 @@ mod tests {
                 "British public service broadcaster",
             ),
         ];
-        let identity = decide(&entity, &pool).expect("the expansion is the name");
+        let identity = decide(&entity, &field).expect("the expansion is the name");
         assert_eq!(identity.external_id, "Q9531");
     }
 
@@ -688,7 +693,7 @@ mod tests {
             candidate.sources[0].step = plan::Step::Title;
             candidate
         };
-        let pool = vec![
+        let field = vec![
             labelled(
                 "Q4787186",
                 "Buildings of Scotland in the Industrial Revolution",
@@ -700,7 +705,7 @@ mod tests {
                 "transition to new manufacturing processes in Europe and the United States",
             ),
         ];
-        let identity = decide(&entity, &pool).expect("the exact label wins");
+        let identity = decide(&entity, &field).expect("the exact label wins");
         assert_eq!(identity.external_id, "Q2269");
     }
 
@@ -708,12 +713,12 @@ mod tests {
     #[test]
     fn a_tie_on_surface_is_refused() {
         let entity = entity("Dune", "1965 science fiction novel by Frank Herbert", None);
-        let pool = vec![
+        let field = vec![
             candidate("Q1", "Dune", "novel by Frank Herbert"),
             candidate("Q2", "Dune", "novel by Frank Herbert"),
         ];
         assert_eq!(
-            decide(&entity, &pool).unwrap_err(),
+            decide(&entity, &field).unwrap_err(),
             "two candidates fit and neither wins"
         );
     }
@@ -724,18 +729,18 @@ mod tests {
     fn a_profile_needs_a_platform_link() {
         let mut account = entity("Bear", "An account on X discussing military history.", None);
         account.entity_type = "social_media_account".to_string();
-        let pool = vec![candidate("Q618804", "bear", "term in gay culture")];
+        let field = vec![candidate("Q618804", "bear", "term in gay culture")];
         assert_eq!(
-            decide(&account, &pool).unwrap_err(),
+            decide(&account, &field).unwrap_err(),
             "a profile is identified by its platform link, not by a name"
         );
 
         let mut person = entity("Sama Hoole", "A researcher and commentator.", None);
         person.entity_type = "social_media_account".to_string();
         person.alt_types = vec!["real_person".to_string()];
-        let pool = vec![candidate("Q1", "Sama Hoole", "researcher")];
+        let field = vec![candidate("Q1", "Sama Hoole", "researcher")];
         assert!(
-            decide(&person, &pool).is_ok(),
+            decide(&person, &field).is_ok(),
             "a person is not only a profile"
         );
     }
