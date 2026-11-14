@@ -22,6 +22,7 @@ use super::*;
 /// - `submit_*` — enqueue in the backend, and record a `Queued` row.
 /// - `begin_attempt` / `finish_attempt` — manage lifecycle of a Task Run
 /// - `query_*` — read status (replay / polling).
+///
 /// Submission authorization uses the caller Context; task identity and status
 /// ownership come from `Task::entity_owner_id`, never from the caller ID.
 ///

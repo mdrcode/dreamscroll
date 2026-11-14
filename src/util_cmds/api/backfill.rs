@@ -146,7 +146,7 @@ pub async fn run(state: ApiCmdState, args: BackfillArgs) -> anyhow::Result<()> {
                 println!("No tagged task runs yet.");
             } else {
                 println!("Runs (includes descendants):");
-                println!("  {:>6}  {:<20} {}", "n", "task_type", "status");
+                println!("  {:>6}  {:<20} status", "n", "task_type");
                 for count in &response.counts {
                     println!(
                         "  {:>6}  {:<20} {}",

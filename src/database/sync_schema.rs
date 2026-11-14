@@ -475,20 +475,19 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
                 .await?
                 .expect("to_regclass always returns one row");
             let marker_table_name: Option<String> = marker_table.try_get_by_index(0)?;
-            if marker_table_name.is_some() {
-                if let Some(marker) = transaction
+            if marker_table_name.is_some()
+                && let Some(marker) = transaction
                     .query_one_raw(Statement::from_string(
                         DatabaseBackend::Postgres,
                         "SELECT version FROM dreamscroll_schema_version WHERE id = 1",
                     ))
                     .await?
-                {
-                    let applied_version: i32 = marker.try_get_by_index(0)?;
-                    if applied_version > REQUIRED_SCHEMA_VERSION {
-                        return Err(DbErr::Custom(format!(
-                            "database schema version {applied_version} is newer than this binary's required version {REQUIRED_SCHEMA_VERSION}; refusing to sync"
-                        )));
-                    }
+            {
+                let applied_version: i32 = marker.try_get_by_index(0)?;
+                if applied_version > REQUIRED_SCHEMA_VERSION {
+                    return Err(DbErr::Custom(format!(
+                        "database schema version {applied_version} is newer than this binary's required version {REQUIRED_SCHEMA_VERSION}; refusing to sync"
+                    )));
                 }
             }
 

@@ -232,10 +232,10 @@ impl GeminiInteractionResponse {
 
         let mut text = String::new();
         for part in content {
-            if part.get("type").and_then(Value::as_str) == Some("text") {
-                if let Some(part_text) = part.get("text").and_then(Value::as_str) {
-                    text.push_str(part_text);
-                }
+            if part.get("type").and_then(Value::as_str) == Some("text")
+                && let Some(part_text) = part.get("text").and_then(Value::as_str)
+            {
+                text.push_str(part_text);
             }
         }
 

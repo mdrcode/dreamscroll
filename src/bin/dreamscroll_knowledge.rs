@@ -416,8 +416,8 @@ fn print_inspection(report: &knowledge::identity::inspect::Report) {
 
     println!("\n-- candidate set (ranked) --");
     println!(
-        "  {:>6} {:>5} {:>5} {:>5} {:>4}  {:<12} {}",
-        "score", "surf", "fit", "kind", "year", "qid", "label"
+        "  {:>6} {:>5} {:>5} {:>5} {:>4}  {:<12} label",
+        "score", "surf", "fit", "kind", "year", "qid"
     );
     for row in report.candidate_set.iter().take(10) {
         let kind = match row.kind {
