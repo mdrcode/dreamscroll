@@ -5,8 +5,8 @@
 //! answer needs no second pass to become an annotation.
 //!
 //! This is the only filter the ranking keeps. Everything else about a candidate — which name it
-//! bears, which kind it is, which strategy produced it — is the field's question, answered by
-//! scoring in [`super::aggregate`]. The ladder's per-strategy admission, its early exits and its
+//! bears, which kind it is, which strategy produced it — is the ranking's question, answered by
+//! scoring in [`super::ranking`]. The ladder's per-strategy admission, its early exits and its
 //! type gate were removed with the ladder: they decided *before* the ranking, which is how `BBC`
 //! had `Q9531` at the top of two answers and still claimed a division — the right item was
 //! excluded, not outranked.

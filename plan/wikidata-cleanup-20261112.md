@@ -9,7 +9,7 @@ with it, and how to verify a change here without guessing.
 
 **See also:** `src/knowledge/knowledge.md` (the module map), `plan/lexicon.md` (vocabulary),
 `plan/backlog.md` (the queue entry for the scoring defect), `plan/pragmatism.md` (accepted
-shortcuts). Policy numbers and their provenance live in `aggregate.rs` and `types.rs` themselves.
+shortcuts). Policy numbers and their provenance live in `ranking.rs`, `measure.rs` and `types.rs`.
 
 ## What the module is for
 
@@ -22,15 +22,15 @@ Four properties that follow, and that every change should be judged against:
 
 1. **Soundness over coverage.** A wrong QID is worse than none: it merges entities, distorts
    proximity, and costs a verdict to repair. "An incomplete table can cost a rejection but never a
-   correct claim" is the rule `types.rs` and `aggregate.rs` are written to.
+   correct claim" is the rule `types.rs`, `measure.rs`, `ranking.rs` and `decide.rs` are written to.
 2. **Cost.** Wikidata is rate-limited. The resolver asks every question for every entity, so a cold
    run spends ~3.5k calls — 97% of them the two unbatched searches. Staging them by refusal or by
    corroboration was measured and declined (*Staged asking*, below); the cache is the lever, and an
    offline rebuild answers all but the first-contact questions from it.
 3. **Auditability.** `method` and `confidence` are the recorded reason; `fetch_cache` is the
    evidence.
-4. **Replayability.** `plan`, `aggregate` and `decision` touch no network, so an offline rebuild
-   over cached payloads reproduces the decision.
+4. **Replayability.** `plan`, `gather`, `measure`, `ranking` and `decide` touch no network, so an
+   offline rebuild over cached payloads reproduces the decision.
 
 ## The mechanical pass (shipped 2026-11-12)
 
@@ -253,8 +253,10 @@ machinery it reviewed was replaced. Current state:
 | --- | --- | --- | --- | --- |
 | 1 | `resolver.rs` | 338 | done | R1–R11. `ladder` → `resolve_batch`. Open: no precedence test; the `Canned` footgun |
 | 2 | `plan.rs` | 298 | done | P1, P2. `Step` → `Strategy`, `ORDER` → `ALL`, `all_steps` → `asks`, `step` → `requests` |
-| 3 | `aggregate.rs` | 915 | in progress | absorbs `ranking.rs` (2026-11-13) and the decision half of `decision.rs`. Open: size — the candidate set, the measure and the decision share one file; a `gather`/`measure` split is the live question |
-| 4 | ~~`ranking.rs`~~ | — | done | S1–S5; then folded into `aggregate.rs`. What it still held was one measure and the pricing; the `Policy` impl, `Fit`, `blend`, `exact_label`, `hint_tokens` and nine constants were dead |
+| 3 | `gather.rs` | 100 | done | the `CandidateSet`: admission without ranking, provenance per QID, and the handle short-circuit. `Source.position` is written and unread — the ladder's old tie-break index |
+| 4 | `measure.rs` | 457 | done | every evidence term: surface bands, the 172-line head-noun table, year relation, `Weights`/`fit` (corpus IDF), and the score→confidence pricing. Tests: the three `Weights` rules and the surface order |
+| 4a | `ranking.rs` | 186 | done | the composition point: `Ranked`, the six weight constants, `rank`, `score`, `tier_of`, `method`, `confidence`. It ranks and does not decide |
+| 4b | `decide.rs` | 207 | done | eligibility floors (0.6 exact / 0.7 search), `SCORE_FLOOR` 0.50, `MARGIN`, `account_only`, and the four decision tests |
 | 5 | `types.rs` | 386 | accepted | Two findings measured and declined: the gate reads one type, nine of twenty types unmapped |
 | 6 | `transport.rs` | 719 | pending | `search` mixes three concerns; `sparql` picks its query from `first.kind`; no degraded-branch test |
 | 7 | `property_query.rs` | 233 | pending | clean; unreviewed |
@@ -703,7 +705,7 @@ and contradiction sort were removed with them.
    stronger prior — measured, and no separate gate survived.
 5. ~~Should `SurfaceTitle` become a rule on the title question?~~ **Moot**: `SurfaceTitle` is gone,
    reusing the title answer (`answer.rs`), and `inspect` now decides through the same
-   `aggregate::decide` the resolver does, so it is no longer a second implementation.
+   `decide::decide` the resolver does, so it is no longer a second implementation.
 
 ## Staged asking: measured twice, declined (2026-11-13)
 
@@ -739,9 +741,14 @@ offline rebuild answers 7,956 of 8,466 questions from the cache, and only a firs
 the unbatched calls.
 
 **Renamed 2026-11-13:** `pool` → `aggregate`, `Pooled` → `Aggregate`, and the collection it ranks is
-the *candidate set* (`CandidateSet`, `aggregate::decide(entity, &candidate_set)`). A pool implies
-undifferentiated members; this file
-ranks them and decides one.
+the *candidate set* (`CandidateSet`). A pool implies undifferentiated members; this file ranks them
+and decides one.
+
+**Split 2026-11-13:** `aggregate.rs` is gone. One job per file — `gather` builds the `CandidateSet`
+from answers (`Aggregate` + `Source`), `measure` prices each piece of evidence, `ranking` composes
+the score and orders, `decide` applies the floors and the margin. 915 lines became 100 + 457 + 186 +
+207, and the two jobs that had no caller left (`Source.position`, and `Ranking`'s dead `Policy`
+impl before it) went with it.
 
 **The words of the design, after the ladder:** a resolver **fans out** — one batch, every
 **strategy**, every entity; the answers merge into one **candidate set** per entity; one **decision**

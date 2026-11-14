@@ -21,7 +21,7 @@ use crate::knowledge::identity::Resolver;
 use crate::model;
 
 use super::transport::Wire;
-use super::{WikidataCandidate, WikidataKind, aggregate, plan};
+use super::{WikidataCandidate, WikidataKind, decide, gather, plan};
 
 /// One authority: its decisions, and the wire it speaks through.
 pub struct Wikidata {
@@ -55,9 +55,9 @@ type Planned = (i32, Vec<(plan::Strategy, Request<WikidataKind>)>);
 /// Apply every strategy, then decide once.
 ///
 /// The ladder used to decide per strategy and stop at the first claim; this applies all of them and
-/// aggregates the answers (see `aggregate`). Offline rebuilds are unaffected — `answers_for` serves
-/// the cache — and the cost ordering is deliberately gone for now: the field needs every answer,
-/// and a budget question can only be answered after the quality question is.
+/// hands the answers to `gather` → `ranking` → `decide`. Offline rebuilds are unaffected —
+/// `answers_for` serves the cache — and the cost ordering is deliberately gone for now: every
+/// strategy is applied, and a budget question can only be answered after the quality question is.
 async fn resolve_batch<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataCandidate>>>(
     transport: &T,
     entities: &[model::knowledge_entity::Model],
@@ -86,19 +86,18 @@ async fn resolve_batch<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataC
             continue;
         };
         // A property match *is* the identity, so nothing is aggregated against it.
-        if let Some(identity) = aggregate::by_handle(asks, &answers) {
+        if let Some(identity) = gather::by_handle(asks, &answers) {
             identities.push((entity.id, identity));
             continue;
         }
-        match aggregate::decide(entity, &aggregate::gather(asks, &answers, Outcome::Found)) {
+        match decide::decide(entity, &gather::gather(asks, &answers, Outcome::Found)) {
             Ok(identity) => identities.push((entity.id, identity)),
             Err(_) => {
                 // A degraded answer may have held the claim we are discarding. Deciding the
-                // degraded field only to report it is the same rule `aggregate::decide` applies.
-                if let Ok(identity) = aggregate::decide(
-                    entity,
-                    &aggregate::gather(asks, &answers, Outcome::Degraded),
-                ) {
+                // degraded set only to report it is the same rule `decide::decide` applies.
+                if let Ok(identity) =
+                    decide::decide(entity, &gather::gather(asks, &answers, Outcome::Degraded))
+                {
                     tracing::warn!(
                         entity = %entity.name,
                         qid = %identity.external_id,

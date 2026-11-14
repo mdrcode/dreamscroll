@@ -1,0 +1,100 @@
+//! The candidate set: what every answer offered, deduplicated, with who offered it.
+//!
+//! Admission without ranking. A strategy's answer contributes the items `answer::referents` accepts
+//! — a menu is not a referent — and the same QID found twice is one entry with two sources, not two
+//! candidates. The handle is the one exception: a property match *is* the identity, so it claims
+//! before the set is built.
+
+use std::collections::BTreeMap;
+
+use crate::fetch::{Answers, Outcome, Request};
+use crate::knowledge::evidence::Identity;
+
+use super::answer;
+use super::{WikidataCandidate, WikidataKind, plan};
+
+/// A property match: the item *is* the account, so it is claimed before the set is asked.
+const HANDLE_CONFIDENCE: f32 = 0.95;
+
+/// Where one candidate was seen: which strategy produced it, and where the answer put it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Source {
+    pub(crate) strategy: plan::Strategy,
+    pub(crate) position: usize,
+}
+
+/// A candidate and every strategy that produced it. One QID from two answers is one item with two
+/// pieces of provenance, not two candidates.
+#[derive(Debug, Clone)]
+pub(crate) struct Aggregate {
+    pub(crate) candidate: WikidataCandidate,
+    pub(crate) sources: Vec<Source>,
+}
+
+/// Every candidate one entity's answers offered, deduplicated by QID, each carrying the strategies
+/// that named it. `gather` builds it; `ranking` orders it; `decide` picks from it.
+pub(crate) type CandidateSet = Vec<Aggregate>;
+
+/// One entity's candidate set from every answer of one outcome, deduplicated by QID.
+///
+/// `answer::referents` still gates what is not a referent at all — a menu — but no strategy's name
+/// rule applies: which candidate is ours is the ranking's question.
+pub(crate) fn gather(
+    asks: &[(plan::Strategy, Request<WikidataKind>)],
+    answers: &Answers<WikidataKind, Vec<WikidataCandidate>>,
+    outcome: Outcome,
+) -> CandidateSet {
+    let mut by_id: BTreeMap<String, Aggregate> = BTreeMap::new();
+    for (strategy, request) in asks {
+        // A handle is claimed whole; it is not scored against the set.
+        if *strategy == plan::Strategy::Handle {
+            continue;
+        }
+        let Some(raw) = answers.get(request) else {
+            continue;
+        };
+        if raw.outcome != outcome {
+            continue;
+        }
+        let Ok(candidates) = answer::referents(raw) else {
+            continue;
+        };
+        for (position, candidate) in candidates.into_iter().enumerate() {
+            by_id
+                .entry(candidate.id.clone())
+                .or_insert_with(|| Aggregate {
+                    candidate,
+                    sources: Vec::new(),
+                })
+                .sources
+                .push(Source {
+                    strategy: *strategy,
+                    position,
+                });
+        }
+    }
+    by_id.into_values().collect()
+}
+
+/// The handle answer, when there is one: the item asserting this property value is the account
+/// itself, and no other candidate can outrank a property match.
+pub(crate) fn by_handle(
+    asks: &[(plan::Strategy, Request<WikidataKind>)],
+    answers: &Answers<WikidataKind, Vec<WikidataCandidate>>,
+) -> Option<Identity> {
+    let (_, request) = asks
+        .iter()
+        .find(|(strategy, _)| *strategy == plan::Strategy::Handle)?;
+    let raw = answers.get(request)?;
+    if raw.outcome != Outcome::Found {
+        return None;
+    }
+    let property = request.kind.property()?;
+    let candidates = answer::referents(raw).ok()?;
+    let first = candidates.first()?;
+    Some(answer::identity(
+        first,
+        property.as_str(),
+        HANDLE_CONFIDENCE,
+    ))
+}

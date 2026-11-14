@@ -14,7 +14,9 @@ use crate::database::DbHandle;
 use crate::fetch::cache::{FetchCache, State};
 use crate::fetch::{Answer, Outcome, Request};
 use crate::knowledge::blocker::SqlBlocker;
-use crate::knowledge::identity::wikidata::{WikidataCandidate, WikidataKind, aggregate, plan};
+use crate::knowledge::identity::wikidata::{
+    WikidataCandidate, WikidataKind, decide, gather, plan, ranking,
+};
 use crate::knowledge::linker::heuristic::Heuristic;
 use crate::knowledge::text;
 use crate::model;
@@ -253,41 +255,41 @@ async fn walk(
         });
     }
 
-    let candidates = aggregate::gather(&planned, &answers, Outcome::Found);
-    let (decision, refusal, vetoed) =
-        if let Some(identity) = aggregate::by_handle(&planned, &answers) {
-            let vetoed = vetoes.contains(&(
-                entity.id,
-                identity.scheme.clone(),
-                identity.external_id.clone(),
-            ));
-            let decision = Decision {
-                qid: identity.external_id,
-                method: identity.method.unwrap_or_default(),
-                confidence: identity.confidence.unwrap_or_default(),
-            };
-            (Some(decision), None, vetoed)
-        } else {
-            match aggregate::decide(entity, &candidates) {
-                Ok(identity) => {
-                    let vetoed = vetoes.contains(&(
-                        entity.id,
-                        identity.scheme.clone(),
-                        identity.external_id.clone(),
-                    ));
-                    let decision = Decision {
-                        qid: identity.external_id,
-                        method: identity.method.unwrap_or_default(),
-                        confidence: identity.confidence.unwrap_or_default(),
-                    };
-                    (Some(decision), None, vetoed)
-                }
-                Err(why) => (None, Some(why), false),
-            }
+    let candidates = gather::gather(&planned, &answers, Outcome::Found);
+    let (decision, refusal, vetoed) = if let Some(identity) = gather::by_handle(&planned, &answers)
+    {
+        let vetoed = vetoes.contains(&(
+            entity.id,
+            identity.scheme.clone(),
+            identity.external_id.clone(),
+        ));
+        let decision = Decision {
+            qid: identity.external_id,
+            method: identity.method.unwrap_or_default(),
+            confidence: identity.confidence.unwrap_or_default(),
         };
+        (Some(decision), None, vetoed)
+    } else {
+        match decide::decide(entity, &candidates) {
+            Ok(identity) => {
+                let vetoed = vetoes.contains(&(
+                    entity.id,
+                    identity.scheme.clone(),
+                    identity.external_id.clone(),
+                ));
+                let decision = Decision {
+                    qid: identity.external_id,
+                    method: identity.method.unwrap_or_default(),
+                    confidence: identity.confidence.unwrap_or_default(),
+                };
+                (Some(decision), None, vetoed)
+            }
+            Err(why) => (None, Some(why), false),
+        }
+    };
 
     let chosen = decision.as_ref().map(|decision| decision.qid.as_str());
-    let candidate_set = aggregate::rank(entity, &candidates)
+    let candidate_set = ranking::rank(entity, &candidates)
         .into_iter()
         .map(|ranked| {
             let candidate = &candidates[ranked.index].candidate;
@@ -300,7 +302,7 @@ async fn walk(
                 kind: ranked.kind,
                 head: ranked.head,
                 year: ranked.year,
-                score: aggregate::score(&ranked),
+                score: ranking::score(&ranked),
                 chosen: chosen == Some(candidate.id.as_str()),
             }
         })
