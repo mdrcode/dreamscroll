@@ -40,9 +40,11 @@ pub(crate) fn decide(
     let ranked = ranking::rank(entity, candidate_set);
     // A label-less candidate has no name to compare; the exact query is what vouches for it.
     //
-    // A label match with no description corroboration is a name, not a fact: it is eligible only
-    // when an article-title answer also produced it. That is the difference between `Industrial
-    // Revolution` (a title and a label agree) and a homonym that merely shares the string.
+    // A label match is a name, not a fact: it needs corroboration besides the string itself —
+    // a description that overlaps ours, or an article whose exact title is our name. Search
+    // agreement was tried as a third source and rejected by measurement: it admits the homonyms
+    // the rule exists for, and two eligible same-label candidates then tie on the margin and
+    // refuse a referent that was previously found (`Alan Watts`).
     let eligible = |r: &Ranked| {
         let named = r.label_less && r.tier < 2
             || r.surface
@@ -51,7 +53,7 @@ pub(crate) fn decide(
                 } else {
                     EXACT_FLOOR
                 };
-        named && (r.tier != 1 || r.fit > 0.0 || r.label_less)
+        named && (r.tier != 1 || r.fit > 0.0 || r.titled || r.label_less)
     };
     let ranked: Vec<Ranked> = ranked.into_iter().filter(eligible).collect();
     let Some(best) = ranked.first().copied() else {
@@ -95,6 +97,7 @@ mod tests {
                 classes: Vec::new(),
             },
             strategies: vec![plan::Strategy::SearchLabel],
+            title_only: false,
         }
     }
 
@@ -141,25 +144,22 @@ mod tests {
             "The period of global socioeconomic transformation from agrarian economies to mechanized production.",
             None,
         );
-        // From the title answer: an exact label is a name, and a title answer vouches for it
-        // without description corroboration. The same candidate found by search would not.
-        let labelled = |id: &str, label: &str, description: &str| {
-            let mut candidate = candidate(id, label, description);
-            candidate.strategies[0] = plan::Strategy::Title;
-            candidate
-        };
-        let candidate_set = vec![
-            labelled(
-                "Q4787186",
-                "Buildings of Scotland in the Industrial Revolution",
-                "Buildings of Scotland in the Industrial Revolution",
-            ),
-            labelled(
-                "Q2269",
-                "Industrial Revolution",
-                "transition to new manufacturing processes in Europe and the United States",
-            ),
-        ];
+        // The title answer names one page, and that page is this item: an exact label is then a
+        // name, and the title vouches for it without description corroboration.
+        let mut distractor = candidate(
+            "Q4787186",
+            "Buildings of Scotland in the Industrial Revolution",
+            "Buildings of Scotland in the Industrial Revolution",
+        );
+        distractor.strategies = vec![plan::Strategy::SearchLabel];
+        let mut titled = candidate(
+            "Q2269",
+            "Industrial Revolution",
+            "transition to new manufacturing processes in Europe and the United States",
+        );
+        titled.strategies = vec![plan::Strategy::Title];
+        titled.title_only = true;
+        let candidate_set = vec![distractor, titled];
         let identity = decide(&entity, &candidate_set).expect("the exact label wins");
         assert_eq!(identity.external_id, "Q2269");
     }
@@ -198,5 +198,68 @@ mod tests {
             decide(&person, &candidate_set).is_ok(),
             "a person is not only a profile"
         );
+    }
+
+    /// A title answer whose page title is our exact name vouches for an item labelled differently:
+    /// the article for "Fall of Singapore" is the item labelled "Battle of Singapore".
+    #[test]
+    fn a_title_answer_vouches_for_a_synonym_label() {
+        let entity = entity(
+            "Fall of Singapore",
+            "The February 1942 military engagement in which Imperial Japanese forces captured the British stronghold of Singapore.",
+            Some("Fall of Singapore 1942"),
+        );
+        let mut titled = candidate("Q296754", "Battle of Singapore", "1942 World War II battle");
+        titled.strategies = vec![plan::Strategy::Title];
+        titled.title_only = true;
+
+        let identity = decide(&entity, &vec![titled]).expect("the title answer named it");
+        assert_eq!(identity.external_id, "Q296754");
+    }
+
+    /// Search agreement is **not** corroboration: it re-admits homonyms, and two eligible
+    /// same-label candidates then tie on the margin. `Alan Watts` is the measured case — the
+    /// author (title answer) and a meteorologist of the same name both became eligible, and the
+    /// correct one was refused with "two candidates fit and neither wins".
+    #[test]
+    fn a_label_match_with_only_search_agreement_stays_ineligible() {
+        let entity = entity(
+            "Jake Blues",
+            "The charismatic lead vocalist of The Blues Brothers.",
+            None,
+        );
+        let mut agreed = candidate("Q88538218", "Jake Blues", "fictional musician");
+        agreed.strategies = vec![plan::Strategy::Label, plan::Strategy::SearchLabel];
+
+        let error = decide(&entity, &vec![agreed]).expect_err("search is not corroboration");
+        assert!(error.contains("no candidate bears our name"), "{error}");
+    }
+
+    /// One question naming an item is a string, not a fact: a lone exact label with no
+    /// corroboration is still refused. This is the gate that must survive the change.
+    #[test]
+    fn a_lonely_exact_label_is_not_enough() {
+        let entity = entity("Blue", "A hue between violet and green.", None);
+        let mut lonely = candidate("Q1088", "Blue", "colour");
+        lonely.strategies = vec![plan::Strategy::Label];
+
+        let error = decide(&entity, &vec![lonely]).expect_err("nothing corroborates the label");
+        assert!(error.contains("no candidate bears our name"), "{error}");
+    }
+
+    /// A title answer does not outrank an item literally labelled our name. `Swann's Way` is the
+    /// volume; the article redirects to the parent work, and crediting that alias made the two
+    /// tie on the margin and refused both.
+    #[test]
+    fn a_title_alias_does_not_outrank_the_exact_label() {
+        let entity = entity("Swann's Way", "The first novel by Proust.", None);
+        let mut parent = candidate("Q464928", "In Search of Lost Time", "novel by Marcel Proust");
+        parent.strategies = vec![plan::Strategy::Title];
+        parent.title_only = true;
+        let mut volume = candidate("Q2700307", "Swann's Way", "novel by Marcel Proust");
+        volume.strategies = vec![plan::Strategy::Label];
+
+        let identity = decide(&entity, &vec![parent, volume]).expect("the labelled volume wins");
+        assert_eq!(identity.external_id, "Q2700307");
     }
 }

@@ -14,6 +14,11 @@ use super::{WikidataCandidate, plan};
 
 /// The question's authority, as a prior rather than a gate: a title answer starts ahead of a label
 /// answer, which starts ahead of a search hit — but a corroborated candidate can still overtake it.
+///
+/// Do not flip this to put label above title. Measured 2026-11-14: the flip fixed the label-vs-alias
+/// conflicts it was aimed at, but made label-exact homonyms win elsewhere and cost 3 of the fixed
+/// set's kept identities and 33 corpus identities (`God`, `Texas`, `World War I`, `Bach`). The
+/// narrower rule is in `rank`: a title alias is credited only when no item is labelled our name.
 const TIER_PRIOR: [f32; 3] = [0.15, 0.10, 0.00];
 /// A candidate whose classes say it cannot be this entity is penalised, not filtered: the table is
 /// incomplete, and an unknown class says nothing.
@@ -48,6 +53,9 @@ pub(crate) struct Ranked {
     /// either side has none.
     pub(crate) year: i8,
     pub(crate) strategy: plan::Strategy,
+    /// The candidate answered the article-title question, which is asked with our exact name:
+    /// the page title *is* a surface, so a synonym item label must not zero it.
+    pub(crate) titled: bool,
 }
 
 /// The candidate set in order: the score, then surface, then description fit. Stable, so the
@@ -62,6 +70,19 @@ pub(crate) fn rank(
         .collect();
     let weights = Weights::over(&offered);
     let ours = measure::our_tokens(entity);
+    // Some item in this answer is literally labelled with our name. That is the strongest surface
+    // evidence there is; a page title is a *substitute* for it (a redirect or a synonym label),
+    // not an upgrade over it. Without this, a title answer to `Swann's Way` lifts the parent work
+    // above the volume of that name, and the margin then refuses both. Flipping the tier prior
+    // instead was measured and rejected: it moved every title-vs-label race, cost 3 kept identities
+    // on the fixed set and 33 corpus identities.
+    let label_bears_name = candidate_set.iter().any(|aggregate| {
+        aggregate
+            .candidate
+            .label
+            .as_deref()
+            .is_some_and(|label| measure::surface(label, &entity.name) >= 1.0)
+    });
 
     let mut entity_types = vec![entity.entity_type.as_str()];
     entity_types.extend(entity.alt_types.iter().map(String::as_str));
@@ -108,6 +129,11 @@ pub(crate) fn rank(
                 .map(|strategy| (tier_of(*strategy), *strategy))
                 .min_by_key(|(tier, _)| *tier)
                 .unwrap_or((2, plan::Strategy::SearchLabel));
+            let titled = aggregate.title_only;
+            // The title question was asked with our exact name, so its answer carries that surface
+            // even when the item's label is a synonym — unless an item is labelled our name, in
+            // which case the label is the better surface and the alias does not compete.
+            let surface = if titled && !label_bears_name { 1.0 } else { surface };
             Ranked {
                 index,
                 tier,
@@ -118,6 +144,7 @@ pub(crate) fn rank(
                 head: measure::head_agrees(&entity_types, &theirs),
                 year: measure::year_relation(entity, &theirs),
                 strategy,
+                titled,
             }
         })
         .collect();

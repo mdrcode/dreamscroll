@@ -23,6 +23,10 @@ const HANDLE_CONFIDENCE: f32 = 0.95;
 pub(crate) struct Aggregate {
     pub(crate) candidate: WikidataCandidate,
     pub(crate) strategies: Vec<plan::Strategy>,
+    /// The article-title question returned exactly this one item. A title question names one page,
+    /// so this is the strongest surface a candidate can carry: the page title *is* our name even
+    /// when the item's label is a synonym or a redirect target.
+    pub(crate) title_only: bool,
 }
 
 /// Every candidate one entity's answers offered, deduplicated by QID, each carrying the strategies
@@ -53,15 +57,17 @@ pub(crate) fn gather(
         let Ok(candidates) = answer::referents(raw) else {
             continue;
         };
+        let title_only = *strategy == plan::Strategy::Title && candidates.len() == 1;
         for candidate in candidates {
-            by_id
-                .entry(candidate.id.clone())
-                .or_insert_with(|| Aggregate {
-                    candidate,
-                    strategies: Vec::new(),
-                })
-                .strategies
-                .push(*strategy);
+            let aggregate = by_id.entry(candidate.id.clone()).or_insert_with(|| Aggregate {
+                candidate,
+                strategies: Vec::new(),
+                title_only: false,
+            });
+            aggregate.strategies.push(*strategy);
+            if title_only {
+                aggregate.title_only = true;
+            }
         }
     }
     by_id.into_values().collect()
