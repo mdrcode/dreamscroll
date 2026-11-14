@@ -20,17 +20,22 @@ use serde_json::Value;
 use super::transport::{Answer, Outcome};
 use crate::model::fetch_cache as cached;
 
-/// How long a positive answer stands.
+/// How long a positive answer stands: six months.
 ///
-/// Wikidata claims — a label, an article title, a platform property — change slowly, and a row is
-/// keyed by the *exact* question, so a three-month-old answer is still the answer to that question
-/// in the overwhelming majority of cases. Seven days meant half the cache was stale within a week
-/// and every rebuild paid the network for questions whose answers had not moved.
-pub const FOUND_TTL: Duration = Duration::days(90);
+/// A row is keyed by the *exact* question, and — the fact that makes this safe — the cache is only
+/// consulted for entities that hold **no** identity annotation. Once an entity is annotated,
+/// `resolve` never asks about it again, so a stale positive cannot make an existing claim wrong. What
+/// staleness costs is discovery: an item created after we asked stays invisible to *that* entity
+/// until the row expires.
+///
+/// Six months bounds that discovery lag for a rebuild while making the cache genuinely warm: at
+/// seven days, half of it was stale within a week and every rebuild paid the network for questions
+/// whose answers had not moved.
+pub const FOUND_TTL: Duration = Duration::days(180);
 
-/// Shorter, because a negative is weaker evidence: "no item has this label" becomes false when
-/// someone creates the item. A month bounds how long a newly created referent stays invisible to an
-/// entity that was asked about before it existed.
+/// A month, because a negative *is* the discovery case: "no item has this label" becomes false when
+/// someone creates the item, and the empty answer is exactly what hides it. Positive and negative
+/// therefore do not share a policy.
 pub const EMPTY_TTL: Duration = Duration::days(30);
 
 /// The one exception: a provider that could not be reached is not a fact about the world, and
