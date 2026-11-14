@@ -1,67 +1,61 @@
-use chrono::{DateTime, Utc};
+//! The knowledge entity behind an observation: the referent, not the reading.
+//!
+//! An observation is personal; the entity it attaches to is shared. This is the shared half, and it
+//! is only ever served *through* an observation the caller already owns — the disclosure policy for
+//! the graph is deferred, so nothing here may be reachable except by walking in from a capture.
+//!
+//! Every field is a projection: `project` is the only writer, so this is a faithful report of what
+//! the graph believes rather than something a caller can set.
+
 use serde::{Deserialize, Serialize};
 
 use crate::model;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct PlatformLinkInfo {
-    pub platform: String,
-    pub handle: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct KnowledgeEntityInfo {
     pub id: i32,
-    pub capture_id: i32,
-    /// The illumination that produced this occurrence. A capture can be
-    /// re-illuminated, so this is what distinguishes a superseded occurrence
-    /// from a current one.
-    pub illumination_id: i32,
-    /// Archived captures stay readable; only the feeds hide them.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub capture_archived_at: Option<DateTime<Utc>>,
     pub name: String,
-    #[serde(rename = "type")]
+    /// The surfaces the entity is also known by. `name` is not among them.
+    pub alt_names: Vec<String>,
     pub entity_type: String,
+    pub alt_types: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    pub alt_descriptions: Vec<String>,
+    /// The disambiguation hint, and the other hints its members carried.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub search_query: Option<String>,
+    pub alt_search_queries: Vec<String>,
+    /// The platform presence, when a member showed one. `platform_link` is the wire form.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub platform_link: Option<PlatformLinkInfo>,
+    pub platform: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform_handle: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform_display_name: Option<String>,
+    /// `provisional` · `identified`. A shared identity is not a status: see the proximity record.
+    pub status: model::knowledge_entity::Status,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f32>,
 }
 
 impl KnowledgeEntityInfo {
-    /// Build the wire form of one occurrence.
-    ///
-    /// `capture_archived_at` is a capture fact, so it is passed in rather than
-    /// read from the entity model; callers that filter archived captures pass
-    /// `None` because they would not return the row otherwise.
-    pub fn new(
-        entity: model::knowledge_entity::ModelEx,
-        capture_archived_at: Option<DateTime<Utc>>,
-    ) -> Self {
-        let platform_link = match (entity.platform, entity.platform_handle) {
-            (Some(platform), Some(handle)) => Some(PlatformLinkInfo {
-                platform,
-                handle,
-                display_name: entity.platform_display_name,
-            }),
-            _ => None,
-        };
-
+    pub fn new(entity: model::knowledge_entity::Model) -> Self {
         Self {
             id: entity.id,
-            capture_id: entity.capture_id,
-            illumination_id: entity.illumination_id,
-            capture_archived_at,
             name: entity.name,
+            alt_names: entity.alt_names,
             entity_type: entity.entity_type,
+            alt_types: entity.alt_types,
             description: entity.description,
+            alt_descriptions: entity.alt_descriptions,
             search_query: entity.search_query,
-            platform_link,
+            alt_search_queries: entity.alt_search_queries,
+            platform: entity.platform,
+            platform_handle: entity.platform_handle,
+            platform_display_name: entity.platform_display_name,
+            status: entity.status,
+            confidence: entity.confidence,
         }
     }
 }

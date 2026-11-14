@@ -71,36 +71,24 @@ pub(crate) async fn service_worker_cache_headers(request: Request<Body>, next: N
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        UNVERSIONED_ASSET_CACHE_CONTROL, VERSIONED_ASSET_CACHE_CONTROL, asset_cache_control,
-    };
+    use super::asset_cache_control;
+
+    // The wire value, not the constant: a cache lifetime is browser-visible contract.
+    const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+    const SHORT: &str = "public, max-age=3600";
 
     #[test]
     fn unversioned_assets_use_short_cache() {
-        assert_eq!(asset_cache_control(None), UNVERSIONED_ASSET_CACHE_CONTROL);
-        assert_eq!(
-            asset_cache_control(Some("preview=1")),
-            UNVERSIONED_ASSET_CACHE_CONTROL
-        );
-        assert_eq!(
-            asset_cache_control(Some("v=")),
-            UNVERSIONED_ASSET_CACHE_CONTROL
-        );
+        assert_eq!(asset_cache_control(None), SHORT);
+        assert_eq!(asset_cache_control(Some("preview=1")), SHORT);
+        assert_eq!(asset_cache_control(Some("v")), SHORT);
+        assert_eq!(asset_cache_control(Some("v=")), SHORT);
     }
 
     #[test]
     fn versioned_assets_use_immutable_cache() {
-        assert_eq!(
-            asset_cache_control(Some("v=revision-123")),
-            VERSIONED_ASSET_CACHE_CONTROL
-        );
-        assert_eq!(
-            asset_cache_control(Some("v=revision-123&preview=1")),
-            VERSIONED_ASSET_CACHE_CONTROL
-        );
-        assert_eq!(
-            asset_cache_control(Some("preview=1&v=revision-123")),
-            VERSIONED_ASSET_CACHE_CONTROL
-        );
+        assert_eq!(asset_cache_control(Some("v=revision-123")), IMMUTABLE);
+        assert_eq!(asset_cache_control(Some("v=revision-123&preview=1")), IMMUTABLE);
+        assert_eq!(asset_cache_control(Some("preview=1&v=revision-123")), IMMUTABLE);
     }
 }

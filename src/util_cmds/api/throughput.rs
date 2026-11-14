@@ -711,6 +711,15 @@ mod tests {
     }
 
     #[test]
+    fn long_failure_messages_are_truncated_with_an_ellipsis() {
+        let clipped = clip(&"x".repeat(120), 100);
+        assert_eq!(clipped.chars().count(), 101, "100 chars plus the ellipsis");
+        assert!(clipped.ends_with('…'));
+        // A message at the cap is left alone: no ellipsis, no loss.
+        assert_eq!(clip(&"y".repeat(100), 100), "y".repeat(100));
+    }
+
+    #[test]
     fn formats_windows_in_days_when_whole() {
         assert_eq!(fmt_hours(6), "6h");
         assert_eq!(fmt_hours(24), "24h (1d)");

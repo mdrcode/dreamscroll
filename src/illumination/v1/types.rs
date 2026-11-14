@@ -25,7 +25,7 @@ pub struct Illumination {
 
     /// A list of social media accounts visible in the capture.
     /// Each entry contains the display name, handle, and platform.
-    pub social_media_accounts: Vec<SocialMediaAccount>,
+    pub social_media_accounts: Vec<PlatformLink>,
 
     #[serde(skip)]
     raw_json: Value,
@@ -38,7 +38,7 @@ struct IlluminationFields {
     details: String,
     suggested_searches: Vec<String>,
     entities: Vec<Entity>,
-    social_media_accounts: Vec<SocialMediaAccount>,
+    social_media_accounts: Vec<PlatformLink>,
 }
 
 impl Illumination {
@@ -106,7 +106,9 @@ impl Illumination {
                 writeln!(
                     markdown,
                     "- **{}** (`{}`; {})",
-                    account.display_name, account.handle, account.platform
+                    account.display_name.as_deref().unwrap_or(""),
+                    account.handle.as_deref().unwrap_or(""),
+                    account.platform
                 )
                 .expect("writing to a String cannot fail");
             }
@@ -161,46 +163,8 @@ pub struct Entity {
     pub entity_type: EntityType,
 }
 
-/// The platform of a social media account.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    strum::Display,
-    strum::EnumIter,
-    strum::AsRefStr,
-)]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
-pub enum SocialMediaPlatform {
-    XTwitter,
-    Youtube,
-    Instagram,
-    Tiktok,
-    Facebook,
-    Linkedin, // keep second 'i' small for serialization consistency
-    Threads,
-    Bluesky,
-    Mastodon,
-    Other,
-}
+pub use crate::illumination::v2::{Platform, PlatformLink};
 
-/// Represents a social media account found in an image.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SocialMediaAccount {
-    /// The display name shown on the account profile.
-    pub display_name: String,
-
-    /// The handle/username of the account (e.g., @username).
-    pub handle: String,
-
-    /// The platform where this account exists.
-    #[serde(rename = "platform")]
-    pub platform: SocialMediaPlatform,
-}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,9 +192,9 @@ mod tests {
         assert_eq!(illumination.entities[0].entity_type, EntityType::RealPerson);
         assert_eq!(
             illumination.social_media_accounts[0].platform,
-            SocialMediaPlatform::XTwitter
+            Platform::XTwitter
         );
-        assert_eq!(illumination.social_media_accounts[0].handle, "@ada");
+        assert_eq!(illumination.social_media_accounts[0].handle.as_deref(), Some("@ada"));
         assert_eq!(
             illumination.raw_json()["future_schema_field"]["nested"]["preserved"],
             serde_json::json!(true)

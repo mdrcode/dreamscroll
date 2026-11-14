@@ -3,6 +3,9 @@ pub mod client;
 mod get_capture;
 pub use get_capture::get_captures;
 
+mod get_illumination;
+pub use get_illumination::get_illumination;
+
 mod insert_illumination;
 pub use insert_illumination::{insert_illumination_raw, insert_illumination_v2};
 

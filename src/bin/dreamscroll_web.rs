@@ -175,6 +175,7 @@ async fn initialize()
             webhook::WebhookState {
                 logic: logic::LogicState {
                     service_api,
+                    knowledge: crate::knowledge::KnowledgeGraph::with_heuristic_linking(&db),
                     storage: stg,
                     inference_client: Box::new(inference_client),
                     firestarter,

@@ -22,13 +22,11 @@ mod tests {
     use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
     use super::*;
+    use crate::test_support::db_or_skip;
 
     #[tokio::test]
     async fn returns_every_attempt_with_full_metadata() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let user = model::user::ActiveModel::builder()
             .set_username("meta-user")
             .set_password_hash("unused")

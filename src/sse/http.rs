@@ -169,22 +169,6 @@ mod tests {
         assert_eq!(live.payload.status, TaskRunStatus::CompleteSuccess);
     }
 
-    #[test]
-    fn filtered_payload_omits_the_entity_owner() {
-        let update = task_status_event(77, 42, TaskRunStatus::InProgress);
-
-        let json = filtered_json(&update);
-        assert!(!json.contains("entity_owner_id"));
-        assert!(json.contains("\"entity_id\":42"));
-        assert!(json.contains("\"event_type\":\"task_status\""));
-        assert!(
-            serde_json::to_string(&update)
-                .unwrap()
-                .contains("entity_owner_id"),
-            "the notification form keeps the routing field"
-        );
-    }
-
     #[tokio::test]
     async fn another_users_task_status_is_not_forwarded() {
         let (sender, receiver) = broadcast::channel(8);
@@ -292,20 +276,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn heartbeat_sse_frame_includes_a_data_field_for_dispatch() {
+    async fn sse_frames_carry_the_event_names_the_browser_dispatches_on() {
+        let heartbeat = render_frame(HttpStreamItem::Heartbeat).await;
+        assert!(heartbeat.lines().any(|line| line == "event: heartbeat"));
+        assert!(
+            heartbeat.lines().any(
+                |line| line.strip_prefix("data: ").is_some_and(|data| !data.is_empty())
+            ),
+            "EventSource does not dispatch a data-less event"
+        );
+
+        let update = task_status_event(77, 42, TaskRunStatus::InProgress);
+        let frame = render_frame(HttpStreamItem::TaskStatus(update)).await;
+        assert!(frame.lines().any(|line| line == "event: task-status"));
+        let data = frame
+            .lines()
+            .find_map(|line| line.strip_prefix("data: "))
+            .expect("task-status frame carries a data field");
+        let payload: serde_json::Value = serde_json::from_str(data).unwrap();
+        assert_eq!(payload["entity_id"], 42);
+        assert_eq!(payload["event_type"], "task_status");
+        assert!(
+            payload.get("entity_owner_id").is_none(),
+            "the routing-only owner is not part of the browser payload"
+        );
+    }
+
+    async fn render_frame(item: HttpStreamItem) -> String {
         use axum::response::IntoResponse;
 
         let response = axum::response::sse::Sse::new(stream::iter([Ok::<_, Infallible>(
-            sse::Event::from(HttpStreamItem::Heartbeat),
+            sse::Event::from(item),
         )]))
         .into_response();
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
-        let frame = String::from_utf8(body.to_vec()).unwrap();
-
-        assert!(frame.lines().any(|line| line == "event: heartbeat"));
-        assert!(frame.lines().any(|line| line == "data: 1"));
+        String::from_utf8(body.to_vec()).unwrap()
     }
 
     #[tokio::test]

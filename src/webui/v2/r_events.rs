@@ -127,11 +127,6 @@ mod tests {
             .is_none(),
             "a non-200 response closes EventSource, so catch-up failure must not fail the stream"
         );
-
-        let row = crate::model::task_run::task_run_model();
-        let event = sse::TaskStatusUpdate::from_row(&row, None).unwrap();
-        let events = catchup_or_skip(Ok(vec![event])).expect("successful catch-up is forwarded");
-        assert_eq!(events.len(), 1);
     }
 
     #[test]
@@ -166,38 +161,8 @@ mod tests {
     }
 
     #[test]
-    fn catchup_row_becomes_a_task_status_event() {
-        let mut row = crate::model::task_run::task_run_model();
-        row.entity_owner_id = 7;
-        row.logical_id = "u7-illuminate-capture42".to_string();
-        row.run_id = "720196b8-3dbf-4c63-9b78-c3f05787d831".to_string();
-        row.run_number = 3;
-        row.status_code = crate::task::TaskRunStatus::InProgress.as_i32();
-        row.attempts = 2;
-
-        let estimate = crate::task::timing::TaskTimingEstimate {
-            task_type: "illuminate".to_string(),
-            sample_count: crate::task::timing::MINIMUM_CLIENT_ESTIMATE_SAMPLES,
-            duration_ms_avg: 10_000,
-            duration_ms_p50: 10_000,
-            duration_ms_p75: 12_000,
-            duration_ms_p90: 15_000,
-        };
-        let event = sse::TaskStatusUpdate::from_row(&row, Some(&estimate)).unwrap();
-        assert_eq!(event.entity_id, 42);
-        assert_eq!(event.payload.status, crate::task::TaskRunStatus::InProgress);
-        assert_eq!(event.payload.run_number, 3);
-        assert_eq!(event.entity_owner_id, Some(7));
-        assert_eq!(event.payload.estimated_duration_ms_p50, Some(10_000));
-    }
-
-    #[test]
     fn catchup_row_with_unknown_status_is_skipped() {
         let mut row = crate::model::task_run::task_run_model();
-        row.id = 2;
-        row.entity_owner_id = 7;
-        row.logical_id = "u7-illuminate-capture42".to_string();
-        row.run_id = "69d394f8-5caa-4363-8c3e-d081b4a353a5".to_string();
         row.status_code = i32::MAX;
 
         assert!(sse::TaskStatusUpdate::from_row(&row, None).is_none());

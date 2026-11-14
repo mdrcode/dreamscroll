@@ -54,31 +54,50 @@ impl axum_login::AuthnBackend for WebAuthBackend {
 }
 #[cfg(test)]
 mod tests {
+    use axum_login::AuthnBackend;
+
+    use crate::test_support::db_or_skip;
+
     use super::*;
 
-    #[test]
-    fn test_credentials_deserialize() {
-        // Test that Credentials can be deserialized from JSON
-        let json = r#"{"username": "testuser", "password": "testpass"}"#;
-        let creds: Credentials = serde_json::from_str(json).unwrap();
-        assert_eq!(creds.username, "testuser");
-        assert_eq!(creds.password, "testpass");
-    }
+    #[tokio::test]
+    async fn authenticate_maps_rejections_to_none_and_valid_credentials_to_the_user() {
+        db_or_skip!(db);
+        let username = format!("login_{}", uuid::Uuid::new_v4().simple());
+        let inserted = user::ActiveModel::builder()
+            .set_username(username.clone())
+            .set_password_hash(auth::password::hash("correct horse").expect("hash should succeed"))
+            .set_storage_shard("shard-1")
+            .insert(&db.conn)
+            .await
+            .expect("user should insert");
 
-    #[test]
-    fn test_web_auth_backend_is_clone() {
-        // Verify that WebAuthBackend implements Clone (required by axum-login)
-        // This ensures the backend can be shared across request handlers
-        fn assert_clone<T: Clone>() {}
-        assert_clone::<WebAuthBackend>();
-    }
+        let backend = WebAuthBackend::new(db);
+        let credentials = |password: &str| Credentials {
+            username: username.clone(),
+            password: password.to_string(),
+        };
 
-    // Note: Full integration testing of authenticate() and get_user() would require:
-    // 1. Setting up a test database with known user records
-    // 2. Testing successful authentication with valid credentials
-    // 3. Testing failed authentication with invalid credentials
-    // 4. Testing session rehydration via get_user()
-    //
-    // These tests are better suited for integration tests that can spin up
-    // a full database and test the complete authentication flow end-to-end.
+        let authenticated = backend
+            .authenticate(credentials("correct horse"))
+            .await
+            .expect("a valid login is not a system error");
+        assert_eq!(authenticated.map(|u| u.user_id()), Some(inserted.id));
+
+        // Rejections are Ok(None), so axum-login answers 401 rather than 500 — for a wrong
+        // password and an unknown user alike.
+        assert!(backend
+            .authenticate(credentials("wrong password"))
+            .await
+            .expect("a rejection is not a system error")
+            .is_none());
+        assert!(backend
+            .authenticate(Credentials {
+                username: "no_such_user".to_string(),
+                password: "x".to_string(),
+            })
+            .await
+            .expect("a rejection is not a system error")
+            .is_none());
+    }
 }

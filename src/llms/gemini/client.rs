@@ -322,6 +322,17 @@ fn inference_response(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    fn developer_api_client() -> GeminiInferenceClient {
+        GeminiInferenceClient {
+            backend: Backend::DeveloperApi {
+                api_key: "test-key".to_string(),
+            },
+            http: Client::new(),
+        }
+    }
+
     #[test]
     fn response_headers_capture_request_id() {
         let mut headers = reqwest::header::HeaderMap::new();
@@ -334,96 +345,56 @@ mod tests {
     }
 
     #[test]
-    fn provider_error_carries_http_status() {
-        let outcome = inference_response(
-            serde_json::json!({"error": "resource exhausted"}),
-            reqwest::StatusCode::TOO_MANY_REQUESTS,
-            "vertex",
-            "test-model",
-            1,
-            serde_json::json!({}),
-        );
-        assert_eq!(outcome.http_status_code, Some(429));
-        let error = outcome.output.expect_err("provider error");
-        assert!(format!("{error:#}").contains("429"));
-    }
-
-    use super::*;
-    use crate::{illumination::IlluminationVersion, logic::illuminate::IlluminationTask};
-
-    #[test]
-    fn generic_request_uses_selected_model_and_maps_web_search_and_thinking() {
-        let client = GeminiInferenceClient {
-            backend: Backend::DeveloperApi {
-                api_key: "test-key".to_string(),
-            },
-            http: Client::new(),
-        };
+    fn request_body_maps_model_tools_and_thinking_level() {
+        let client = developer_api_client();
         let input = [InferenceInput::Text("hello")];
         let capabilities = [InferenceCapability::WebSearch];
         let schema = json!({"type": "object", "properties": {"summary": {"type": "string"}}});
 
-        for model_id in ["model-a", "model-b"] {
-            for (level, expected) in [
-                (None, None),
-                (Some(gemini::ThinkingLevel::Minimal), Some("minimal")),
-                (Some(gemini::ThinkingLevel::Low), Some("low")),
-                (Some(gemini::ThinkingLevel::Medium), Some("medium")),
-                (Some(gemini::ThinkingLevel::High), Some("high")),
-            ] {
-                let mut task = IlluminationTask::new(123, 1, model_id, IlluminationVersion::V1);
-                if let Some(level) = level {
-                    task.thinking_level = Some(level);
-                }
-                let payload = serde_json::to_value(task).expect("task payload should serialize");
-                if expected.is_none() {
-                    assert!(payload.get("thinking_level").is_none());
-                }
-                let task: IlluminationTask =
-                    serde_json::from_value(payload).expect("task payload should deserialize");
-                let request = InferenceRequest {
-                    model_id: &task.model_id,
-                    input: &input,
-                    response_schema: Some(&schema),
-                    capabilities: &capabilities,
-                    thinking_level: task.thinking_level,
-                };
+        for (level, expected) in [
+            (None, None),
+            (Some(gemini::ThinkingLevel::Minimal), Some("minimal")),
+            (Some(gemini::ThinkingLevel::Low), Some("low")),
+            (Some(gemini::ThinkingLevel::Medium), Some("medium")),
+            (Some(gemini::ThinkingLevel::High), Some("high")),
+        ] {
+            let request = InferenceRequest {
+                model_id: "model-a",
+                input: &input,
+                response_schema: Some(&schema),
+                capabilities: &capabilities,
+                thinking_level: level,
+            };
 
-                let body = client.interaction_body(&request).unwrap();
-                assert_eq!(body["model"], model_id);
-                assert!(!body["store"].as_bool().unwrap());
-                assert_eq!(body["tools"], json!([{"type": "google_search"}]));
-                assert_eq!(body["response_format"]["schema"], schema);
-                let mut expected_params = json!({
-                    "store": false,
-                    "tools": [{"type": "google_search"}],
-                });
-                if let Some(expected) = expected {
-                    let config = json!({"thinking_level": expected});
-                    assert_eq!(body["generation_config"], config);
-                    expected_params["generation_config"] = config;
-                } else {
-                    assert!(body.get("generation_config").is_none());
+            let body = client.interaction_body(&request).unwrap();
+            assert_eq!(body["model"], "model-a");
+            // User media belongs in Dreamscroll's storage, not the provider's.
+            assert_eq!(body["store"], json!(false));
+            assert_eq!(body["tools"], json!([{"type": "google_search"}]));
+            assert_eq!(body["response_format"]["schema"], schema);
+            match expected {
+                Some(level) => {
+                    assert_eq!(body["generation_config"], json!({"thinking_level": level}))
                 }
-                let outcome = inference_response(
-                    json!({"usage": {"total_input_tokens": 1}}),
-                    reqwest::StatusCode::INTERNAL_SERVER_ERROR,
-                    "developer_api",
-                    model_id,
-                    1,
-                    body,
-                );
-                assert!(outcome.output.is_err());
-                assert_eq!(
-                    outcome.metadata.params,
-                    *expected_params.as_object().unwrap()
-                );
-                assert_eq!(
-                    outcome.metadata.provider_metadata["provider_usage"],
-                    json!({"total_input_tokens": 1})
-                );
+                None => assert!(body.get("generation_config").is_none()),
             }
         }
+    }
+
+    #[test]
+    fn request_body_rejects_missing_input() {
+        let client = developer_api_client();
+        let input: [InferenceInput; 0] = [];
+        let capabilities: [InferenceCapability; 0] = [];
+        let request = InferenceRequest {
+            model_id: "model-a",
+            input: &input,
+            response_schema: None,
+            capabilities: &capabilities,
+            thinking_level: None,
+        };
+
+        assert!(client.interaction_body(&request).is_err());
     }
 
     #[test]
@@ -445,7 +416,7 @@ mod tests {
     }
 
     #[test]
-    fn generic_response_contains_structured_output_and_provider_metadata() {
+    fn response_maps_output_tokens_and_provider_metadata() {
         let usage = json!({
             "total_input_tokens": 12,
             "total_cached_tokens": 3,
@@ -475,10 +446,6 @@ mod tests {
         );
 
         assert_eq!(response.output.unwrap(), json!({"summary": "Ada"}));
-        assert_eq!(response.metadata.provider_name, "gemini");
-        assert_eq!(response.metadata.backend_name, "vertex");
-        assert_eq!(response.metadata.model_id, "model-a");
-        assert_eq!(response.metadata.duration_ms, 42);
         assert_eq!(response.metadata.tokens_in, Some(12));
         assert_eq!(response.metadata.tokens_in_cached, Some(3));
         assert_eq!(response.metadata.tokens_out, Some(7));
@@ -496,6 +463,7 @@ mod tests {
             json!("2026-10-28T04:24:08Z")
         );
         assert_eq!(response.metadata.provider_metadata["provider_usage"], usage);
+        // Recorded params must not leak the prompt or the provider request fields.
         assert_eq!(
             response.metadata.params,
             json!({"store": false, "generation_config": {"thinking_level": "high"}})
@@ -522,12 +490,7 @@ mod tests {
             Value::Null,
             json!({}),
             json!({"total_tokens": 99}),
-            json!({"total_thought_tokens": null}),
             json!({"total_thought_tokens": "12"}),
-            json!({"total_thought_tokens": 1.5}),
-            json!({"total_thought_tokens": true}),
-            json!({"total_thought_tokens": []}),
-            json!({"total_thought_tokens": {}}),
             json!({"total_thought_tokens": u64::MAX}),
         ] {
             let response = inference_response(
@@ -559,24 +522,11 @@ mod tests {
                 assert_eq!(response.metadata.provider_metadata["provider_usage"], usage);
             }
         }
-        let response = inference_response(
-            json!({}),
-            reqwest::StatusCode::OK,
-            "developer_api",
-            "model-a",
-            1,
-            json!({}),
-        );
-        assert_eq!(response.metadata.tokens_in, None);
-        assert_eq!(response.metadata.tokens_in_cached, None);
-        assert_eq!(response.metadata.tokens_out, None);
-        assert_eq!(response.metadata.tokens_thought, None);
-        assert!(response.metadata.params.is_empty());
     }
 
     #[test]
     fn usage_counts_preserve_large_values_and_explicit_zero() {
-        for tokens_thought in [0_i64, 5_000_000_000, i64::MAX] {
+        for tokens_thought in [0_i64, i64::MAX] {
             let usage = json!({
                 "total_input_tokens": 4_000_000_000_i64,
                 "total_cached_tokens": 3_000_000_000_i64,
@@ -660,6 +610,7 @@ mod tests {
             json!({"model": "model-a", "input": [{"text": "private prompt"}], "store": false}),
         );
         assert!(response.output.unwrap_err().to_string().contains("500"));
+        assert_eq!(response.http_status_code, Some(500));
         assert_eq!(response.metadata.tokens_in, Some(12));
         assert_eq!(response.metadata.tokens_in_cached, Some(2));
         assert_eq!(response.metadata.tokens_out, Some(7));

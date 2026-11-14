@@ -106,6 +106,7 @@ mod tests {
     use axum::http::StatusCode;
 
     use super::*;
+    use crate::test_support::{db_or_skip, fixtures};
 
     /// An ISO-BMFF `ftyp` box, the shape an iPhone writes.
     fn heic_header(brand: &[u8; 4]) -> Vec<u8> {
@@ -141,5 +142,38 @@ mod tests {
         let error = supported_image(b"definitely not an image").expect_err("unknown bytes");
 
         assert_eq!(error.http_status_code, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+    }
+
+    /// Deduplication is scoped to the uploader: a user's own duplicate is a 409, but the same
+    /// bytes from another user must import, or the 409 would leak another account's capture.
+    #[tokio::test]
+    async fn dedupe_rejects_the_uploaders_duplicate_only() {
+        db_or_skip!(db);
+        let storage = crate::storage::LocalStorageProvider::new(
+            std::env::temp_dir()
+                .join(format!("dreamscroll-dedupe-{}", uuid::Uuid::new_v4()))
+                .to_string_lossy()
+                .into_owned(),
+        );
+        let jpeg = b"\xFF\xD8\xFF\xE0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00";
+        let bytes = Bytes::from_static(jpeg);
+
+        let owner = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(
+            fixtures::user(&db, "dedupe_owner").await,
+        ));
+        insert_capture(&db, &storage, &owner, bytes.clone(), true, None)
+            .await
+            .unwrap();
+        let duplicate = insert_capture(&db, &storage, &owner, bytes.clone(), true, None)
+            .await
+            .unwrap_err();
+        assert_eq!(duplicate.http_status_code, StatusCode::CONFLICT);
+
+        let stranger = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(
+            fixtures::user(&db, "dedupe_stranger").await,
+        ));
+        insert_capture(&db, &storage, &stranger, bytes, true, None)
+            .await
+            .expect("an identical upload from another user must succeed");
     }
 }

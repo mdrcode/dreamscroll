@@ -6,7 +6,7 @@
 
 Illumination v2 uses one entity shape: `name`, optional `description`, `type`, and optional `platform_link`. The type is a practical capture-classification label, not a complete ontology or a claim that entity identity has been resolved across captures. The platform link is locator metadata, not a replacement for the entity.
 
-V2 is the application projection: API, REST, WebUI, and `dreamscroll_api unknown-entities` read the unified `knowledge_entities` table. V1 remains available only for explicit raw-result evaluation and stores inference output in `illumination_raws`; it does not write a relational projection. The versions retain separate prompts and schemas.
+V2 is the application projection: API, REST, WebUI, and `dreamscroll_api unknown-entities` read the unified `user_observed_entities` table. V1 remains available only for explicit raw-result evaluation and stores inference output in `illumination_raws`; it does not write a relational projection. The versions retain separate prompts and schemas.
 
 The WebUI exposes each row as an occurrence at `/entity/{id}`. That page shows the source capture and sibling entities, but it does not establish canonical identity across captures. Cross-capture grouping by exact `(name, type)` is deferred; the identity, merge, and similarity design now lives in [knowledge-canonical-entities.md](knowledge-canonical-entities.md).
 
@@ -14,6 +14,13 @@ The WebUI exposes each row as an occurrence at `/entity/{id}`. That page shows t
 
 The audit in [knowledge-promotion-audit.md](knowledge-promotion-audit.md) reviewed all 2,518 local
 mentions and settles several of the open questions below.
+
+**2026-11-08 — type is ours, not a provider's.** `identity/wikidata/types.rs` compares this capture label
+against Wikidata's `P31` and lets a disagreement *refuse* a candidate. That works while Wikidata is the
+only authority and stops working the moment there is a second one: each provider would need its own
+mapping of its vocabulary onto ours, and a provider disagreement would have nowhere to live. The type
+stays our provider-neutral vocabulary; each provider supplies a mapping with confidence, and a
+disagreement ranks. Tracked in [backlog.md](../backlog.md).
 
 **No `persona` type.** The v2 prompt already models the three strings that were being confused:
 
@@ -32,8 +39,8 @@ person and the persona appear as separate entities.
 What is actually missing is that the persona name is a **label, not a node**. `Tsoding`, `Meta-Nomad`
 and `clara` live in `display_name` or in prose ("known online as Tsoding"), so a later capture that
 shows only the persona cannot match the person. The fix is an `aliases` array on the entity (persona
-names, pseudonyms, work subtitles), which flows into `knowledge_aliases` and lets the two match
-without splitting the node.
+names, pseudonyms, work subtitles), which flows into `core_knowledge_entities.aliases` and lets the two
+match without splitting the node (see [knowledge-canonical-entities.md](knowledge-canonical-entities.md)).
 
 If a persona ever needs to be a node of its own — the user keeps the persona's work separate from the
 person's biography — model it as a **relation** (`persona --pseudonym_of--> person`,
@@ -133,7 +140,7 @@ edges, but no current defect requires it.
 
 ## What the current `unknown` inventory tells us
 
-The authenticated `GET /api/entity?type=unknown` route and `dreamscroll_api unknown-entities` command list user-owned v2 `knowledge_entities` of the requested type from non-archived captures. A local v1 scan returned 323 records; that is a historical v1 baseline, not a v2 evaluation set.
+The authenticated `GET /api/entity?type=unknown` route and `dreamscroll_api unknown-entities` command list user-owned v2 `user_observed_entities` of the requested type from non-archived captures. A local v1 scan returned 323 records; that is a historical v1 baseline, not a v2 evaluation set.
 
 Several examples in that historical scan appeared unknown because the v1 enum lacked types that v2 supports, including `event`, `product`, and `organization` (for example, World War II, Monster Boomerang Petite, and Special Operations Executive). Other examples were movements, practices, or abstract concepts, such as Symbolism, Shinrin-yoku, and Network Science. These remain taxonomy questions to assess against v2 results. The scan also contained duplicate World War II KNodes in one capture; treat that as a historical extraction/deduplication observation, not a new entity type.
 
@@ -158,7 +165,7 @@ The CLI uses the macOS Keychain token cache, keyed by API host and username. Onc
 cargo run --bin dreamscroll_api -- --host <host> --user <username> unknown-entities
 ```
 
-This command reads the `knowledge_entities` projection from non-archived captures. Explicit v1 results that exist only in `illumination_raws` are intentionally excluded.
+This command reads the `user_observed_entities` projection from non-archived captures. Explicit v1 results that exist only in `illumination_raws` are intentionally excluded.
 
 ## Reference models
 

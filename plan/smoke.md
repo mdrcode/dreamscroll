@@ -26,6 +26,12 @@ docker compose up -d db fake-gcs
 cargo run --bin dreamscroll_web
 ```
 
+**Restart it before every smoke run.** The instance persists across edits, so a
+running process is older than the code the moment anything is rebuilt — `cargo run`
+does rebuild, a `./target/debug/dreamscroll_web` left running does not. Stop the
+process, rebuild, start it again, and only then smoke. A smoke run against a stale
+binary proves nothing, and worse, it looks like a regression.
+
 The dedicated account is `smoke-agent`. Create it once with the normal admin
 command, then grant it admin so UI *and* admin REST checks can run as the same
 account (local database only):

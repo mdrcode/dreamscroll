@@ -40,6 +40,7 @@ services:
       TASK_QUEUE_NAME_ILLUMINATE: illuminate
       TASK_QUEUE_NAME_SPARK: spark
       TASK_QUEUE_NAME_SEARCH_INDEX: search_index
+      TASK_QUEUE_NAME_KNOWLEDGE_LINK: knowledge-link-illumination
 
       SEARCH_EMBED_COLLECTION_ID: dreamscroll-dev-collection6
       SEARCH_EMBED_VECTOR_FIELD: geminiv2

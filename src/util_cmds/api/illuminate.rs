@@ -278,20 +278,61 @@ mod tests {
         assert_eq!(result.status, crate::task::TaskRunStatus::InProgress);
     }
 
-    #[tokio::test]
+    /// The wait driven against a clock the test controls, with the run id filled in.
+    async fn wait_with<F, Fut>(
+        timeout: Duration,
+        poll_interval: Duration,
+        fetch_status: F,
+    ) -> anyhow::Result<api::TaskRunInfo>
+    where
+        F: FnMut(String) -> Fut,
+        Fut: Future<Output = anyhow::Result<api::TaskRunInfo>>,
+    {
+        super::wait_for_task_run_with(run_id(), timeout, poll_interval, fetch_status).await
+    }
+
+    /// A paused clock makes the deadline exact: the last sleep must be clamped to what remains, not
+    /// the whole poll interval. With a 60s interval and a 10s budget, overshooting is unmissable.
+    #[tokio::test(start_paused = true)]
+    async fn wait_clamps_the_last_sleep_to_the_remaining_budget() {
+        let started = tokio::time::Instant::now();
+        let result = wait_with(
+            Duration::from_secs(10),
+            Duration::from_secs(60),
+            |_| async { Ok(status(crate::task::TaskRunStatus::InProgress)) },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(result.status, crate::task::TaskRunStatus::InProgress);
+        assert_eq!(
+            tokio::time::Instant::now() - started,
+            Duration::from_secs(10),
+            "the wait ends at the deadline, not one poll interval later"
+        );
+    }
+
+    /// A status request that hangs is cut off at the deadline rather than hanging the wait.
+    #[tokio::test(start_paused = true)]
     async fn wait_bounds_a_stalled_status_request() {
-        let result = wait_for_task_run_with(
-            run_id(),
+        let started = tokio::time::Instant::now();
+        let error = wait_with(
             Duration::from_millis(10),
             Duration::from_secs(2),
             |_| async {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                Ok(status(crate::task::TaskRunStatus::Queued))
+                std::future::pending::<()>().await;
+                unreachable!("the deadline must win")
             },
         )
-        .await;
+        .await
+        .expect_err("a request that never answers is a timeout");
 
-        assert!(result.unwrap_err().to_string().contains("timed out"));
+        assert!(error.to_string().contains("timed out"), "{error}");
+        assert_eq!(
+            tokio::time::Instant::now() - started,
+            Duration::from_millis(10),
+            "cut off at the deadline, not left to hang"
+        );
     }
 
     #[tokio::test]
@@ -396,21 +437,6 @@ mod tests {
 
     #[test]
     fn only_successful_task_runs_allow_result_fetching() {
-        let status = |status| api::TaskRunInfo {
-            logical_id: "u7-illuminate-capture42".to_string(),
-            run_id: "3e6d5dd1-4350-49d4-9933-e2de78aab82d".to_string(),
-            run_number: 1,
-            task_type: "illuminate".to_string(),
-            entity_type: "capture".to_string(),
-            entity_id: 42,
-            status,
-            attempts: 1,
-            error_code: None,
-            error_message: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        };
-
         assert!(ensure_successful_run(&status(TaskRunStatus::CompleteSuccess)).is_ok());
         assert!(
             ensure_successful_run(&status(TaskRunStatus::CompleteFailure))

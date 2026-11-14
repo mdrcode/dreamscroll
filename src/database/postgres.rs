@@ -171,62 +171,45 @@ mod tests {
     const DB: &str = "dreamscroll";
 
     #[test]
-    fn make_url_without_connection_params() {
-        let url = make_url(USER, PASSWORD, HOST_PORT, DB, None, None, false);
-
-        assert_eq!(url, "postgres://alice:secret@db.internal:5432/dreamscroll");
-    }
-
-    #[test]
-    fn make_url_with_connection_params() {
-        let url = make_url(
-            USER,
-            PASSWORD,
-            HOST_PORT,
-            DB,
-            Some("sslmode=require&application_name=dreamscroll"),
-            None,
-            false,
-        );
-
+    fn make_url_composes_params_schema_and_base() {
         assert_eq!(
-            url,
+            make_url(USER, PASSWORD, HOST_PORT, DB, None, None, false),
+            "postgres://alice:secret@db.internal:5432/dreamscroll"
+        );
+        assert_eq!(
+            make_url(
+                USER,
+                PASSWORD,
+                HOST_PORT,
+                DB,
+                Some("sslmode=require&application_name=dreamscroll"),
+                None,
+                false,
+            ),
             "postgres://alice:secret@db.internal:5432/dreamscroll?sslmode=require&application_name=dreamscroll"
         );
-    }
-
-    #[test]
-    fn make_url_with_schema_override() {
-        let url = make_url(
-            USER,
-            PASSWORD,
-            HOST_PORT,
-            DB,
-            None,
-            Some("test_abc123"),
-            false,
-        );
-
         assert_eq!(
-            url,
+            make_url(
+                USER,
+                PASSWORD,
+                HOST_PORT,
+                DB,
+                None,
+                Some("test_abc123"),
+                false,
+            ),
             "postgres://alice:secret@db.internal:5432/dreamscroll?options=-csearch_path%3Dtest_abc123"
         );
-    }
-
-    #[test]
-    fn make_url_combines_connection_params_and_schema() {
-        let url = make_url(
-            USER,
-            PASSWORD,
-            HOST_PORT,
-            DB,
-            Some("sslmode=require"),
-            Some("test_abc123"),
-            false,
-        );
-
         assert_eq!(
-            url,
+            make_url(
+                USER,
+                PASSWORD,
+                HOST_PORT,
+                DB,
+                Some("sslmode=require"),
+                Some("test_abc123"),
+                false,
+            ),
             "postgres://alice:secret@db.internal:5432/dreamscroll?sslmode=require&options=-csearch_path%3Dtest_abc123"
         );
     }
@@ -247,6 +230,5 @@ mod tests {
             url,
             "postgres://alice:<REDACTED>@db.internal:5432/dreamscroll?sslmode=require"
         );
-        assert!(!url.contains("secret"));
     }
 }

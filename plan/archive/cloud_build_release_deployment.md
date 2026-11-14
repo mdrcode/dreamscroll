@@ -28,7 +28,7 @@ trigger builds. Local macOS development and Docker development remain unchanged.
 - Production is project `mdrcode`, region `us-central1`, service
   `dreamscroll-webui-api` — all verified from the live configuration on
   2026-10-27.
-- `plan/static-serving-cdn.md` keeps deployment separate from image publishing;
+- `plan/archive/static-serving-cdn.md` keeps deployment separate from image publishing;
   that remains true and is unrelated to this pipeline.
 
 ## Proposed production tag flow

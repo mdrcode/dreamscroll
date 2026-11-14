@@ -33,7 +33,7 @@ pub async fn export_entities(
     req: ExportEntitiesRequest,
 ) -> Result<
     (
-        Vec<schema::ExportRow<schema::KnowledgeEntityInfo>>,
+        Vec<schema::ExportRow<schema::ObservedEntityInfo>>,
         Option<i32>,
     ),
     ApiError,
@@ -46,12 +46,12 @@ pub async fn export_entities(
         )));
     }
 
-    let mut query = model::knowledge_entity::Entity::find()
-        .filter(model::knowledge_entity::Column::Id.gt(req.after_id))
-        .order_by_asc(model::knowledge_entity::Column::Id)
+    let mut query = model::user_observed_entity::Entity::find()
+        .filter(model::user_observed_entity::Column::Id.gt(req.after_id))
+        .order_by_asc(model::user_observed_entity::Column::Id)
         .limit(req.limit);
     if let Some(user_id) = req.user_id {
-        query = query.filter(model::knowledge_entity::Column::UserId.eq(user_id));
+        query = query.filter(model::user_observed_entity::Column::UserId.eq(user_id));
     }
     let entities = query.all(&db.conn).await?;
 
@@ -88,8 +88,8 @@ pub async fn export_entities(
 
         rows.push(schema::ExportRow {
             user_id: entity.user_id,
-            row: schema::KnowledgeEntityInfo::new(
-                model::knowledge_entity::ModelEx::from(entity),
+            row: schema::ObservedEntityInfo::new(
+                model::user_observed_entity::ModelEx::from(entity),
                 archived_at,
             ),
         });

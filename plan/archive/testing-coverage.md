@@ -49,6 +49,7 @@ The task/SSE testing review identified these priority gaps:
 5. Listener/process lifecycle: listener failure visibility and WebUI startup/shutdown propagation.
 6. Task edge cases: missing-run semantics, successful submissions for each task type, and enqueue failure followed by a later run.
 7. SSE catch-up fan-out: one initial refresh hint per latest entity while live task updates remain individually delivered.
+8. REST API surface: routing, bearer-token auth gating, and the status/body contract in `_local.http` — see [rest-testing.md](rest-testing.md).
 
 These are tracked as follow-up work rather than blockers for the current task framework.
 

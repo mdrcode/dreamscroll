@@ -1,8 +1,12 @@
 # Schema synchronization and migration plan
 
-**Status:** application code implemented. Production execution is designed in
-[prod-deploy.md](prod-deploy.md); the Cloud Run Job is not created
-yet. **Updated:** 2026-10-27.
+**Status:** Implemented — archived 2026-11-10. Application code and production
+execution are live; production steps and verification are in
+[prod-deploy.md](../prod-deploy.md). **Updated:** 2026-11-10.
+
+Production run (2026-11-10): the `dreamscroll-db-sync` job was deployed,
+`sync_schema` completed against production, and the illuminate backfill was
+pumped successfully. No rollback was needed.
 
 ## Decision
 
@@ -101,7 +105,7 @@ before starting the updated application.
 
 Schema version 7 adds nullable `task_runs.last_error_code` and
 `last_error_message` (see `plan/archive/task-status.md`); version 8 adds the
-one-row-per-backfill latch table `backfills` (see `plan/backfill.md`). Both are
+one-row-per-backfill latch table `backfills` (see `plan/archive/backfill.md`). Both are
 additive.
 
 The transaction prevents other sessions from observing the temporary absence of
@@ -173,7 +177,7 @@ also has Direct VPC networking. No Cloud Run Job was listed in that region.
 No cloud resources or database contents were changed during this inspection.
 
 The root `Dockerfile` packages `dreamscroll_db` alongside `dreamscroll_web`.
-Execution is now specified in [prod-deploy.md](prod-deploy.md):
+Execution is now specified in [prod-deploy.md](../prod-deploy.md):
 a single-task Cloud Run Job named `dreamscroll-db-sync`, run manually before the
 service deploy through `gcloud/prod-apply.sh --apply --db`, with the same image
 tag, the `/cloudsql` socket, `POSTGRES_PASSWORD` from Secret Manager, no
@@ -199,24 +203,22 @@ production backup/restore procedure before the first production run.
 
 1. [x] Inventory application entities, model-declared constraints, manual
    indexes, and session-store schema behavior.
-2. [ ] Confirm the live production schema and database user's DDL privileges
-   before the first production run.
+2. [x] Confirmed during the production run: `dreamscroll-web` created and
+   altered its objects successfully.
 3. [x] Remove application model sync from normal connections and centralize
    explicit schema synchronization and manual index ownership.
 4. [x] Add `dreamscroll_db sync_schema`, Postgres regression tests for
    repeated sync/index uniqueness, and startup rejection of missing/stale
    markers while accepting a newer compatible marker.
-5. [ ] Measure index rebuild/lock duration on a clone. Verify rollback behavior
-   on a deliberate sync failure. Procedure in
-   [prod-deploy.md](prod-deploy.md) §Preflight.
-6. [ ] Create the `dreamscroll-db-sync` Cloud Run Job, rehearse it against a
-   Cloud SQL clone, then run it against production.
-7. [ ] Gate the release sequence so production schema sync succeeds before
-   deploying application code that depends on the change: separate manual
-   `prod-apply.sh --apply --db` then `--apply --web` steps, automated gate
-   later.
-8. [ ] Record production backup and rollback steps. `SchemaBuilder::sync` is not
-   a reversible migration; reverting the app image does not restore schema.
+5. [x] Clone rehearsal abandoned (clone stalled in `PENDING_CREATE`). The
+   production reset measured ~4 s end to end; a failed sync rolled back
+   cleanly with no partial schema.
+6. [x] The `dreamscroll-db-sync` job was created and run against production;
+   no clone rehearsal was used. Executions `7cnbm` and `f42cv`.
+7. [x] `--apply --db` then `--apply --web` is the release sequence; the
+   automated gate remains deferred.
+8. [x] Backup `1793119914259` and the rollback/reset steps are recorded in
+   [prod-deploy.md](../prod-deploy.md).
 
 ## Research sources
 

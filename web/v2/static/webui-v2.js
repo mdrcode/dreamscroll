@@ -1055,7 +1055,7 @@ function setupUploadInteractions() {
         return mode === 'search' || mode === 'detail';
     }
 
-    function showUploadNotice(uploadResult) {
+    function showUploadNotice(uploadResult, errorMessage) {
         if (!noticeWrap || !noticeMessage) {
             return;
         }
@@ -1078,7 +1078,7 @@ function setupUploadInteractions() {
             noticeMessage.appendChild(link);
             noticeMessage.appendChild(document.createTextNode(' successfully uploaded.'));
         } else {
-            noticeMessage.textContent = 'Upload failed. Please try again.';
+            noticeMessage.textContent = errorMessage || 'Upload failed. Please try again.';
         }
 
         noticeWrap.hidden = false;
@@ -1136,8 +1136,24 @@ function setupUploadInteractions() {
         setUploadProgress(0, '0%');
     }
 
+    function isHeic(file) {
+        const name = (file.name || '').toLowerCase();
+        return file.type === 'image/heic'
+            || file.type === 'image/heif'
+            || name.endsWith('.heic')
+            || name.endsWith('.heif');
+    }
+
     function submitManagedUpload(file) {
         if (!file || isUploading) {
+            return;
+        }
+
+        if (isHeic(file)) {
+            showUploadNotice(
+                null,
+                'HEIC/HEIF images are not supported. Export as PNG or JPEG and try again.'
+            );
             return;
         }
 

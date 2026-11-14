@@ -1339,6 +1339,7 @@ dependencies = [
  "serde_json",
  "sqlx 0.8.6",
  "sqlx 0.9.0",
+ "strsim",
  "strum",
  "tera",
  "tera-contrib",

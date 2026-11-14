@@ -101,7 +101,7 @@ impl AdminApiClient {
         &self,
         context: &auth::Context,
         req: ExportEntitiesRequest,
-    ) -> Result<(Vec<ExportRow<KnowledgeEntityInfo>>, Option<i32>), ApiError> {
+    ) -> Result<(Vec<ExportRow<ObservedEntityInfo>>, Option<i32>), ApiError> {
         super::entities::export_entities(&self.db, context, req).await
     }
 

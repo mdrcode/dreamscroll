@@ -302,51 +302,13 @@ where
 mod tests {
     use super::*;
 
-    // ========================================================================
-    // User Token Tests
-    // ========================================================================
-
-    #[test]
-    fn test_user_token_create_and_decode() {
-        let config = JwtConfig::from_secret(b"test-secret-key-at-least-32-bytes!");
-        let user = DreamscrollAuthUser::new_test_session(42);
-
-        let token = config
-            .create_user_token(user.clone())
-            .expect("should create user token");
-        assert!(!token.is_empty());
-
-        let claims = config
-            .decode_user_token(&token)
-            .expect("should decode user token");
-        assert_eq!(claims.sub, user.user_id().to_string());
+    fn test_config() -> JwtConfig {
+        JwtConfig::from_secret(b"test-secret-key-at-least-32-bytes!")
     }
 
     #[test]
-    fn test_user_token_invalid_rejected() {
-        let config = JwtConfig::from_secret(b"test-secret-key-at-least-32-bytes!");
-
-        let result = config.decode_user_token("invalid.token.here");
-        assert!(matches!(result, Err(AuthError::InvalidToken)));
-    }
-
-    #[test]
-    fn test_user_token_wrong_secret_rejected() {
-        let config1 = JwtConfig::from_secret(b"test-secret-one-at-least-32-bytes!");
-        let config2 = JwtConfig::from_secret(b"test-secret-two-at-least-32-bytes!");
-
-        let user = DreamscrollAuthUser::new_test_session(42);
-        let token = config1
-            .create_user_token(user)
-            .expect("should create user token");
-
-        let result = config2.decode_user_token(&token);
-        assert!(matches!(result, Err(AuthError::InvalidToken)));
-    }
-
-    #[test]
-    fn test_user_token_contains_correct_claims() {
-        let config = JwtConfig::from_secret(b"test-secret-key-at-least-32-bytes!");
+    fn user_token_roundtrips_identity_claims_and_configured_lifetime() {
+        let config = test_config().with_user_expiration_secs(60);
         let user = DreamscrollAuthUser::new_test_session(99);
 
         let token = config
@@ -359,6 +321,54 @@ mod tests {
         assert_eq!(claims.sub, "99");
         assert_eq!(claims.username, "testuser99");
         assert!(!claims.is_admin);
-        assert!(claims.exp > claims.iat);
+        // The shard is the GCS prefix the request may write under; it must survive signing.
+        assert_eq!(claims.storage_shard, "testshard99");
+        // `expires_in` is reported to API clients, so the configured lifetime must reach the token.
+        assert_eq!(claims.exp - claims.iat, 60);
+    }
+
+    #[test]
+    fn malformed_token_is_rejected() {
+        let result = test_config().decode_user_token("invalid.token.here");
+        assert!(matches!(result, Err(AuthError::InvalidToken)));
+    }
+
+    #[test]
+    fn token_signed_with_another_secret_is_rejected() {
+        let issuer = JwtConfig::from_secret(b"test-secret-one-at-least-32-bytes!");
+        let verifier = JwtConfig::from_secret(b"test-secret-two-at-least-32-bytes!");
+        let token = issuer
+            .create_user_token(DreamscrollAuthUser::new_test_session(42))
+            .expect("should create user token");
+
+        assert!(matches!(
+            verifier.decode_user_token(&token),
+            Err(AuthError::InvalidToken)
+        ));
+    }
+
+    #[test]
+    fn expired_token_is_rejected_unless_within_leeway() {
+        let config = test_config();
+        let now = jsonwebtoken::get_current_timestamp();
+        let claims = JwtUserClaims {
+            sub: "42".to_string(),
+            username: "testuser42".to_string(),
+            is_admin: false,
+            exp: now - 60,
+            iat: now - 3660,
+            storage_shard: "testshard42".to_string(),
+        };
+        let token =
+            encode(&Header::default(), &claims, &config.encoding_key).expect("token should encode");
+
+        assert!(matches!(
+            config.decode_user_token(&token),
+            Err(AuthError::InvalidToken)
+        ));
+        assert!(
+            config.with_leeway(120).decode_user_token(&token).is_ok(),
+            "leeway should absorb clock skew"
+        );
     }
 }

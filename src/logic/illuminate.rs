@@ -16,7 +16,7 @@ pub struct IlluminationTask {
     /// `gemini-3-flash-preview` and `gemini-3.1-pro-preview`, `medium` for
     /// `gemini-3.8-flash`, and `minimal` for `gemini-3.5-flash-lite`.
     /// `None` delegates to Gemini rather than pinning any of these defaults.
-    /// See https://ai.google.dev/gemini-api/docs/thinking#controlling-thinking.
+    /// See <https://ai.google.dev/gemini-api/docs/thinking#controlling-thinking>.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_level: Option<llms::gemini::ThinkingLevel>,
     /// Persist the relational projection and enqueue indexing; raw output is always retained.
@@ -66,11 +66,13 @@ impl task::Task for IlluminationTask {
 
 /// Executes the requested version. V1 is raw-only; v2 optionally writes the
 /// relational KnowledgeEntity projection.
+/// Returns the illumination it persisted a projection for, which is the work the knowledge graph
+/// can link. `None` means nothing was projected (raw-only, or projection disabled).
 pub async fn exec(
     state: &super::LogicState,
     task_run: &task::TaskRun<IlluminationTask>,
     attempt: i32,
-) -> Result<(), api::ApiError> {
+) -> Result<Option<i32>, api::ApiError> {
     let task = &task_run.task;
     let task_run_id = task_run.run_id.as_str();
     let capture_id = task.capture_id;
@@ -164,15 +166,16 @@ pub async fn exec(
                 )
                 .await?;
             if task.persist_projection {
-                state
+                let illumination_id = state
                     .service_api
                     .insert_illumination_v2(&capture, task_run_id, inference_meta_id, illumination)
                     .await?;
+                return Ok(Some(illumination_id));
             }
         }
     }
 
     tracing::info!(capture_id, task_run_id, prompt_version = ?task.prompt_version, persist_projection = task.persist_projection, "Illumination completed and persisted");
 
-    Ok(())
+    Ok(None)
 }

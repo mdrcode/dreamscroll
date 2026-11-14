@@ -26,18 +26,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_retryable_outcomes_return_non_2xx() {
-        assert!(!http_status_for_task_run(TaskRunStatus::SubmissionFailed).is_success());
-        assert!(http_status_for_task_run(TaskRunStatus::CompleteSuccess).is_success());
-        assert!(http_status_for_task_run(TaskRunStatus::CompleteFailure).is_success());
-        assert!(!http_status_for_task_run(TaskRunStatus::ErrorWillRetry).is_success());
-    }
-
-    #[test]
-    fn acked_outcomes_use_distinct_status_codes() {
-        assert_ne!(
-            http_status_for_task_run(TaskRunStatus::CompleteSuccess),
-            http_status_for_task_run(TaskRunStatus::CompleteFailure)
-        );
+    fn maps_each_outcome_to_the_status_cloud_tasks_retries_on() {
+        for (status, expected) in [
+            (TaskRunStatus::SubmissionFailed, StatusCode::INTERNAL_SERVER_ERROR),
+            (TaskRunStatus::ErrorWillRetry, StatusCode::INTERNAL_SERVER_ERROR),
+            // A finished attempt is never left non-terminal; retry rather than
+            // silently acknowledging an inconsistent outcome.
+            (TaskRunStatus::Queued, StatusCode::INTERNAL_SERVER_ERROR),
+            (TaskRunStatus::InProgress, StatusCode::INTERNAL_SERVER_ERROR),
+            (TaskRunStatus::CompleteSuccess, StatusCode::NO_CONTENT),
+            (TaskRunStatus::CompleteFailure, StatusCode::OK),
+        ] {
+            assert_eq!(
+                http_status_for_task_run(status),
+                expected,
+                "status: {status:?}"
+            );
+        }
     }
 }

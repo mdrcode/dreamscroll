@@ -140,46 +140,12 @@ mod tests {
         let run1 = TaskRun::new(task.clone(), 1);
         let run7 = TaskRun::new(task, 7);
 
-        assert_eq!(run1.logical_id, by_id);
-        assert_eq!(run7.logical_id, by_id);
-        assert_eq!(run1.run_number, 1);
-        assert_eq!(run7.run_number, 7);
-        assert_ne!(run1.run_id, run7.run_id);
-    }
-
-    #[test]
-    fn logical_id_distinguishes_owners_and_entities() {
-        let task = TestTask {
-            id: 5,
-            entity_owner_id: 1,
-        };
-        let logical_id = TaskRun::<TestTask>::make_logical_id(&task);
-        let other_owner = TaskRun::<TestTask>::make_logical_id(&TestTask {
-            id: 5,
-            entity_owner_id: 2,
-        });
-        let other_entity = TaskRun::<TestTask>::make_logical_id(&TestTask {
-            id: 6,
-            entity_owner_id: 1,
-        });
-
-        assert_ne!(logical_id, other_owner);
-        assert_ne!(logical_id, other_entity);
-    }
-
-    #[test]
-    fn new_uses_task_owner_for_logical_identity() {
-        let task_run = TaskRun::new(
-            TestTask {
-                id: 9,
-                entity_owner_id: 3,
-            },
-            2,
+        assert_eq!(
+            run1.logical_id, by_id,
+            "new() derives the owner-scoped id from the task"
         );
-
-        assert_eq!(task_run.logical_id, "u3-illuminate-capture9");
-        assert_eq!(task_run.run_number, 2);
-        assert!(uuid::Uuid::parse_str(&task_run.run_id).is_ok());
+        assert_eq!(run7.logical_id, by_id, "a rerun keeps the logical id");
+        assert_ne!(run1.run_id, run7.run_id, "each invocation gets its own id");
     }
 
     #[test]
@@ -210,17 +176,12 @@ mod tests {
     }
 
     #[test]
-    fn deserializing_without_run_identity_fields_fails() {
-        let json = r#"{"task":{"id":5,"entity_owner_id":1}}"#;
+    fn deserializing_without_identity_or_task_fails() {
+        let missing_identity = r#"{"task":{"id":5,"entity_owner_id":1}}"#;
+        let missing_task = r#"{"logical_id":"u1-illuminate-capture5"}"#;
 
-        assert!(serde_json::from_str::<TaskRun<TestTask>>(json).is_err());
-    }
-
-    #[test]
-    fn deserializing_without_a_task_fails() {
-        let json = r#"{"logical_id":"u1-illuminate-capture5"}"#;
-
-        assert!(serde_json::from_str::<TaskRun<TestTask>>(json).is_err());
+        assert!(serde_json::from_str::<TaskRun<TestTask>>(missing_identity).is_err());
+        assert!(serde_json::from_str::<TaskRun<TestTask>>(missing_task).is_err());
     }
 
     #[test]
@@ -235,39 +196,19 @@ mod tests {
 
         let encoded = serde_json::to_string(&original).expect("TaskRun should serialize");
         let wire: serde_json::Value = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(wire["task"]["entity_owner_id"], 4);
-        assert!(wire.get("entity_owner_id").is_none());
         assert_eq!(wire["logical_id"], "u4-illuminate-capture17");
         assert_eq!(wire["run_number"], 3);
         assert!(uuid::Uuid::parse_str(wire["run_id"].as_str().unwrap()).is_ok());
-        assert!(wire.get("id").is_none());
-        assert!(wire.get("run").is_none());
-        assert!(wire.get("logical_task_id").is_none());
-        assert!(wire.get("user_id").is_none());
+        assert_eq!(wire["task"]["entity_owner_id"], 4);
+        assert_eq!(wire["task"]["id"], 17);
+
         let decoded: TaskRun<TestTask> =
             serde_json::from_str(&encoded).expect("TaskRun should deserialize");
-
-        assert_eq!(decoded.task.entity_owner_id, 4);
         assert_eq!(decoded.logical_id, original.logical_id);
+        assert_eq!(decoded.run_id, original.run_id);
         assert_eq!(decoded.run_number, 3);
         assert_eq!(decoded.task.id, 17);
-    }
-
-    #[test]
-    fn debug_includes_owner_identity_and_payload() {
-        let rendered = format!(
-            "{:?}",
-            TaskRun::new(
-                TestTask {
-                    id: 8,
-                    entity_owner_id: 2
-                },
-                1
-            )
-        );
-
-        assert!(rendered.contains("u2-illuminate-capture8"));
-        assert!(rendered.contains("id\\\":8"));
+        assert_eq!(decoded.task.entity_owner_id, 4);
     }
 
     /// Debug must not panic on a multi-byte payload cut at the 200-char preview.

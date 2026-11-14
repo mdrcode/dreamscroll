@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+
 use super::*;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -9,7 +10,7 @@ pub struct IlluminationInfo {
     pub summary: String,
     pub details: String,
     pub suggested_searches: Vec<String>,
-    pub knowledge_entities: Vec<KnowledgeEntityInfo>,
+    pub observed_entities: Vec<ObservedEntityInfo>,
 }
 
 impl IlluminationInfo {
@@ -19,7 +20,7 @@ impl IlluminationInfo {
         push_section(&mut sections, "Details", &self.details);
 
         let entity_lines = self
-            .knowledge_entities
+            .observed_entities
             .iter()
             .map(|entity| {
                 let mut parts = vec![entity.name.clone(), format!("type: {}", entity.entity_type)];
@@ -67,6 +68,7 @@ fn push_section(sections: &mut Vec<String>, header: &str, body: &str) {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
@@ -77,7 +79,7 @@ mod tests {
             summary: "summary".to_string(),
             details: "details".to_string(),
             suggested_searches: vec!["related topic".to_string()],
-            knowledge_entities: vec![KnowledgeEntityInfo {
+            observed_entities: vec![ObservedEntityInfo {
                 id: 1,
                 capture_id: 9,
                 illumination_id: 10,
@@ -86,11 +88,12 @@ mod tests {
                 entity_type: "real_person".to_string(),
                 description: Some("Pioneer of computing".to_string()),
                 search_query: Some("Ada Lovelace mathematician".to_string()),
-                platform_link: Some(PlatformLinkInfo {
+                platform_link: Some(super::super::observedentityinfo::PlatformLinkInfo {
                     platform: "x_twitter".to_string(),
                     handle: "@ada".to_string(),
                     display_name: Some("Ada".to_string()),
                 }),
+                knowledge_entity: None,
             }],
         };
         let payload = serde_json::to_value(&info).unwrap();
@@ -101,14 +104,19 @@ mod tests {
         assert!(payload.get("x_queries").is_none());
 
         let text = info.make_text();
-        assert!(text.contains("Summary\nsummary"));
-        assert!(text.contains("Details\ndetails"));
-        assert!(text.contains("Entities"));
-        assert!(text.contains("type: real_person"));
-        assert!(text.contains("description: Pioneer of computing"));
-        assert!(text.contains("canonical search: Ada Lovelace mathematician"));
-        assert!(text.contains("handle: @ada"));
-        assert!(text.contains("Suggested searches\n- related topic"));
+        assert!(text.contains("summary") && text.contains("details"));
+        // Every entity detail reaches the indexed search text.
+        for expected in [
+            "Ada Lovelace",
+            "type: real_person",
+            "description: Pioneer of computing",
+            "canonical search: Ada Lovelace mathematician",
+            "display name: Ada",
+            "handle: @ada",
+            "- related topic",
+        ] {
+            assert!(text.contains(expected), "missing {expected:?} in {text:?}");
+        }
     }
 
     #[test]
@@ -119,7 +127,7 @@ mod tests {
             summary: "summary".to_string(),
             details: "  ".to_string(),
             suggested_searches: vec![],
-            knowledge_entities: vec![],
+            observed_entities: vec![],
         };
 
         let text = info.make_text();

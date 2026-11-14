@@ -228,4 +228,14 @@ mod tests {
             "rows written before schema version 7 have no error"
         );
     }
+
+    #[test]
+    fn failure_lines_report_a_message_without_a_code() {
+        assert_eq!(
+            describe_error(None, Some("connection\nreset")),
+            "connection reset"
+        );
+        assert_eq!(describe_error(Some(500), Some("   ")), "500");
+        assert_eq!(describe_error(None, Some(" ")), "no error recorded");
+    }
 }

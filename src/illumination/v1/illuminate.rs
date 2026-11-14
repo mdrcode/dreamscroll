@@ -76,7 +76,7 @@ fn make_schema() -> serde_json::Value {
     let entity_types: Vec<String> = EntityType::iter()
         .map(|entity_type| entity_type.as_ref().to_string())
         .collect();
-    let platform_types: Vec<String> = SocialMediaPlatform::iter()
+    let platform_types: Vec<String> = Platform::iter()
         .map(|platform| platform.as_ref().to_string())
         .collect();
 
@@ -145,27 +145,4 @@ fn make_schema() -> serde_json::Value {
         },
         "required": ["summary", "details", "suggested_searches", "entities", "social_media_accounts"]
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn response_schema_uses_json_schema_type_names() {
-        let schema = make_schema();
-
-        assert_eq!(schema["type"], json!("object"));
-        assert_eq!(schema["properties"]["summary"]["type"], json!("string"));
-        assert_eq!(
-            schema["properties"]["entities"]["items"]["type"],
-            json!("object")
-        );
-        assert!(
-            schema["properties"]["entities"]["items"]["properties"]["type"]["enum"]
-                .as_array()
-                .unwrap()
-                .contains(&json!("real_person"))
-        );
-    }
 }

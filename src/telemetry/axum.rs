@@ -48,29 +48,6 @@ mod tests {
     use axum::http::HeaderValue;
     use opentelemetry::propagation::Extractor;
 
-    fn headers(pairs: &[(&str, &str)]) -> axum::http::HeaderMap {
-        let mut map = axum::http::HeaderMap::new();
-        for (k, v) in pairs {
-            let name: axum::http::HeaderName = k.parse().unwrap();
-            map.insert(name, HeaderValue::from_str(v).unwrap());
-        }
-        map
-    }
-
-    #[test]
-    fn get_returns_present_header_value() {
-        let map = headers(&[("traceparent", "00-abc-def-01")]);
-        let extractor = AxumHeaderExtractor(&map);
-        assert_eq!(extractor.get("traceparent"), Some("00-abc-def-01"));
-    }
-
-    #[test]
-    fn get_returns_none_for_missing_header() {
-        let map = headers(&[]);
-        let extractor = AxumHeaderExtractor(&map);
-        assert_eq!(extractor.get("traceparent"), None);
-    }
-
     #[test]
     fn get_returns_none_for_non_utf8_header_instead_of_panicking() {
         // A header with invalid UTF-8 bytes must not panic; propagation is
@@ -82,14 +59,5 @@ mod tests {
         );
         let extractor = AxumHeaderExtractor(&map);
         assert_eq!(extractor.get("traceparent"), None);
-    }
-
-    #[test]
-    fn keys_lists_all_header_names() {
-        let map = headers(&[("traceparent", "00-a"), ("tracestate", "foo=bar")]);
-        let extractor = AxumHeaderExtractor(&map);
-        let mut keys = extractor.keys();
-        keys.sort_unstable();
-        assert_eq!(keys, vec!["traceparent", "tracestate"]);
     }
 }

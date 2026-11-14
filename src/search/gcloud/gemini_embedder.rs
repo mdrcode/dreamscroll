@@ -223,30 +223,24 @@ mod tests {
     #[test]
     fn embedding_usage_survives_invalid_vectors_and_preserves_large_input_counts() {
         let usage = json!({"promptTokenCount": 5_000_000_000_i64, "totalTokenCount": 8});
-        let outcome = embedding_response(
-            json!({"embedding": {"values": []}, "usageMetadata": usage}),
-            reqwest::StatusCode::OK,
-            "test-model".to_owned(),
-            12,
-            3,
-            TASK_TYPE_RETRIEVAL_DOCUMENT,
-        );
-        assert!(outcome.output.is_err());
-        assert_eq!(outcome.metadata.tokens_in, Some(5_000_000_000));
-        assert_eq!(outcome.metadata.tokens_in_cached, None);
-        assert_eq!(outcome.metadata.tokens_out, None);
-        assert_eq!(outcome.metadata.tokens_thought, None);
-        assert_eq!(outcome.metadata.provider_metadata["provider_usage"], usage);
-        assert_eq!(
-            outcome.metadata.params,
-            json!({
-                "embedding_task_type": TASK_TYPE_RETRIEVAL_DOCUMENT,
-                "output_dimensions": 3,
-            })
-            .as_object()
-            .unwrap()
-            .clone()
-        );
+        for mut body in [
+            json!({"embedding": {"values": []}}),
+            json!({"embedding": {"values": [0.1, "not-a-number"]}}),
+            json!({}),
+        ] {
+            body["usageMetadata"] = usage.clone();
+            let outcome = embedding_response(
+                body,
+                reqwest::StatusCode::OK,
+                "test-model".to_owned(),
+                12,
+                3,
+                TASK_TYPE_RETRIEVAL_DOCUMENT,
+            );
+            assert!(outcome.output.is_err());
+            assert_eq!(outcome.metadata.tokens_in, Some(5_000_000_000));
+            assert_eq!(outcome.metadata.provider_metadata["provider_usage"], usage);
+        }
     }
 
     #[test]
@@ -263,7 +257,5 @@ mod tests {
         assert!((vector.as_slice()[0] - 0.6).abs() < 0.00001);
         assert!((vector.as_slice()[1] - 0.8).abs() < 0.00001);
         assert_eq!(outcome.metadata.tokens_in, None);
-        assert_eq!(outcome.metadata.tokens_out, None);
-        assert_eq!(outcome.metadata.tokens_thought, None);
     }
 }

@@ -67,7 +67,7 @@ async fn load_captures(
         .with(model::media::Entity)
         .with(model::illumination::Entity)
         .with(model::annotation::Entity)
-        .with((model::illumination::Entity, model::knowledge_entity::Entity))
+        .with((model::illumination::Entity, model::user_observed_entity::Entity))
         .all(&db.conn)
         .await?;
 
@@ -115,15 +115,11 @@ fn order_captures(
 mod tests {
     use super::*;
     use crate::api::user::get_captures_archived;
-    use crate::test_support::fixtures;
-    use chrono::Utc;
+    use crate::test_support::{db_or_skip, fixtures};
 
     #[tokio::test]
     async fn archived_captures_are_hidden_from_bulk_loads_but_loadable_by_id() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let user = fixtures::user(&db, "archive_ui").await;
         let active = fixtures::capture(&db, user).await;
         let archived = fixtures::archived_capture(&db, user).await;
@@ -144,28 +140,36 @@ mod tests {
         assert_eq!(archived_list[0].id, archived);
     }
 
+    /// Feed hydration answers in the order the caller asked for: the ids come from a ranked
+    /// view, and a database-ordered result would scramble it.
+    #[tokio::test]
+    async fn bulk_load_preserves_the_requested_order() {
+        db_or_skip!(db);
+        let user = fixtures::user(&db, "capture_order").await;
+        let first = fixtures::capture(&db, user).await;
+        let second = fixtures::capture(&db, user).await;
+        let third = fixtures::capture(&db, user).await;
+
+        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user));
+        let ordered = get_captures(&db, &context, vec![third, first, second])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            ordered.iter().map(|capture| capture.id).collect::<Vec<_>>(),
+            vec![third, first, second]
+        );
+    }
+
+    /// Rows written before `suggested_searches` existed carry NULL; hydration must still serve them.
     #[tokio::test]
     async fn capture_loading_accepts_legacy_null_suggested_searches() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
-        let user = model::user::ActiveModel::builder()
-            .set_username(format!("legacy_illum_{}", uuid::Uuid::new_v4().simple()))
-            .set_password_hash("test-password-hash")
-            .set_storage_shard(model::user::generate_storage_shard(8))
-            .insert(&db.conn)
-            .await
-            .unwrap();
-        let capture = model::capture::ActiveModel::builder()
-            .set_user_id(user.id)
-            .set_created_at(Utc::now())
-            .insert(&db.conn)
-            .await
-            .unwrap();
+        db_or_skip!(db);
+        let user = fixtures::user(&db, "legacy_illum").await;
+        let capture = fixtures::capture(&db, user).await;
         model::illumination::ActiveModel::builder()
-            .set_user_id(user.id)
-            .set_capture_id(capture.id)
+            .set_user_id(user)
+            .set_capture_id(capture)
             .set_task_run_id(uuid::Uuid::new_v4().to_string())
             .set_summary("legacy summary")
             .set_details("")
@@ -174,8 +178,8 @@ mod tests {
             .await
             .unwrap();
 
-        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user.id));
-        let captures = get_captures(&db, &context, vec![capture.id]).await.unwrap();
+        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user));
+        let captures = get_captures(&db, &context, vec![capture]).await.unwrap();
         assert_eq!(captures.len(), 1);
         let HasMany::Loaded(illuminations) = &captures[0].illuminations else {
             panic!("illuminations should be loaded");

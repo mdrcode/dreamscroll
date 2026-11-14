@@ -1,9 +1,16 @@
 pub mod failures;
 pub mod inference;
+pub mod knowledge;
+pub mod proximities;
+pub mod verdicts;
 pub mod queue;
+pub mod entity;
 
 pub use failures::{QueueFailure, QueueFailuresResponse, queue_failures};
 pub use inference::{InferenceStats, InferenceStatsResponse, InferenceWindow, inference_stats};
+pub use knowledge::{KnowledgeStats, knowledge_stats};
+pub use proximities::proximity_list;
+pub use verdicts::verdict_list;
 pub use queue::{QueueBacklogRow, QueueStats, QueueStatsResponse, QueueWindow, queue_stats};
 
 use serde::{Deserialize, Serialize};

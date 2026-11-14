@@ -1,6 +1,6 @@
 # Static asset serving and CDN plan
 
-**Status:** cost-sensitive research and recommendation (2026-09-24)
+**Status:** Implemented decision — archived 2026-11-10. Cost-sensitive research and recommendation (2026-09-24): browser caching first, no ALB/CDN while the static bundle is small.
 
 ## Executive recommendation
 

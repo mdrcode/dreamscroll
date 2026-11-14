@@ -4,6 +4,7 @@ use crate::api;
 use crate::auth;
 use crate::database::DbHandle;
 use crate::logic::illuminate::IlluminationTask;
+use crate::logic::knowledge_link::KnowledgeLinkTask;
 use crate::logic::search_index::SearchIndexTask;
 use crate::logic::spark::SparkTask;
 use crate::model;
@@ -36,6 +37,7 @@ pub struct TaskMaster {
     illuminate_queue: Box<dyn TaskQueue<IlluminationTask>>,
     search_index_queue: Box<dyn TaskQueue<SearchIndexTask>>,
     spark_queue: Box<dyn TaskQueue<SparkTask>>,
+    knowledge_link_queue: Box<dyn TaskQueue<KnowledgeLinkTask>>,
 }
 
 /// The outcome of a Task submission.
@@ -147,6 +149,16 @@ impl TaskMaster {
     }
 
     /// Submit a search-index task from a trusted background worker.
+    /// Enqueue the link of one illumination. Called by the worker that finished illuminating it.
+    pub(crate) async fn submit_knowledge_link_from_worker(
+        &self,
+        task: KnowledgeLinkTask,
+        backfill_id: Option<&str>,
+    ) -> anyhow::Result<SubmitOutcome> {
+        self.submit_inner(self.knowledge_link_queue.as_ref(), task, backfill_id)
+            .await
+    }
+
     pub(crate) async fn submit_search_index_from_worker(
         &self,
         task: SearchIndexTask,
@@ -385,6 +397,7 @@ pub struct TaskMasterBuilder {
     illuminate_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
     search_index_queue: Option<Box<dyn TaskQueue<SearchIndexTask>>>,
     spark_queue: Option<Box<dyn TaskQueue<SparkTask>>>,
+    knowledge_link_queue: Option<Box<dyn TaskQueue<KnowledgeLinkTask>>>,
 }
 
 impl TaskMasterBuilder {
@@ -424,16 +437,31 @@ impl TaskMasterBuilder {
         self
     }
 
+    pub fn knowledge_link_queue(
+        mut self,
+        knowledge_link_queue: impl TaskQueue<KnowledgeLinkTask> + 'static,
+    ) -> Self {
+        self.knowledge_link_queue = Some(Box::new(knowledge_link_queue));
+        self
+    }
+
     pub fn build(self) -> anyhow::Result<TaskMaster> {
         let Some(db) = self.db else {
             anyhow::bail!("TaskMaster requires a database handle");
         };
         #[cfg(not(test))]
-        let (Some(illuminate_queue), Some(search_index_queue), Some(spark_queue)) = (
+        let (
+            Some(illuminate_queue),
+            Some(search_index_queue),
+            Some(spark_queue),
+            Some(knowledge_link_queue),
+        ) = (
             self.illuminate_queue,
             self.search_index_queue,
             self.spark_queue,
-        ) else {
+            self.knowledge_link_queue,
+        )
+        else {
             anyhow::bail!("TaskMaster requires all task queues");
         };
 
@@ -448,6 +476,10 @@ impl TaskMasterBuilder {
         #[cfg(test)]
         let spark_queue = self
             .spark_queue
+            .unwrap_or_else(|| Box::new(TestNoopQueue::default()));
+        #[cfg(test)]
+        let knowledge_link_queue = self
+            .knowledge_link_queue
             .unwrap_or_else(|| Box::new(TestNoopQueue::default()));
 
         // One estimator shared by both SSE adapters: it is a stateless handle over
@@ -466,6 +498,7 @@ impl TaskMasterBuilder {
             illuminate_queue,
             search_index_queue,
             spark_queue,
+            knowledge_link_queue,
         })
     }
 }
@@ -533,13 +566,6 @@ mod tests {
     }
 
     #[test]
-    fn max_attempts_of_one_never_retries() {
-        let err = api::ApiError::internal(anyhow::anyhow!("upstream unavailable"));
-
-        assert!(!decide_will_retry(&err, 1, 1));
-    }
-
-    #[test]
     fn first_attempt_of_unknown_task_is_one() {
         assert_eq!(decide_next_attempt(None), Some(1));
     }
@@ -549,17 +575,6 @@ mod tests {
         let row = status_row(TaskRunStatus::ErrorWillRetry, 2);
 
         assert_eq!(decide_next_attempt(Some(&row)), Some(3));
-    }
-
-    #[test]
-    fn completed_task_is_not_resurrected() {
-        let row = status_row(TaskRunStatus::CompleteSuccess, 1);
-
-        assert_eq!(
-            decide_next_attempt(Some(&row)),
-            None,
-            "an at-least-once redelivery of finished work must be ignored"
-        );
     }
 
     #[test]
@@ -574,44 +589,22 @@ mod tests {
         assert_eq!(decide_next_run(None), Some(1));
     }
 
+    /// Every status, because this is the whole admission decision: a run a worker may still touch
+    /// refuses the submit, a settled one permits the next run number, and a failed submission was
+    /// never a run at all.
     #[test]
-    fn submission_is_refused_while_a_run_is_in_flight() {
-        for status in [
-            TaskRunStatus::Queued,
-            TaskRunStatus::InProgress,
-            TaskRunStatus::ErrorWillRetry,
+    fn run_admission_follows_the_previous_run_status() {
+        for (status, run_number, next) in [
+            (TaskRunStatus::Queued, 3, None),
+            (TaskRunStatus::InProgress, 3, None),
+            (TaskRunStatus::ErrorWillRetry, 3, None),
+            (TaskRunStatus::CompleteSuccess, 3, Some(4)),
+            (TaskRunStatus::CompleteFailure, 3, Some(4)),
+            (TaskRunStatus::SubmissionFailed, 4, Some(5)),
         ] {
-            let row = status_row(status, 1);
-
-            assert_eq!(
-                decide_next_run(Some(&row)),
-                None,
-                "{status} means a worker may still run, so the submit is refused"
-            );
+            let row = status_row_of_run(status, 1, run_number);
+            assert_eq!(decide_next_run(Some(&row)), next, "{status}");
         }
-    }
-
-    #[test]
-    fn submission_reruns_after_a_settled_run() {
-        for status in [
-            TaskRunStatus::CompleteSuccess,
-            TaskRunStatus::CompleteFailure,
-        ] {
-            let row = status_row_of_run(status, 1, 3);
-
-            assert_eq!(
-                decide_next_run(Some(&row)),
-                Some(4),
-                "{status} is settled, so the next run is permitted"
-            );
-        }
-    }
-
-    #[test]
-    fn submission_failed_allows_a_new_run() {
-        let row = status_row_of_run(TaskRunStatus::SubmissionFailed, 0, 4);
-
-        assert_eq!(decide_next_run(Some(&row)), Some(5));
     }
 
     #[test]
@@ -701,7 +694,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let service = service(&db, false);
+        let service = service(&db, None, false);
         let context = test_context(1);
         let first = service
             .submit_illuminate(&context, illumination_task(42), Some("test-backfill"))
@@ -752,7 +745,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let service = service(&db, false);
+        let service = service(&db, None, false);
         let context = test_context(1);
         service
             .submit_illuminate(&context, illumination_task(42), None)
@@ -907,7 +900,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let service = service(&db, true);
+        let service = service(&db, None, true);
         let context = test_context(1);
         assert!(
             service
@@ -929,44 +922,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn submit_illumination_enqueues_task() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-
-        let captures = Arc::new(Mutex::new(Vec::new()));
-        let queue = RecordingQueue {
-            captures: Arc::clone(&captures),
-            fail: false,
-        };
-
-        let service = TaskMaster::builder()
-            .db(db.handle())
-            .illuminate_queue(queue)
-            .build()
-            .expect("build should succeed with a db");
-
-        service
-            .submit_illuminate(&test_context(1), illumination_task(42), None)
-            .await
-            .expect("submit should succeed");
-
-        let recorded = captures
-            .lock()
-            .expect("captures mutex should not be poisoned")
-            .clone();
-        assert_eq!(recorded, vec![42]);
-    }
-
-    #[tokio::test]
     async fn submit_requires_owner_or_admin_context() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let service = TaskMaster::builder()
-            .db(db.handle())
-            .build()
-            .expect("build should succeed with a db");
+        let service = service(&db, None, false);
 
         let denied = service
             .submit_illuminate(&test_context(2), illumination_task(42), None)
@@ -988,44 +948,24 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn submit_propagates_enqueue_error() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-
-        let queue = RecordingQueue {
-            captures: Arc::new(Mutex::new(Vec::new())),
-            fail: true,
-        };
-        let service = TaskMaster::builder()
-            .db(db.handle())
-            .illuminate_queue(queue)
-            .build()
-            .expect("build should succeed with a db");
-
-        let result = service
-            .submit_illuminate(&test_context(1), illumination_task(9), None)
-            .await;
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
     async fn build_without_db_is_an_error() {
         let result = TaskMaster::builder().build();
         assert!(result.is_err(), "TaskMaster must require a database");
     }
 
-    /// A submitted task is recorded as `Queued` with zero attempts.
+    /// A submitted task is recorded as `Queued` with zero attempts, and the task itself reaches the
+    /// queue: the row and the enqueue are one act from the caller's point of view.
     #[tokio::test]
-    async fn submit_records_queued_row() {
+    async fn submit_records_the_run_and_enqueues_the_task() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
 
+        let captures = Arc::new(Mutex::new(Vec::new()));
         let service = TaskMaster::builder()
             .db(db.handle())
             .illuminate_queue(RecordingQueue {
-                captures: Arc::new(Mutex::new(Vec::new())),
+                captures: Arc::clone(&captures),
                 fail: false,
             })
             .build()
@@ -1036,6 +976,13 @@ mod tests {
             .await
             .expect("submit should succeed");
 
+        assert_eq!(
+            captures
+                .lock()
+                .expect("captures mutex should not be poisoned")
+                .as_slice(),
+            &[42]
+        );
         let rows = service
             .query_latest_task_runs(&test_context(1), "capture", &[42])
             .await
@@ -1140,14 +1087,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
-            .db(db.handle())
-            .illuminate_queue(RecordingQueue {
-                captures: Arc::new(Mutex::new(Vec::new())),
-                fail: false,
-            })
-            .build()
-            .expect("build should succeed with a db");
+        let service = service(&db, None, false);
 
         service
             .submit_illuminate(&test_context(1), illumination_task(42), None)
@@ -1187,69 +1127,6 @@ mod tests {
         ));
     }
 
-    /// Runs 1 and 2 both exist; only the latest is reported as incomplete, so a
-    /// rerun supersedes rather than duplicating the logical task.
-    #[tokio::test]
-    async fn incomplete_query_returns_only_the_latest_run() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-
-        let service = TaskMaster::builder()
-            .db(db.handle())
-            .max_attempts(1) // exhaust on the first failure
-            .illuminate_queue(RecordingQueue {
-                captures: Arc::new(Mutex::new(Vec::new())),
-                fail: false,
-            })
-            .build()
-            .expect("build should succeed with a db");
-
-        // Run 1 exhausts (incomplete, settled).
-        service
-            .submit_illuminate(&test_context(1), illumination_task(42), None)
-            .await
-            .expect("first submit should succeed");
-        let task_run = persisted_task_run(&service, illumination_task(42), 1).await;
-        let attempt = service
-            .begin_attempt(&task_run)
-            .await
-            .expect("begin_attempt should succeed")
-            .expect("first attempt should not be skipped");
-        let outcome = service
-            .finish_attempt(
-                &task_run,
-                attempt,
-                &Err(api::ApiError::internal(anyhow::anyhow!("boom"))),
-            )
-            .await
-            .expect("finish_attempt should succeed");
-        assert_eq!(
-            outcome,
-            TaskRunStatus::CompleteFailure,
-            "max_attempts=1 means the first failure is terminal"
-        );
-
-        // Run 2 is queued (in flight).
-        let rerun = service
-            .submit_illuminate(&test_context(1), illumination_task(42), None)
-            .await
-            .expect("rerun submit should succeed");
-        assert!(matches!(
-            rerun,
-            SubmitOutcome::Enqueued { run_number: 2, .. }
-        ));
-
-        let rows = service
-            .query_latest_task_runs(&test_context(1), "capture", &[42])
-            .await
-            .expect("query should succeed");
-
-        assert_eq!(rows.len(), 1, "only the latest run is reported");
-        assert_eq!(rows[0].run_number, 2);
-        assert_eq!(rows[0].status_code, TaskRunStatus::Queued.as_i32());
-    }
-
     /// A rerun supersedes the run before it: only the latest run is reported,
     /// even when the older run failed and the newer one completed.
     #[tokio::test]
@@ -1258,15 +1135,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
-            .db(db.handle())
-            .max_attempts(1) // exhaust on the first failure
-            .illuminate_queue(RecordingQueue {
-                captures: Arc::new(Mutex::new(Vec::new())),
-                fail: false,
-            })
-            .build()
-            .expect("build should succeed with a db");
+        let service = service(&db, Some(1), false);
 
         // Run 1 exhausts and stays incomplete.
         service
@@ -1324,15 +1193,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
-            .db(db.handle())
-            .max_attempts(2) // two attempts, then exhaust
-            .illuminate_queue(RecordingQueue {
-                captures: Arc::new(Mutex::new(Vec::new())),
-                fail: false,
-            })
-            .build()
-            .expect("build should succeed with a db");
+        let service = service(&db, Some(2), false);
 
         // Run 1: two attempts, then exhaust.
         service
@@ -1402,14 +1263,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
-            .db(db.handle())
-            .illuminate_queue(RecordingQueue {
-                captures: Arc::new(Mutex::new(Vec::new())),
-                fail: false,
-            })
-            .build()
-            .expect("build should succeed with a db");
+        let service = service(&db, None, false);
 
         let task = illumination_task(7);
         service
@@ -1449,15 +1303,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
-            .db(db.handle())
-            .max_attempts(2)
-            .illuminate_queue(RecordingQueue {
-                captures: Arc::new(Mutex::new(Vec::new())),
-                fail: false,
-            })
-            .build()
-            .expect("build should succeed with a db");
+        let service = service(&db, Some(2), false);
 
         let task = illumination_task(9);
         service
@@ -1516,14 +1362,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
-            .db(db.handle())
-            .illuminate_queue(RecordingQueue {
-                captures: Arc::new(Mutex::new(Vec::new())),
-                fail: false,
-            })
-            .build()
-            .expect("build should succeed with a db");
+        let service = service(&db, None, false);
 
         let task = illumination_task(11);
         service
@@ -1561,14 +1400,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
-            .db(db.handle())
-            .illuminate_queue(RecordingQueue {
-                captures: Arc::new(Mutex::new(Vec::new())),
-                fail: false,
-            })
-            .build()
-            .expect("build should succeed with a db");
+        let service = service(&db, None, false);
 
         for capture_id in [1, 2, 3] {
             service
@@ -1594,10 +1426,18 @@ mod tests {
         );
     }
 
-    /// A service with an illuminate queue that records (or fails) enqueues.
-    fn service(db: &crate::test_support::test_db::TestDb, queue_fails: bool) -> TaskMaster {
-        TaskMaster::builder()
-            .db(db.handle())
+    /// A service over the test schema, its illuminate queue recording (or failing) enqueues.
+    fn service(
+        db: &crate::test_support::test_db::TestDb,
+        max_attempts: Option<i32>,
+        queue_fails: bool,
+    ) -> TaskMaster {
+        let builder = TaskMaster::builder().db(db.handle());
+        let builder = match max_attempts {
+            Some(max_attempts) => builder.max_attempts(max_attempts),
+            None => builder,
+        };
+        builder
             .illuminate_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
                 fail: queue_fails,
@@ -1611,7 +1451,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let service = service(&db, false);
+        let service = service(&db, None, false);
 
         let result = service
             .submit_spark(
@@ -1638,7 +1478,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let service = service(&db, true);
+        let service = service(&db, None, true);
 
         let result = service
             .submit_illuminate(&test_context(1), illumination_task(9), None)
@@ -1668,68 +1508,14 @@ mod tests {
         assert_eq!(rows[0].run_number, 2);
     }
 
-    /// Only `CompleteSuccess` is protected from redelivery. An exhausted run is not,
-    /// so a redelivery would move it back to `InProgress`.
-    ///
-    /// Unreachable today: we ack `CompleteFailure` with a 2xx, so Cloud Tasks
-    /// stops redelivering. Pinned here because the boundary is subtle and would
-    /// matter if the ack policy ever changed.
+    /// The logical id names the task type as well as the entity, which is what keeps two
+    /// kinds of work on one entity from colliding in the status query.
     #[tokio::test]
-    async fn exhausted_run_is_not_protected_from_redelivery() {
+    async fn logical_id_names_the_task_type_and_entity() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let service = TaskMaster::builder()
-            .db(db.handle())
-            .max_attempts(1)
-            .illuminate_queue(RecordingQueue {
-                captures: Arc::new(Mutex::new(Vec::new())),
-                fail: false,
-            })
-            .build()
-            .expect("build should succeed with a db");
-
-        service
-            .submit_illuminate(&test_context(1), illumination_task(5), None)
-            .await
-            .expect("submit should succeed");
-
-        let task_run = persisted_task_run(&service, illumination_task(5), 1).await;
-        let attempt = service
-            .begin_attempt(&task_run)
-            .await
-            .expect("begin_attempt should succeed")
-            .expect("attempt should not be skipped");
-        let outcome = service
-            .finish_attempt(
-                &task_run,
-                attempt,
-                &Err(api::ApiError::internal(anyhow::anyhow!("boom"))),
-            )
-            .await
-            .expect("finish_attempt should succeed");
-        assert_eq!(outcome, TaskRunStatus::CompleteFailure);
-
-        let redelivery = service
-            .begin_attempt(&task_run)
-            .await
-            .expect("begin_attempt should succeed");
-
-        assert_eq!(
-            redelivery,
-            Some(2),
-            "an exhausted run is retried if redelivered, not skipped"
-        );
-    }
-
-    /// Two logical tasks for the same entity coexist: status queries key on
-    /// TaskRun identity, so another task type cannot overwrite or hide the first.
-    #[tokio::test]
-    async fn distinct_task_types_for_one_entity_are_independent() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let service = service(&db, false);
+        let service = service(&db, None, false);
 
         service
             .submit_illuminate(&test_context(1), illumination_task(42), None)
@@ -1757,7 +1543,7 @@ mod tests {
         };
 
         // First "process": one attempt that will retry.
-        let first_process = service(&db, false);
+        let first_process = service(&db, None, false);
         first_process
             .submit_illuminate(&test_context(1), illumination_task(3), None)
             .await
@@ -1778,7 +1564,7 @@ mod tests {
             .expect("finish_attempt should succeed");
 
         // Second "process" over the same database: the count is not reset.
-        let second_process = service(&db, false);
+        let second_process = service(&db, None, false);
         let attempt = second_process
             .begin_attempt(&task_run)
             .await

@@ -209,6 +209,7 @@ mod tests {
         assert_eq!(parse_fields("u1-c123").ok(), Some((1, 123)));
         assert!(parse_fields("u1-cabc").is_err());
         assert!(parse_fields("ufoo-c1").is_err());
+        assert!(parse_fields("u1-c2-c3").is_err());
         assert!(parse_fields("bad").is_err());
     }
 }

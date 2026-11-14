@@ -6,10 +6,10 @@
         {% if capture.illuminations | length > 0 %}
         {% set illum = capture.illuminations | first %}
 
-        {% if illum.knowledge_entities | length > 0 %}
+        {% if illum.observed_entities | length > 0 %}
         <p class="metadata-subsection-title">Entities</p>
         <dl class="metadata-dict-list">
-            {% for entity in illum.knowledge_entities %}
+            {% for entity in illum.observed_entities %}
             <dt>
                 <a class="pill" href="/entity/{{ entity.id }}"{% if entity.description %} title="{{ entity.description }}"{% endif %}>
                     <span class="pill__prefix">{{ entity.type }}</span>

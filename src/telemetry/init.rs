@@ -17,6 +17,7 @@ pub fn init_local() {
         .with_span_events(FmtSpan::CLOSE)
         .with_target(true)
         .with_timer(timer)
+        .with_writer(std::io::stderr)
         .init();
 
     tracing::info!("Initialized tracing for local development.");

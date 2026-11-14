@@ -26,7 +26,7 @@ use crate::task;
 ///
 /// A pump that finds no unsubmitted targets records a dry streak on the durable
 /// backfill row; subsequent pumps are refused until forced. See
-/// `plan/backfill.md` § "Dry latch".
+/// `plan/archive/backfill.md` § "Dry latch".
 ///
 /// To add a workload, implement this trait and register its ID and typed
 /// submission adapter in `engine.rs`.
