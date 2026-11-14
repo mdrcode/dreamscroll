@@ -8,7 +8,7 @@ caller ──answers_for(requests)──▶ Gateway ──▶ cache ──hit─
                                             └──miss──▶ Transport::fetch ──▶ cache ──▶ answers
 ```
 
-A provider owns its strategy — one request or a ladder, one pass or several — and knows nothing about
+A provider owns its strategy — one request or a series, one pass or several — and knows nothing about
 the cache, the pace or the budget, because none of them are reachable any other way. That is the
 whole design: the rule is not a convention someone must remember, it is the absence of a second door.
 

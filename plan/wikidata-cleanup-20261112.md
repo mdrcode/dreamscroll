@@ -22,12 +22,15 @@ Four properties that follow, and that every change should be judged against:
 
 1. **Soundness over coverage.** A wrong QID is worse than none: it merges entities, distorts
    proximity, and costs a verdict to repair. "An incomplete table can cost a rejection but never a
-   correct claim" is the rule `types.rs` and `decision.rs` are written to.
-2. **Cost.** Wikidata is rate-limited. The ladder exists to spend the fewest calls.
+   correct claim" is the rule `types.rs` and `aggregate.rs` are written to.
+2. **Cost.** Wikidata is rate-limited. The field asks every question for every entity, so a cold
+   run spends ~3.5k calls — 97% of them the two unbatched searches. Staging them by refusal or by
+   corroboration was measured and declined (*Staged asking*, below); the cache is the lever, and an
+   offline rebuild answers all but the first-contact questions from it.
 3. **Auditability.** `method` and `confidence` are the recorded reason; `fetch_cache` is the
    evidence.
-4. **Replayability.** `plan`/`interpret`/`decision` are pure, so an offline rebuild over cached payloads
-   reproduces the decision.
+4. **Replayability.** `plan`, `aggregate` and `decision` touch no network, so an offline rebuild
+   over cached payloads reproduces the decision.
 
 ## The mechanical pass (shipped 2026-11-12)
 
@@ -669,13 +672,15 @@ and contradiction sort were removed with them.
 ## Open questions to settle before touching behaviour
 
 1. ~~Two-fits: option A, B, or C?~~ **A shipped** — see the measurement above; the lone-word gate stays on the answer corpus.
-2. Is `confidence` a rung label or a probability? This decides whether `project`/`evidence` should
-   keep sorting on it.
+2. Is `confidence` a step's label or a probability? This decides whether `project`/`evidence`
+   should keep sorting on it.
 3. ~~May a `Degraded` answer claim, or only answer empty?~~ **No — and the discarded claim is logged.** See below.
-4. Does the title rung need its own name-relatedness rule, or is it the search rule with a
-   different surface expectation?
-5. Should `SurfaceTitle` become a deferred *rule on the title question* rather than a pseudo-step —
-   and should `inspect` stop being the second implementation of the loop?
+4. ~~Does the title step need its own name-relatedness rule?~~ **Answered by the field**: a title
+   answer is tier 0 and its surface still has to bear the name, so it is the same rule with a
+   stronger prior — measured, and no separate gate survived.
+5. ~~Should `SurfaceTitle` become a rule on the title question?~~ **Moot**: `SurfaceTitle` is gone,
+   reusing the title answer (`answer.rs`), and `inspect` now decides through the same
+   `aggregate::decide` the resolver does, so it is no longer a second implementation.
 
 ## Staged asking: measured twice, declined (2026-11-13)
 
@@ -713,3 +718,9 @@ the unbatched calls.
 **Renamed 2026-11-13:** `pool` → `aggregate`, `Pooled` → `Aggregate`, and the collection it ranks is
 the *field* (`aggregate::decide(entity, &field)`). A pool implies undifferentiated members; this file
 ranks them and decides one.
+
+**The words of the design, after the ladder:** a resolver **fans out** — one batch, every step, every
+entity; the answers merge into one **field** per entity; one **decision** names a referent or refuses
+with a reason. "Ladder" and "rung" are retired vocabulary: they name sequence, authority ordering and
+early exit, and the resolver has none of the three — it asks every question regardless of what the
+others said. The words survive in this file only as dated history.

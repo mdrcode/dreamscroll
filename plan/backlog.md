@@ -15,7 +15,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 - [x] **`content_tokens` cannot see short tokens.** Two-character runs that carry a digit (`M4`,
   `5G`) are now words; general two-letter runs stay dropped. Measured: `M4 carbine` resolves to
   Q214688, 7 confidences move, nothing lost.
-- [x] **`identity inspect` truncates each rung to four candidates.** The decided candidate is now
+- [x] **`identity inspect` truncates each answer's list to four candidates.** The decided candidate is now
   always shown and the rest are counted (`… 5 more`), in text and JSON.
 
 - [ ] **Overhaul `entity_type`, driven by data.** It is capture vocabulary — the illuminator names a type
@@ -241,7 +241,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   verifying the wikidata review (`plan/wikidata-cleanup-20261112.md`), not caused by it.
 
 - [ ] **Normalisation at the query boundary — watch, do not build.** Entity names reach Wikidata as
-  `trim()`ed surfaces and nothing else. That is correct: the label rung is an exact `rdfs:label`
+  `trim()`ed surfaces and nothing else. That is correct: the label question is an exact `rdfs:label`
   match (folding case or collapsing inner spaces would *cause* misses), the Wikipedia title API
   normalises case and underscores itself, and search is tokenised. Measured 2026-11-12 over 2,281
   entities: 0 names with leading/trailing whitespace, 0 not in NFC, 0 containing invisible
@@ -304,7 +304,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 - [ ] **Fetch enrichment for an identity.** `enrichment` is reserved vocabulary on
   `knowledge_identities` (label, description, classes) and an identity resolver fills them on the way past,
   but nothing reads them and no pass fetches them by identity alone. Decide whether it is a request
-  kind in the resolver ladder or a separate pass over identified entities. `project` is where a
+  kind in the resolver's plan or a separate pass over identified entities. `project` is where a
   reader would appear.
 
 ## Deferred — already scoped
@@ -329,8 +329,7 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 | Crate upgrade sweep                                | [upgrade_3rd_party_crates.md](archive/upgrade_3rd_party_crates.md)             | Scheduled maintenance window                                  |
 | Client pulse + `upload_attempts`                   | [upload-attempts.md](archive/upload-attempts.md)                               | A client-side upload failure goes unexplained for a second time |
 | Identity `confidence`: label or probability         | [wikidata-cleanup-20261112.md](wikidata-cleanup-20261112.md)  | Anything starts sorting entities by confidence again |
-| The title rung's own name-relatedness rule           | [wikidata-cleanup-20261112.md](wikidata-cleanup-20261112.md)  | A second provider answers title queries                          |
-| `SurfaceTitle` as a deferred rule                    | [wikidata-cleanup-20261112.md](wikidata-cleanup-20261112.md)  | `inspect` needs a change, or a third consumer wants the ladder    |
+| The title step's own name-relatedness rule            | [wikidata-cleanup-20261112.md](wikidata-cleanup-20261112.md)  | A second provider answers title queries                          |
 | Media transcode and format policy                  | [upload-formats.md](upload-formats.md)                                 | `rejected_format` fires for a real user, uploads stay multi-MB on cellular, or a non-browser ingestion path carries originals |
 
 ## Product direction — not yet scoped

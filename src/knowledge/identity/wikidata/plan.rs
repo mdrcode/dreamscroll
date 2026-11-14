@@ -45,8 +45,10 @@ pub(crate) enum Step {
 }
 
 impl Step {
-    /// The plan's order. The resolver asks all of them; the order documents what each question can
-    /// prove, cheapest first.
+    /// The plan's steps, in the order of their authority. The resolver asks all of them — this
+    /// array is enumeration, not a sequence — and the order documents what each question can prove:
+    /// a platform property and an article title name the item, a label is a name, and search is a
+    /// guess.
     pub(crate) const ORDER: [Self; 5] = [
         Self::Handle,
         Self::Title,
