@@ -244,6 +244,29 @@ The order is spine-first (the ladder, its questions, its decisions), then the me
 wire, then the leaves. Every later file is only meaningful in light of the ladder, and the leaves
 each hold at most one question.
 
+### Review table refreshed 2026-11-13 (after the field and the strategy rename)
+
+The table above records the review as it happened; two of its files no longer exist and the decision
+machinery it reviewed was replaced. Current state:
+
+| # | File | Lines | Status | Findings / decisions |
+| --- | --- | --- | --- | --- |
+| 1 | `resolver.rs` | 338 | done | R1–R11. `ladder` → `resolve_batch`. Open: no precedence test; the `Canned` footgun |
+| 2 | `plan.rs` | 298 | done | P1, P2. `Step` → `Strategy`, `ORDER` → `ALL`, `all_steps` → `asks`, `step` → `requests` |
+| 3 | `aggregate.rs` | 744 | in progress | absorbs `pool.rs` and the decision half of `decision.rs`. Open: size — gathering, the score terms and the decision share one file; a `field`/`score` split is unmeasured |
+| 4 | `ranking.rs` | 347 | done | S1–S5. `fit`/`blend` docs repointed to `aggregate`/`answer` |
+| 5 | `types.rs` | 386 | accepted | Two findings measured and declined: the gate reads one type, nine of twenty types unmapped |
+| 6 | `transport.rs` | 719 | pending | `search` mixes three concerns; `sparql` picks its query from `first.kind`; no degraded-branch test |
+| 7 | `property_query.rs` | 233 | pending | clean; unreviewed |
+| 8 | `query.rs` | 92 | pending | a comment block inside `format!`; its `P31` note still calls `incompatible` a gate, which the field made *evidence* |
+| 9 | `answer.rs` | 72 | pending | now holds `referents` (from `decision.rs`); `is_menu`'s description signal is a convention, not a rule |
+| 10 | `kind.rs` | 112 | pending | now holds `shape()` (from `shape.rs`); `property()` has two callers, not one |
+| 11 | `candidate.rs` | 18 | pending | `classes` empty meaning "not asked" is load-bearing |
+| 12 | `mod.rs` | 30 | pending | declarations, `ID`, `LANGUAGE`, `SEARCH_LIMIT` |
+
+Gone, and why: `decision.rs` — one function left after the ladder, folded into `answer.rs`;
+`shape.rs` — half of the cache key `kind.rs` documents, now `WikidataKind::shape()`.
+
 ### 1. `resolver.rs` — done 2026-11-12
 
 | # | Finding | Fix | State |
