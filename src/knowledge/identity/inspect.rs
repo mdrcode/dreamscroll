@@ -29,10 +29,10 @@ pub struct Report {
     /// Candidates `Rank` would choose, best first, with the score it gave them.
     pub ranked: Vec<(i32, String, f32)>,
     pub asked: Vec<Asked>,
-    /// The ranked field: every candidate, best first, with the numbers that put it there.
-    pub field: Vec<FieldRow>,
-    /// The identity the field supports, when it supports one.
-    pub decision: Option<FieldDecision>,
+    /// The ranked candidate set: every candidate, best first, with the numbers that put it there.
+    pub candidate_set: Vec<CandidateRow>,
+    /// The identity the candidate set supports, when it supports one.
+    pub decision: Option<Decision>,
     /// Why it did not, when it did not — recorded by the resolver, not inferred here.
     pub refusal: Option<&'static str>,
     /// The decided identity is refused by a standing veto, so the engine would not write it.
@@ -67,9 +67,9 @@ pub struct Asked {
     pub hidden: usize,
 }
 
-/// One candidate in the field, with the score that placed it.
+/// One candidate, ranked, with the score that placed it.
 #[derive(Debug)]
-pub struct FieldRow {
+pub struct CandidateRow {
     pub qid: String,
     pub label: String,
     pub description: String,
@@ -82,9 +82,9 @@ pub struct FieldRow {
     pub chosen: bool,
 }
 
-/// What the field decided, when it decided.
+/// What the candidate set decided, when it decided.
 #[derive(Debug)]
-pub struct FieldDecision {
+pub struct Decision {
     pub qid: String,
     pub method: String,
     pub confidence: f32,
@@ -157,7 +157,7 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
         candidates,
         ranked,
         asked: walked.asked,
-        field: walked.field,
+        candidate_set: walked.candidate_set,
         decision: walked.decision,
         refusal: walked.refusal,
         vetoed: walked.vetoed,
@@ -199,11 +199,11 @@ async fn index_keys(db: &DbHandle, id: i32) -> anyhow::Result<(Vec<String>, Vec<
         .unwrap_or_default())
 }
 
-/// Everything a walk produced: what each question answered, and what the field made of it.
+/// Everything a walk produced: what each question answered, and what the candidate set made of it.
 struct Walked {
     asked: Vec<Asked>,
-    field: Vec<FieldRow>,
-    decision: Option<FieldDecision>,
+    candidate_set: Vec<CandidateRow>,
+    decision: Option<Decision>,
     refusal: Option<&'static str>,
     vetoed: bool,
 }
@@ -261,7 +261,7 @@ async fn walk(
                 identity.scheme.clone(),
                 identity.external_id.clone(),
             ));
-            let decision = FieldDecision {
+            let decision = Decision {
                 qid: identity.external_id,
                 method: identity.method.unwrap_or_default(),
                 confidence: identity.confidence.unwrap_or_default(),
@@ -275,7 +275,7 @@ async fn walk(
                         identity.scheme.clone(),
                         identity.external_id.clone(),
                     ));
-                    let decision = FieldDecision {
+                    let decision = Decision {
                         qid: identity.external_id,
                         method: identity.method.unwrap_or_default(),
                         confidence: identity.confidence.unwrap_or_default(),
@@ -287,11 +287,11 @@ async fn walk(
         };
 
     let chosen = decision.as_ref().map(|decision| decision.qid.as_str());
-    let field = aggregate::rank(entity, &candidates)
+    let candidate_set = aggregate::rank(entity, &candidates)
         .into_iter()
         .map(|ranked| {
             let candidate = &candidates[ranked.index].candidate;
-            FieldRow {
+            CandidateRow {
                 qid: candidate.id.clone(),
                 label: candidate.label.clone().unwrap_or_default(),
                 description: candidate.description.clone().unwrap_or_default(),
@@ -308,7 +308,7 @@ async fn walk(
 
     Ok(Walked {
         asked,
-        field,
+        candidate_set,
         decision,
         refusal,
         vetoed,
@@ -390,8 +390,8 @@ impl Report {
                     "hidden": ask.hidden,
                 }))
                 .collect::<Vec<_>>(),
-            "field": self
-                .field
+            "candidate_set": self
+                .candidate_set
                 .iter()
                 .map(|row| serde_json::json!({
                     "qid": row.qid,
@@ -474,7 +474,7 @@ mod tests {
     use crate::test_support::{db_or_skip, fixtures};
     use sea_orm::EntityTrait;
 
-    /// A veto is the engine's refusal, so the inspector must report it as one: the field did decide,
+    /// A veto is the engine's refusal, so the inspector must report it as one: the set did decide,
     /// and the graph would not write the identity.
     #[tokio::test]
     async fn a_standing_veto_is_not_reported_as_an_identity() {
@@ -520,7 +520,7 @@ mod tests {
             .await
             .unwrap()
             .expect("entity");
-        let decision = report.decision.as_ref().expect("the field decided");
+        let decision = report.decision.as_ref().expect("the candidate set decided");
         assert_eq!(decision.qid, "Q42");
         assert_eq!(decision.method, "wikipedia_title");
         assert!(report.vetoed);

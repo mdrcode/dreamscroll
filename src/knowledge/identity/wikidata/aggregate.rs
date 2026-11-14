@@ -1,4 +1,4 @@
-//! One field, one ranking.
+//! One candidate set, one ranking.
 //!
 //! The ladder decided per strategy: every way of asking had its own admission rule and its own
 //! decision, and the first claim stopped the climb. Measured against the graph, the failures were
@@ -36,7 +36,7 @@ use crate::model;
 
 use super::{WikidataCandidate, WikidataKind, answer, plan};
 
-/// A property match: the item *is* the account, so it is claimed before the field is asked.
+/// A property match: the item *is* the account, so it is claimed before the set is asked.
 const HANDLE_CONFIDENCE: f32 = 0.95;
 /// What a candidate from a guessing question must look like at minimum: a prefix, not a
 /// rearrangement. Exact queries (handle, title, label) are held to a lower bar — one shared word —
@@ -53,7 +53,7 @@ const TIER_PRIOR: [f32; 3] = [0.15, 0.10, 0.00];
 /// incomplete, and an unknown class says nothing.
 const TYPE_AGREES: f32 = 0.15;
 const TYPE_DISAGREES: f32 = 0.30;
-/// A claim needs a minimum of evidence, not just a lead over the runner-up: with a field of one,
+/// A claim needs a minimum of evidence, not just a lead over the runner-up: with a set of one,
 /// there is no runner-up to lose to, and a surface-only candidate would assert itself.
 const SCORE_FLOOR: f32 = 0.50;
 /// The head noun of a Wikidata description states the kind (`1902 novel by …`, `scientific
@@ -79,6 +79,10 @@ pub(crate) struct Aggregate {
     pub(crate) candidate: WikidataCandidate,
     pub(crate) sources: Vec<Source>,
 }
+
+/// Every candidate one entity's answers offered, deduplicated by QID, each carrying the strategies
+/// that named it. `gather` builds it; `rank` orders it; `decide` picks from it.
+pub(crate) type CandidateSet = Vec<Aggregate>;
 
 /// One candidate's place in the order, with the numbers that put it there.
 #[derive(Debug, Clone, Copy)]
@@ -136,17 +140,23 @@ pub(super) fn surface(label: &str, ours: &str) -> f32 {
     0.0
 }
 
-/// The field in order: the score, then surface, then description fit. Stable, so the provider's own
-/// ordering breaks what is left.
-pub(crate) fn rank(entity: &model::knowledge_entity::Model, field: &[Aggregate]) -> Vec<Ranked> {
-    let candidates: Vec<WikidataCandidate> = field.iter().map(|p| p.candidate.clone()).collect();
-    let weights = Weights::over(&candidates);
+/// The candidate set in order: the score, then surface, then description fit. Stable, so the
+/// provider's own ordering breaks what is left.
+pub(crate) fn rank(
+    entity: &model::knowledge_entity::Model,
+    candidate_set: &CandidateSet,
+) -> Vec<Ranked> {
+    let offered: Vec<WikidataCandidate> = candidate_set
+        .iter()
+        .map(|aggregate| aggregate.candidate.clone())
+        .collect();
+    let weights = Weights::over(&offered);
     let ours = our_tokens(entity);
 
     let mut entity_types = vec![entity.entity_type.as_str()];
     entity_types.extend(entity.alt_types.iter().map(String::as_str));
 
-    let mut ranked: Vec<Ranked> = field
+    let mut ranked: Vec<Ranked> = candidate_set
         .iter()
         .enumerate()
         .map(|(index, aggregate)| {
@@ -211,22 +221,22 @@ pub(crate) fn rank(entity: &model::knowledge_entity::Model, field: &[Aggregate])
     ranked
 }
 
-/// The one identity the field supports, or the reason there is none.
+/// The one identity the candidate set supports, or the reason there is none.
 pub(crate) fn decide(
     entity: &model::knowledge_entity::Model,
-    field: &[Aggregate],
+    candidate_set: &CandidateSet,
 ) -> Result<Identity, &'static str> {
     // A profile is identified by its platform link, never by a name. Measured 2026-11-13: of 26
     // `social_media_account` entities carrying a Wikidata identity, one was right — the handle
     // match — and 25 were another bearer of the same word (`Bear` → a gay-culture term, `Blue` → a
     // colour, `Drake` → a botanist). A profile's description says what it posts, never who it is,
-    // so no name-based question can answer for it. The handle strategy claims before the field is
+    // so no name-based question can answer for it. The handle strategy claims before the set is
     // asked, which is why refusing here leaves exactly the handle match standing.
     if account_only(entity) {
         return Err("a profile is identified by its platform link, not by a name");
     }
 
-    let ranked = rank(entity, field);
+    let ranked = rank(entity, candidate_set);
     // A label-less candidate has no name to compare; the exact query is what vouches for it.
     //
     // A label match with no description corroboration is a name, not a fact: it is eligible only
@@ -254,7 +264,7 @@ pub(crate) fn decide(
     {
         return Err("two candidates fit and neither wins");
     }
-    let candidate = &field[best.index].candidate;
+    let candidate = &candidate_set[best.index].candidate;
     Ok(answer::identity(
         candidate,
         method(best.strategy, best.surface),
@@ -650,7 +660,7 @@ impl Weights {
     }
 }
 
-/// One entity's field from every answer of one outcome, deduplicated by QID.
+/// One entity's candidate set from every answer of one outcome, deduplicated by QID.
 ///
 /// `answer::referents` still gates what is not a referent at all — a menu — but no strategy's name
 /// rule applies: which candidate is ours is the ranking's question.
@@ -658,10 +668,10 @@ pub(crate) fn gather(
     asks: &[(plan::Strategy, Request<WikidataKind>)],
     answers: &Answers<WikidataKind, Vec<WikidataCandidate>>,
     outcome: Outcome,
-) -> Vec<Aggregate> {
+) -> CandidateSet {
     let mut by_id: BTreeMap<String, Aggregate> = BTreeMap::new();
     for (strategy, request) in asks {
-        // A handle is claimed whole; it is not scored against the field.
+        // A handle is claimed whole; it is not scored against the set.
         if *strategy == plan::Strategy::Handle {
             continue;
         }
@@ -828,7 +838,7 @@ mod tests {
             "The public service broadcaster of the United Kingdom.",
             Some("British Broadcasting Corporation"),
         );
-        let field = vec![
+        let candidate_set = vec![
             candidate(
                 "Q1160945",
                 "BBC News",
@@ -840,7 +850,7 @@ mod tests {
                 "British public service broadcaster",
             ),
         ];
-        let identity = decide(&entity, &field).expect("the expansion is the name");
+        let identity = decide(&entity, &candidate_set).expect("the expansion is the name");
         assert_eq!(identity.external_id, "Q9531");
     }
 
@@ -861,7 +871,7 @@ mod tests {
             candidate.sources[0].strategy = plan::Strategy::Title;
             candidate
         };
-        let field = vec![
+        let candidate_set = vec![
             labelled(
                 "Q4787186",
                 "Buildings of Scotland in the Industrial Revolution",
@@ -873,7 +883,7 @@ mod tests {
                 "transition to new manufacturing processes in Europe and the United States",
             ),
         ];
-        let identity = decide(&entity, &field).expect("the exact label wins");
+        let identity = decide(&entity, &candidate_set).expect("the exact label wins");
         assert_eq!(identity.external_id, "Q2269");
     }
 
@@ -881,12 +891,12 @@ mod tests {
     #[test]
     fn a_tie_on_surface_is_refused() {
         let entity = entity("Dune", "1965 science fiction novel by Frank Herbert", None);
-        let field = vec![
+        let candidate_set = vec![
             candidate("Q1", "Dune", "novel by Frank Herbert"),
             candidate("Q2", "Dune", "novel by Frank Herbert"),
         ];
         assert_eq!(
-            decide(&entity, &field).unwrap_err(),
+            decide(&entity, &candidate_set).unwrap_err(),
             "two candidates fit and neither wins"
         );
     }
@@ -897,18 +907,18 @@ mod tests {
     fn a_profile_needs_a_platform_link() {
         let mut account = entity("Bear", "An account on X discussing military history.", None);
         account.entity_type = "social_media_account".to_string();
-        let field = vec![candidate("Q618804", "bear", "term in gay culture")];
+        let candidate_set = vec![candidate("Q618804", "bear", "term in gay culture")];
         assert_eq!(
-            decide(&account, &field).unwrap_err(),
+            decide(&account, &candidate_set).unwrap_err(),
             "a profile is identified by its platform link, not by a name"
         );
 
         let mut person = entity("Sama Hoole", "A researcher and commentator.", None);
         person.entity_type = "social_media_account".to_string();
         person.alt_types = vec!["real_person".to_string()];
-        let field = vec![candidate("Q1", "Sama Hoole", "researcher")];
+        let candidate_set = vec![candidate("Q1", "Sama Hoole", "researcher")];
         assert!(
-            decide(&person, &field).is_ok(),
+            decide(&person, &candidate_set).is_ok(),
             "a person is not only a profile"
         );
     }

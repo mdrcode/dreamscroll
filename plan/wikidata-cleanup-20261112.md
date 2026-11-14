@@ -23,7 +23,7 @@ Four properties that follow, and that every change should be judged against:
 1. **Soundness over coverage.** A wrong QID is worse than none: it merges entities, distorts
    proximity, and costs a verdict to repair. "An incomplete table can cost a rejection but never a
    correct claim" is the rule `types.rs` and `aggregate.rs` are written to.
-2. **Cost.** Wikidata is rate-limited. The field asks every question for every entity, so a cold
+2. **Cost.** Wikidata is rate-limited. The resolver asks every question for every entity, so a cold
    run spends ~3.5k calls — 97% of them the two unbatched searches. Staging them by refusal or by
    corroboration was measured and declined (*Staged asking*, below); the cache is the lever, and an
    offline rebuild answers all but the first-contact questions from it.
@@ -244,7 +244,7 @@ The order is spine-first (the ladder, its questions, its decisions), then the me
 wire, then the leaves. Every later file is only meaningful in light of the ladder, and the leaves
 each hold at most one question.
 
-### Review table refreshed 2026-11-13 (after the field and the strategy rename)
+### Review table refreshed 2026-11-13 (after the candidate set and the strategy rename)
 
 The table above records the review as it happened; two of its files no longer exist and the decision
 machinery it reviewed was replaced. Current state:
@@ -253,7 +253,7 @@ machinery it reviewed was replaced. Current state:
 | --- | --- | --- | --- | --- |
 | 1 | `resolver.rs` | 338 | done | R1–R11. `ladder` → `resolve_batch`. Open: no precedence test; the `Canned` footgun |
 | 2 | `plan.rs` | 298 | done | P1, P2. `Step` → `Strategy`, `ORDER` → `ALL`, `all_steps` → `asks`, `step` → `requests` |
-| 3 | `aggregate.rs` | 915 | in progress | absorbs `ranking.rs` (2026-11-13) and the decision half of `decision.rs`. Open: size — the field, the measure and the decision share one file; a `field`/`measure` split is the live question |
+| 3 | `aggregate.rs` | 915 | in progress | absorbs `ranking.rs` (2026-11-13) and the decision half of `decision.rs`. Open: size — the candidate set, the measure and the decision share one file; a `gather`/`measure` split is the live question |
 | 4 | ~~`ranking.rs`~~ | — | done | S1–S5; then folded into `aggregate.rs`. What it still held was one measure and the pricing; the `Policy` impl, `Fit`, `blend`, `exact_label`, `hint_tokens` and nine constants were dead |
 | 5 | `types.rs` | 386 | accepted | Two findings measured and declined: the gate reads one type, nine of twenty types unmapped |
 | 6 | `transport.rs` | 719 | pending | `search` mixes three concerns; `sparql` picks its query from `first.kind`; no degraded-branch test |
@@ -707,10 +707,10 @@ and contradiction sort were removed with them.
 
 ## Staged asking: measured twice, declined (2026-11-13)
 
-The field asks every question for every entity, so a rebuild spends ~3,500 transport calls: the
+The resolver asks every question for every entity, so a rebuild spends ~3,500 transport calls: the
 three exact questions batch 50 per call (~100 calls together), while the two CirrusSearch questions
 cannot be batched at all — `search_label` 2,279 calls, `search_hint` 1,146. Provenance over the 1,601
-field-decided identities (the other ~36 are handle matches, which bypass the field) prices them:
+decided identities (the other ~36 are handle matches, which bypass the candidate set) prices them:
 
 | question | winners it produced | sole source of the winner |
 | --- | --- | --- |
@@ -719,8 +719,8 @@ field-decided identities (the other ~36 are handle matches, which bypass the fie
 | `search_label` | 1249 | 91 |
 | `search_hint` | 517 | 11 |
 
-Two stagings were built, each keeping the single `aggregate::decide` and one combined field — staging
-the *asking*, never the admission:
+Two stagings were built, each keeping the single `aggregate::decide` and one combined candidate set —
+staging the *asking*, never the admission:
 
 | staging | requests | identities | fixed set | verdict |
 | --- | --- | --- | --- | --- |
@@ -739,13 +739,15 @@ offline rebuild answers 7,956 of 8,466 questions from the cache, and only a firs
 the unbatched calls.
 
 **Renamed 2026-11-13:** `pool` → `aggregate`, `Pooled` → `Aggregate`, and the collection it ranks is
-the *field* (`aggregate::decide(entity, &field)`). A pool implies undifferentiated members; this file
+the *candidate set* (`CandidateSet`, `aggregate::decide(entity, &candidate_set)`). A pool implies
+undifferentiated members; this file
 ranks them and decides one.
 
 **The words of the design, after the ladder:** a resolver **fans out** — one batch, every
-**strategy**, every entity; the answers merge into one **field** per entity; one **decision** names a
-referent or refuses with a reason. A **strategy** is a way of asking (`Strategy::Handle`, `::Title`,
-`::Label`, `::SearchHint`, `::SearchLabel`); it is *applied*, not selected and not sequenced — the
-resolver applies every one regardless of what the others said. "Ladder" and "rung" are retired
-vocabulary: they name sequence, authority ordering and early exit, and the resolver has none of the
-three. The words survive in this file only as dated history.
+**strategy**, every entity; the answers merge into one **candidate set** per entity; one **decision**
+names a referent or refuses with a reason. A **strategy** is a way of asking (`Strategy::Handle`,
+`::Title`, `::Label`, `::SearchHint`, `::SearchLabel`); it is *applied*, not selected and not
+sequenced — the resolver applies every one regardless of what the others said. "Ladder" and "rung"
+are retired vocabulary: they name sequence, authority ordering and early exit, and the resolver has
+none of the three; "field" is retired too, because in Rust it reads as a struct member. The words
+survive in this file only as dated history.
