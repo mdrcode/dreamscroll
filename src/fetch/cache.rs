@@ -46,7 +46,11 @@ pub const FAILED_TTL: Duration = Duration::minutes(10);
 /// answer we would have got from a healthy backend. One search API silently served prefix-only
 /// results when its index was unavailable, with HTTP 200 and `success: 1`; a week of that would
 /// quarantine a query behind a bad answer nobody could see was bad.
-pub const DEGRADED_TTL: Duration = Duration::hours(24);
+///
+/// 23 hours, not 24: a nightly pass runs a day after the last, and a row expiring at exactly the
+/// moment it is next asked is a race the pass loses about half the time. An hour of slack makes
+/// "retried on the next night" the ordinary outcome.
+pub const DEGRADED_TTL: Duration = Duration::hours(23);
 
 /// Expired rows are kept this long past their expiry before being pruned. Long enough that recent
 /// staleness stays inspectable — "we asked last week and the answer has aged out" is worth seeing —
@@ -304,6 +308,9 @@ mod tests {
         assert!(ttl(Outcome::Found) > ttl(Outcome::Empty));
         assert!(ttl(Outcome::Empty) > ttl(Outcome::Degraded));
         assert!(ttl(Outcome::Degraded) > ttl(Outcome::Failed));
+        // Strictly under a day: a nightly pass has to see a degraded answer as expired, or the
+        // retry is a coin flip against the boundary.
+        assert!(ttl(Outcome::Degraded) < Duration::hours(24));
         assert_eq!(Outcome::parse("degraded"), Some(Outcome::Degraded));
     }
 
