@@ -19,7 +19,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   always shown and the rest are counted (`… 5 more`), in text and JSON.
 
 - [ ] **Overhaul `entity_type`, driven by data.** It is capture vocabulary — the illuminator names a type
-  in free text — and it currently acts as a *veto* in three places: `types::incompatible` (rejecting
+  in free text — and it currently acts as a *veto* in three places: `classes::incompatible` (rejecting
   candidates by `P31`), the link decision (declining an attachment), and `merge`.
 
   What the veto actually costs, measured on the rebuilt graph 2026-11-13: two of the three cases it was
@@ -38,11 +38,11 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `social_media_account`).
 
   The vocabulary is 20 values assigned by hand-in-prompt, so it drifts: `television_show` vs
-  `television_series` silently disabled a whole rule for 23 series, and `types.rs` deliberately leaves
+  `television_series` silently disabled a whole rule for 23 series, and `classes.rs` deliberately leaves
   `product`, `publication`, `place`, `organization` and `event` **unmapped** because mapping them rejected
   correct claims (`Rotten Tomatoes` is a business, the `Locarno Film Festival` an organization).
   **Wikidata is one identity resolver provider, so `P31` must not be the arbiter.** A provider's classification
-  is evidence *scoped to that provider*; the entity's type is ours. Today `types::incompatible` compares
+  is evidence *scoped to that provider*; the entity's type is ours. Today `classes::incompatible` compares
   the two directly, which means the second provider (IMDb, OpenLibrary, MusicBrainz) has no place to
   stand: it would need its own N×M table of our types against its vocabulary, maintained by hand and
   drifting, and a disagreement between providers would have no representation at all.

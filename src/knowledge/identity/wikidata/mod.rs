@@ -4,6 +4,7 @@
 
 mod answer;
 mod candidate;
+mod classes;
 pub(crate) mod decide;
 pub(crate) mod gather;
 mod kind;
@@ -14,7 +15,6 @@ mod query;
 pub(crate) mod ranking;
 mod resolver;
 mod transport;
-mod types;
 
 pub use candidate::WikidataCandidate;
 pub use kind::WikidataKind;

@@ -114,7 +114,7 @@ pub(crate) fn rank(
                 surface,
                 fit,
                 label_less: label.is_empty(),
-                kind: super::types::compatible(&entity_types, &aggregate.candidate.classes),
+                kind: super::classes::compatible(&entity_types, &aggregate.candidate.classes),
                 head: measure::head_agrees(&entity_types, &theirs),
                 year: measure::year_relation(entity, &theirs),
                 strategy,
