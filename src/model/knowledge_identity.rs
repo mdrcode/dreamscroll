@@ -36,7 +36,7 @@ pub struct Model {
     /// resolver's id when one answered, `model` when a guess produced it.
     pub provider: String,
     /// How the annotation was reached: `observation`, a Wikidata property (`P2002`, `P2003`, …) when
-    /// the answer came from a handle join, or the ladder step (`exact_label`, `wikipedia_title`,
+    /// the answer came from a handle join, or the deciding step (`exact_label`, `wikipedia_title`,
     /// `search_lookup`, `search_ranked`, `search_hint`, `ranked`).
     #[sea_orm(nullable)]
     pub method: Option<String>,

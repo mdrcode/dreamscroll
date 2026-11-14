@@ -1,6 +1,6 @@
 //! Walk one entity through the whole pipeline, in the order it happens.
 //!
-//! Recall, then ranking, then the resolver's ladder — each step printed with what the cache held
+//! Recall, then ranking, then the resolver's plan — each step printed with what the cache held
 //! and what the decision was. Nothing here re-implements a stage: it calls the same blocker, the
 //! same `Rank` and the same `decision` the engine calls, and reads `fetch_cache` with the same
 //! expiry rule, and it applies the same standing vetoes. That is the point: if the inspector and
@@ -53,7 +53,7 @@ pub struct Candidate {
     pub by_words: bool,
 }
 
-/// One rung of the resolver's ladder.
+/// One step of the resolver's plan.
 #[derive(Debug)]
 pub struct Step {
     pub kind: String,
@@ -423,7 +423,7 @@ impl Report {
     }
 }
 
-/// The candidates the inspection prints: the first four, plus the one the rung decided on when the
+/// The candidates the inspection prints: the first four, plus the one the step decided on when the
 /// decision fell outside them — otherwise the report names a QID it never showed. `hidden` counts the
 /// rest.
 fn describe(
@@ -492,7 +492,7 @@ mod tests {
             .into_iter()
             .map(|(_, request)| request)
             .find(|request| request.kind == WikidataKind::Title)
-            .expect("the ladder asks for a title");
+            .expect("the plan asks for a title");
         FetchCache::new(&db.conn)
             .put(
                 "wikidata",

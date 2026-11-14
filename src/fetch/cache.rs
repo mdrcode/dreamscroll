@@ -173,7 +173,7 @@ impl<'a> FetchCache<'a> {
         Ok(answers)
     }
 
-    /// One request's stored answer, fresh or stale, so a caller can show *why* a rung refused.
+    /// One request's stored answer, fresh or stale, so a caller can show *why* a step refused.
     ///
     /// [`Self::get_many`] is the resolver's door: it drops everything not fresh. This is the
     /// inspector's: a stale row is still evidence of what was asked and what came back.
@@ -334,7 +334,13 @@ mod tests {
 
     async fn put(cache: &FetchCache<'_>, shape: &str, query: &str, outcome: Outcome) {
         cache
-            .put("probe", &"kind-a", shape, query, &Answer::<Vec<Record>>::nothing(outcome))
+            .put(
+                "probe",
+                &"kind-a",
+                shape,
+                query,
+                &Answer::<Vec<Record>>::nothing(outcome),
+            )
             .await
             .expect("put should succeed");
     }

@@ -1,6 +1,6 @@
 //! Resolution: the authority contract, and the run loop that drives it.
 //!
-//! A resolver owns its strategy — one request or a ladder of them, one pass or several. `Gateway` is
+//! A resolver owns its strategy — one request or a series of them, one pass or several. `Gateway` is
 //! its only door to the world: the gateway consults the cache first, paces the call and charges the
 //! budget. The engine selects the entities, gives each resolver a batch, and stores what comes back.
 //!

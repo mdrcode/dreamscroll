@@ -89,7 +89,7 @@ enum IdentityCommand {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "inspect")]
-#[argh(description = "walk one entity through blocking, ranking and the resolver ladder")]
+#[argh(description = "walk one entity through blocking, ranking and the resolver's plan")]
 struct IdentityInspectArgs {
     #[argh(
         positional,

@@ -99,8 +99,8 @@ impl Family {
 /// Whether `classes` say this candidate can be what the entity is: `None` when no class is
 /// recognised, so an incomplete table has no opinion rather than a negative one.
 ///
-/// Wider than [`incompatible`] on purpose. That one is a *gate* — the ladder path still refuses on
-/// it — and its arms were narrowed to the ones measured safe as refusals. This one is *evidence*
+/// Wider than [`incompatible`] on purpose. That one is a *gate* — [`compatible`] refuses on it — and
+/// its arms were narrowed to the ones measured safe as refusals. This one is *evidence*
 /// for the aggregate ranker, so every type we have an opinion about counts, including the eight whose
 /// arms turned out too blunt to refuse on (`place`, `organization`, `publication`, …). A candidate
 /// possible under any one of the entity's types is possible.
@@ -182,7 +182,7 @@ fn unlikely(entity_type: &str, found: &std::collections::BTreeSet<Family>) -> bo
                 Family::Person | Family::Work | Family::Place | Family::Nature | Family::Name
             )
         }),
-        // Person is allowed: the handle rung resolves a person's item through their username.
+        // Person is allowed: the handle step resolves a person's item through their username.
         "social_media_account" => every(|family| {
             matches!(
                 family,

@@ -1,7 +1,7 @@
 //! The one door to a third-party provider: cache first, paced, budgeted, and nothing else.
 //!
 //! The rule this module enforces structurally: **a provider cannot fetch, only ask for answers**. A
-//! provider owns its own strategy — one request or a ladder of them, one pass or several — but its
+//! provider owns its own strategy — one request or a series of them, one pass or several — but its
 //! only route to the world is [`Gateway::answers_for`], which consults the cache first, paces
 //! the call and charges the budget. Adding a provider cannot forget the cache, because there is no
 //! other door.

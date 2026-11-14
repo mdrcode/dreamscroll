@@ -1,7 +1,7 @@
 //! Transport: the ways Wikidata answers a question, and nothing else.
 //!
 //! Every function here is one HTTP shape and its response walking — no ranking, no decisions, no
-//! knowledge of what an identity means. They live here so `resolver.rs` can stay about the ladder.
+//! knowledge of what an identity means. They live here so `resolver.rs` can stay about the batch.
 
 use std::collections::HashMap;
 
@@ -23,7 +23,7 @@ type Batched = Vec<(String, Answer<Vec<WikidataCandidate>>)>;
 /// How Wikidata identifies us: its API asks for a tool name with a contact URL.
 const USER_AGENT: &str = "dreamscroll-knowledge/0.1 (https://dreamscroll.ai)";
 /// One call may take this long. An answer here is small, so a call this slow is a stuck socket,
-/// not a slow query — the property of the call, not of the ladder that issues it.
+/// not a slow query — the property of the call, not of the resolver that issues it.
 const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// The wire: one client, and the four ways this authority answers a question.
@@ -34,7 +34,7 @@ pub(super) struct Wire {
 }
 
 impl Wire {
-    /// The one client this authority speaks through, built here so the ladder above names no HTTP
+    /// The one client this authority speaks through, built here so the resolver above names no HTTP
     /// type: how a call is made is the wire's business.
     pub(super) fn new() -> anyhow::Result<Self> {
         let client = reqwest::Client::builder()
@@ -61,7 +61,7 @@ fn candidate_from_row(row: &Value) -> Option<(String, WikidataCandidate)> {
             id: id.to_string(),
             label: field("itemLabel").map(str::to_string),
             description: field("itemDescription").map(str::to_string),
-            // `?class` is present only when the query asked for it (the label rung does); an item
+            // `?class` is present only when the query asked for it (the label step does); an item
             // with several classes answers once per class, and `sparql` merges the rows.
             classes: field("class")
                 .and_then(|class| class.rsplit('/').next())

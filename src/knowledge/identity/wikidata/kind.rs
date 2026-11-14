@@ -1,6 +1,6 @@
-//! This authority's request kinds: the ladder, and the name each rung is cached under.
+//! This authority's request kinds: the plan's steps, and the name each is cached under.
 //!
-//! The variant order *is* the ladder's, and every dispatch on it is exhaustive — a typo can no
+//! The variant order *is* the plan's, and every dispatch on it is exhaustive — a typo can no
 //! longer fall through to the label path. Nothing outside this provider reads it: the fetch layer
 //! only ever sees [`WikidataKind`]'s `Display`, which is the string a cached answer is keyed by.
 

@@ -52,7 +52,7 @@ impl TryFrom<&PlatformLink> for IdentityKey {
 pub struct Identity {
     pub scheme: String,
     pub external_id: String,
-    /// How the annotation was reached: the ladder step, or `observation`.
+    /// How the annotation was reached: the deciding step, or `observation`.
     pub method: Option<String>,
     pub confidence: Option<f32>,
     pub label: Option<String>,

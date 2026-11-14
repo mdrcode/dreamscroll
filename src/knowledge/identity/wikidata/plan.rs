@@ -1,7 +1,7 @@
-//! What to ask: the ladder's requests, as data.
+//! What to ask: the plan's requests, as data.
 //!
-//! Pure and stateless — no client, no `self`. The ladder in `resolver` decides *when* to ask and
-//! what an answer means; this decides only *what*.
+//! Pure and stateless — no client, no `self`. `resolver` decides *when* to ask and what an answer
+//! means; this decides only *what*.
 
 use super::ID;
 use super::WikidataKind;
@@ -22,11 +22,11 @@ fn request(kind: WikidataKind, query: &str) -> Request<WikidataKind> {
     }
 }
 
-/// One step of the ladder, and which decision applies to its answer.
+/// One step of the plan, and which decision applies to its answer.
 ///
-/// The steps are request kinds, not bundled passes: the resolver asks one step across every
-/// unresolved entity, parses it, and only then plans the next. A title that resolves an entity
-/// removes its label and search questions entirely.
+/// The steps are request kinds, not bundled passes: the resolver asks every step for every entity
+/// in one batch, and decides once over all the answers. A step that resolves nothing costs its
+/// answer and nothing else, so the plan stays complete even when a step is redundant.
 ///
 /// One definition, used by the resolver and by `inspect`: a step that exists in one and not the
 /// other is what lets a diagnostic report identities the resolver would not make.
@@ -45,7 +45,7 @@ pub(crate) enum Step {
 }
 
 impl Step {
-    /// The ladder's order. The resolver asks all of them; the order documents what each question can
+    /// The plan's order. The resolver asks all of them; the order documents what each question can
     /// prove, cheapest first.
     pub(crate) const ORDER: [Self; 5] = [
         Self::Handle,
@@ -67,10 +67,10 @@ pub(crate) fn all_steps(
 ) -> Vec<(Step, Request<WikidataKind>)> {
     Step::ORDER
         .into_iter()
-        .flat_map(|rung| {
-            step(rung, entity)
+        .flat_map(|each| {
+            step(each, entity)
                 .into_iter()
-                .map(move |request| (rung, request))
+                .map(move |request| (each, request))
         })
         .collect()
 }
@@ -153,7 +153,7 @@ mod tests {
     /// The order is the rule: a handle is stronger than a name, a title is unique where a label is
     /// not, and the last resort re-asks the title question so it can be answered from the cache.
     #[test]
-    fn the_ladder_asks_a_handle_then_a_title_then_a_label_then_search() {
+    fn the_steps_ask_a_handle_then_a_title_then_a_label_then_search() {
         let mut entity = stub_entity(1, "Alexey Kutepov", "real_person");
         entity.search_query = Some("Tsoding".to_string());
         entity.platform = Some("x_twitter".to_string());
@@ -197,7 +197,7 @@ mod tests {
     }
 
     /// An entity can carry a platform with no handle. Asking `VALUES { "" }` spends a call to
-    /// cache a negative about nobody, so the rung is skipped and the name rungs still run.
+    /// cache a negative about nobody, so that step is skipped and the name steps still run.
     #[test]
     fn a_platform_without_a_handle_asks_nothing() {
         let mut entity = stub_entity(1, "Alexey Kutepov", "real_person");

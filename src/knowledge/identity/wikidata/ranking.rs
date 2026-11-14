@@ -64,8 +64,8 @@ pub(super) const SUPPORT_WEIGHT: f32 = 0.60;
 
 /// The authority's one policy: the description evidence that orders, and the blend that prices it.
 ///
-/// Carries the corpus — the whole answer — because that is what rarity is measured against, and a
-/// rung's selection set is a fraction of it. The lone-surface shortcut and [`choose`] share one
+/// Carries the corpus — the whole answer — because that is what rarity is measured against, and one
+/// step's selection set is a fraction of it. The lone-surface shortcut and [`choose`] share one
 /// instance, so a candidate has one fit per answer rather than one per path.
 pub(super) struct Ranking {
     weights: Weights,

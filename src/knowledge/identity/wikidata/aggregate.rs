@@ -1,16 +1,16 @@
 //! One field, one ranking.
 //!
-//! The ladder decided per rung: every question had its own admission rule and its own decision,
+//! The ladder decided per step: every question had its own admission rule and its own decision,
 //! and the first claim stopped the climb. Measured against the graph, the failures were decided
 //! *before* the ranking — the right item was present and refused:
 //!
 //! - `BBC` had `Q9531` (British Broadcasting Corporation) at the top of two answers and refused it
-//!   twice, because an acronym's expansion shares no token with the acronym; the search rung then
+//!   twice, because an acronym's expansion shares no token with the acronym; the search step then
 //!   claimed `BBC News`, a division that does.
 //! - `Industrial Revolution` had `Q2269` first in every answer and refused it at each, because its
-//!   description shares one word with ours; the search rung claimed a book *about* it.
+//!   description shares one word with ours; the search step claimed a book *about* it.
 //!
-//! So: ask every rung, aggregate what came back, and rank once. The score has four components, each a
+//! So: ask every step, aggregate what came back, and rank once. The score has four components, each a
 //! measure with a reason of its own, plus one provenance policy:
 //!
 //! | term | what it measures |
@@ -219,7 +219,7 @@ pub(crate) fn decide(
     // `social_media_account` entities carrying a Wikidata identity, one was right — the handle
     // match — and 25 were another bearer of the same word (`Bear` → a gay-culture term, `Blue` → a
     // colour, `Drake` → a botanist). A profile's description says what it posts, never who it is,
-    // so no name-based question can answer for it. The handle rung claims before the field is asked,
+    // so no name-based question can answer for it. The handle step claims before the field is asked,
     // which is why refusing here leaves exactly the handle match standing.
     if account_only(entity) {
         return Err("a profile is identified by its platform link, not by a name");
@@ -296,7 +296,7 @@ fn tier_of(step: plan::Step) -> u8 {
     }
 }
 
-/// The rung that produced the winner, in the vocabulary the rest of the system records.
+/// The step that produced the winner, in the vocabulary the rest of the system records.
 fn method(step: plan::Step, surface: f32) -> &'static str {
     match step {
         plan::Step::Handle => "handle",
@@ -538,7 +538,7 @@ fn head_agrees(entity_types: &[&str], theirs: &[String]) -> Option<bool> {
 
 /// One entity's field from every answer of one outcome, deduplicated by QID.
 ///
-/// `decision::referents` still gates what is not a referent at all — a menu — but no rung's name
+/// `decision::referents` still gates what is not a referent at all — a menu — but no step's name
 /// rule applies: which candidate is ours is the ranking's question.
 pub(crate) fn gather(
     steps: &[(plan::Step, Request<WikidataKind>)],

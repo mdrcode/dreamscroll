@@ -45,20 +45,20 @@ impl Resolver for Wikidata {
         entities: &[model::knowledge_entity::Model],
         gateway: &Gateway<'_>,
     ) -> Vec<(i32, Identity)> {
-        ladder(&self.wire, entities, gateway).await
+        resolve_batch(&self.wire, entities, gateway).await
     }
 }
 
 /// One entity's questions: its id, and every `(step, request)` the planner built for it.
 type Planned = (i32, Vec<(plan::Step, Request<WikidataKind>)>);
 
-/// Ask every rung, then decide once.
+/// Ask every step, then decide once.
 ///
-/// The ladder used to decide per rung and stop at the first claim; this asks all of them and
+/// The ladder used to decide per step and stop at the first claim; this asks all of them and
 /// aggregates the answers (see `aggregate`). Offline rebuilds are unaffected — `answers_for` serves
 /// the cache — and the cost ordering is deliberately gone for now: the field needs every answer,
 /// and a budget question can only be answered after the quality question is.
-async fn ladder<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataCandidate>>>(
+async fn resolve_batch<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataCandidate>>>(
     transport: &T,
     entities: &[model::knowledge_entity::Model],
     gateway: &Gateway<'_>,
@@ -143,7 +143,7 @@ mod tests {
     }
 
     /// A wire that answers from a table and records what it was asked: no client, no database.
-    /// The ladder is generic over the wire precisely so an ordering can be proven with this.
+    /// The batch resolver is generic over the wire precisely so an ordering can be proven with this.
     #[derive(Default)]
     struct Canned {
         answers: std::collections::HashMap<(WikidataKind, String), Answer<Vec<WikidataCandidate>>>,
@@ -209,11 +209,11 @@ mod tests {
         entity
     }
 
-    /// Every rung is asked, and the field decides: here two answers offer the same surface, so the
+    /// Every step is asked, and the field decides: here two answers offer the same surface, so the
     /// description separates them. The point of the fixture is that the *title* answer is no longer
     /// privileged by position — it wins on evidence.
     #[tokio::test]
-    async fn the_field_ranks_by_surface_then_description_and_asks_every_rung() {
+    async fn the_field_ranks_by_surface_then_description_and_asks_every_step() {
         let seed = |kind: WikidataKind, query: &str, answer: Answer<Vec<WikidataCandidate>>| {
             (kind, query.to_string(), answer)
         };
@@ -246,7 +246,7 @@ mod tests {
 
         let allowance = Allowance::new(16, std::time::Duration::ZERO);
         let gateway = Gateway::new(None, Some(&allowance), true);
-        let identities = ladder(&fake, &entities, &gateway).await;
+        let identities = resolve_batch(&fake, &entities, &gateway).await;
 
         let ids: Vec<(i32, &str)> = identities
             .iter()
@@ -260,7 +260,7 @@ mod tests {
     }
 
     /// A surface tie is decided by the description: `Orthodoxy` the book corroborates, the concept
-    /// does not. And when no rung can corroborate — the `Paris` shape — the exact surface still
+    /// does not. And when no step can corroborate — the `Paris` shape — the exact surface still
     /// answers, because it is the only evidence there is.
     #[tokio::test]
     async fn the_field_prefers_the_corroborated_candidate() {
@@ -323,7 +323,7 @@ mod tests {
 
         let allowance = Allowance::new(16, std::time::Duration::ZERO);
         let gateway = Gateway::new(None, Some(&allowance), true);
-        let identities = ladder(&fake, &entities, &gateway).await;
+        let identities = resolve_batch(&fake, &entities, &gateway).await;
 
         let ids: Vec<(i32, &str)> = identities
             .iter()
@@ -332,7 +332,7 @@ mod tests {
         assert_eq!(ids, vec![(1, "Q200"), (2, "Q300")], "{identities:?}");
         assert!(
             fake.asked(WikidataKind::Search, "Orthodoxy"),
-            "aggregation asks every rung, including for the entity the label answered"
+            "aggregation asks every step, including for the entity the label answered"
         );
     }
 }
