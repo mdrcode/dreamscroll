@@ -1,17 +1,15 @@
 //! One authority: its request kinds (`kind`) and the item it offers (`candidate`), what to ask
-//! (`plan`), what an answer means (`decision`), and the wire it speaks through (`transport`).
+//! (`plan`), what an answer means (`answer`), and the wire it speaks through (`transport`).
 
 pub(crate) mod aggregate;
 mod answer;
 mod candidate;
-pub(crate) mod decision;
 mod kind;
 pub(crate) mod plan;
 mod property_query;
 mod query;
 mod ranking;
 mod resolver;
-mod shape;
 mod transport;
 mod types;
 

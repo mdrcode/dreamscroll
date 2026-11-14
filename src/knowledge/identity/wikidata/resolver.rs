@@ -94,7 +94,7 @@ async fn resolve_batch<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataC
             Ok(identity) => identities.push((entity.id, identity)),
             Err(_) => {
                 // A degraded answer may have held the claim we are discarding. Deciding the
-                // degraded field only to report it is the same rule as `decision::trusted`.
+                // degraded field only to report it is the same rule `aggregate::decide` applies.
                 if let Ok(identity) = aggregate::decide(
                     entity,
                     &aggregate::gather(asks, &answers, Outcome::Degraded),

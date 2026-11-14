@@ -1,11 +1,19 @@
-//! What a Wikidata answer becomes, and what in it is a referent rather than a menu.
+//! What a Wikidata answer means: which items in it are referents, and what a decided one becomes.
 //!
 //! Pure JSON in, candidates or an identity out. Nothing here fetches, and nothing here knows the
-//! request that produced the answer. An identity is the stored [`Identity`] itself, so a decided answer
-//! needs no second pass to become an annotation.
+//! request that produced the answer. An identity is the stored [`Identity`] itself, so a decided
+//! answer needs no second pass to become an annotation.
+//!
+//! This is the only filter the ranking keeps. Everything else about a candidate — which name it
+//! bears, which kind it is, which strategy produced it — is the field's question, answered by
+//! scoring in [`super::aggregate`]. The ladder's per-strategy admission, its early exits and its
+//! type gate were removed with the ladder: they decided *before* the ranking, which is how `BBC`
+//! had `Q9531` at the top of two answers and still claimed a division — the right item was
+//! excluded, not outranked.
 
 use super::ID;
 use super::WikidataCandidate;
+use crate::fetch::Answer;
 use crate::knowledge::evidence::Identity;
 
 /// A menu, not a referent. Two classes because Wikidata's own hierarchy defeats equality: `Q22808320`
@@ -45,4 +53,20 @@ pub(super) fn is_menu(candidate: &WikidataCandidate) -> bool {
             .description
             .as_deref()
             .is_some_and(|text| text.to_lowercase().contains("disambiguation"))
+}
+
+/// The candidates that are referents at all: an answered question with something left after the
+/// menus are dropped.
+pub(crate) fn referents(
+    raw: &Answer<Vec<WikidataCandidate>>,
+) -> Result<Vec<WikidataCandidate>, &'static str> {
+    if !raw.outcome.answered() {
+        return Err("the answer carried no candidate");
+    }
+    let mut candidates = raw.body.clone().unwrap_or_default();
+    candidates.retain(|candidate| !is_menu(candidate));
+    if candidates.is_empty() {
+        return Err("the answer carried only a disambiguation page");
+    }
+    Ok(candidates)
 }

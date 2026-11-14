@@ -35,7 +35,7 @@ use crate::knowledge::text::{content_tokens, near_surface, word_prefix};
 use crate::model;
 
 use super::ranking::{self, HANDLE_CONFIDENCE, Weights};
-use super::{WikidataCandidate, WikidataKind, answer, decision, plan};
+use super::{WikidataCandidate, WikidataKind, answer, plan};
 
 /// What a candidate from a guessing question must look like at minimum: a prefix, not a
 /// rearrangement. Exact queries (handle, title, label) are held to a lower bar — one shared word —
@@ -540,7 +540,7 @@ fn head_agrees(entity_types: &[&str], theirs: &[String]) -> Option<bool> {
 
 /// One entity's field from every answer of one outcome, deduplicated by QID.
 ///
-/// `decision::referents` still gates what is not a referent at all — a menu — but no strategy's name
+/// `answer::referents` still gates what is not a referent at all — a menu — but no strategy's name
 /// rule applies: which candidate is ours is the ranking's question.
 pub(crate) fn gather(
     asks: &[(plan::Strategy, Request<WikidataKind>)],
@@ -559,7 +559,7 @@ pub(crate) fn gather(
         if raw.outcome != outcome {
             continue;
         }
-        let Ok(candidates) = decision::referents(raw) else {
+        let Ok(candidates) = answer::referents(raw) else {
             continue;
         };
         for (position, candidate) in candidates.into_iter().enumerate() {
@@ -593,7 +593,7 @@ pub(crate) fn by_handle(
         return None;
     }
     let property = request.kind.property()?;
-    let candidates = decision::referents(raw).ok()?;
+    let candidates = answer::referents(raw).ok()?;
     let first = candidates.first()?;
     Some(answer::identity(
         first,

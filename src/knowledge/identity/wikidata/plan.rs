@@ -6,7 +6,6 @@
 use super::ID;
 use super::WikidataKind;
 use super::property_query::platform_link_queries;
-use super::shape;
 use crate::fetch::Request;
 use crate::illumination::v2::PlatformLink;
 use crate::knowledge::text;
@@ -16,7 +15,7 @@ use crate::model;
 fn request(kind: WikidataKind, query: &str) -> Request<WikidataKind> {
     Request {
         provider: ID,
-        shape: shape::of(&kind),
+        shape: kind.shape(),
         kind,
         query: query.trim().to_string(),
     }

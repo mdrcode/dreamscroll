@@ -81,7 +81,7 @@ impl Ranking {
         }
     }
 
-    /// One candidate's fit against the answer it arrived in: `decision::search` asks this before
+    /// One candidate's fit against the answer it arrived in: `aggregate::decide` asks this before
     /// accepting a lone same-surface candidate.
     pub(super) fn fit(
         &self,
@@ -91,7 +91,7 @@ impl Ranking {
         fit(&our_tokens(entity), candidate, &self.weights)
     }
 
-    /// The winner's blend against the answer it arrived in: the confidence `decision::choose` stores.
+    /// The winner's blend against the answer it arrived in: the confidence `answer::identity` stores.
     pub(super) fn blend(
         &self,
         entity: &model::knowledge_entity::Model,
