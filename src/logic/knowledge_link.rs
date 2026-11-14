@@ -9,7 +9,7 @@
 //! a link costs one query per observation. `logic_state` builds it once; `exec` borrows it.
 //!
 //! The task links and stops. Resolution and the proximity passes are separate steps, run in the
-//! order `plan/knowledge-blocking.md` records; nothing here may hide one of them.
+//! order `src/knowledge/knowledge.md` §Rebuild records; nothing here may hide one of them.
 
 use serde::{Deserialize, Serialize};
 

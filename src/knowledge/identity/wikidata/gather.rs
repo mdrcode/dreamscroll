@@ -73,15 +73,17 @@ pub(crate) fn by_handle(
     asks: &[(plan::Strategy, Request<WikidataKind>)],
     answers: &Answers<WikidataKind, Vec<WikidataCandidate>>,
 ) -> Option<Identity> {
-    let (_, request) = asks
-        .iter()
-        .find(|(strategy, _)| *strategy == plan::Strategy::Handle)?;
-    let raw = answers.get(request)?;
-    if raw.outcome != Outcome::Found {
-        return None;
-    }
-    let property = request.kind.property()?;
-    let candidates = answer::referents(raw).ok()?;
-    let first = candidates.first()?;
-    Some(first.identity(property.as_str(), HANDLE_CONFIDENCE))
+    asks.iter()
+        .filter(|(strategy, _)| *strategy == plan::Strategy::Handle)
+        // One link may be asked in two spellings of one namespace (the canonical case and a
+        // lowercase form), so the answer that carried an item is the one to take, not the first ask.
+        .find_map(|(_, request)| {
+            let raw = answers.get(request)?;
+            if raw.outcome != Outcome::Found {
+                return None;
+            }
+            let property = request.kind.property()?;
+            let candidate = answer::referents(raw).ok()?.into_iter().next()?;
+            Some(candidate.identity(property.as_str(), HANDLE_CONFIDENCE))
+        })
 }

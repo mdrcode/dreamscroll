@@ -7,11 +7,12 @@
 //! | `label` | SPARQL `VALUES` over the labels | yes | exact label → item, with descriptions and `P31` |
 //! | `handle:P…` | SPARQL `VALUES` over the handles | yes | a platform account *is* an identity (`P2002`, `P2003`, …) |
 //! | `title` | Wikipedia `pageprops` → `wikibase_item` | yes | a page title is unique where a label is not |
-//! | `search` | MediaWiki full-text search (CirrusSearch) | no | fallback, only for entities the first stage missed |
+//! | `search` | MediaWiki full-text search (CirrusSearch) | no | a guess, weighted below an exact answer |
 //!
-//! `plan` and `decision` are pure, so the whole decision can be tested from a fixture and re-run over
-//! cached payloads for free. Only `fetch` touches the network, and nothing here calls it directly:
-//! it goes through `Gateway::answers_for`, which keeps the cache, the pace and the budget.
+//! `plan`, `gather`, `measure`, `ranking` and `decide` are pure, so the whole decision can be tested
+//! from a fixture and re-run over cached payloads for free. Only `fetch` touches the network, and
+//! nothing here calls it directly: it goes through `Gateway::answers_for`, which keeps the cache, the
+//! pace and the budget.
 
 use std::collections::HashSet;
 
@@ -68,12 +69,13 @@ async fn resolve_batch<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataC
         .map(|entity| (entity.id, plan::all_requests(entity)))
         .collect();
 
-    // One request per question: `SurfaceTitle` re-plans the title request, so the set is deduped.
+    // One request per distinct question: two strategies may ask the same thing, and the batch
+    // should carry it once.
     let mut unique: Vec<Request<WikidataKind>> = Vec::new();
-    let mut seen: HashSet<Request<WikidataKind>> = HashSet::new();
+    let mut seen: HashSet<&Request<WikidataKind>> = HashSet::new();
     for (_, asks) in &planned {
         for (_, request) in asks {
-            if seen.insert(request.clone()) {
+            if seen.insert(request) {
                 unique.push(request.clone());
             }
         }
@@ -81,10 +83,7 @@ async fn resolve_batch<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataC
     let answers = gateway.answers_for(transport, &unique).await;
 
     let mut identities = Vec::new();
-    for entity in entities {
-        let Some((_, asks)) = planned.iter().find(|(id, _)| *id == entity.id) else {
-            continue;
-        };
+    for (entity, (_, asks)) in entities.iter().zip(&planned) {
         // A property match *is* the identity, so nothing is aggregated against it.
         if let Some(identity) = gather::by_handle(asks, &answers) {
             identities.push((entity.id, identity));

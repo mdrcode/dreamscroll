@@ -102,7 +102,7 @@ fn fold_case(surface: &str) -> String {
 ///
 /// `fold_case` lowercases first, so one arm per letter covers both cases: `Đ` arrives here as `đ`.
 /// NFKC and full case folding need `unicode-normalization`; that is a dependency this project has
-/// declined for now (`plan/wikidata-cleanup-20261112.md`), and this table covers the corpus
+/// declined for now (`plan/archive/wikidata-cleanup-20261112.md`), and this table covers the corpus
 /// (Pokémon, Café, naïve, Şeyh…).
 fn latin_base(c: char) -> Option<char> {
     Some(match c {

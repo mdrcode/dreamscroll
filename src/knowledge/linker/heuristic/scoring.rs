@@ -16,8 +16,8 @@
 //! One implementation, so this is a type and not a trait bundle. A second policy would reintroduce
 //! the seam; git history has the version that was measured out.
 //!
-//! Not here: the confidence scale for resolver answers (that is the identity resolver's own
-//! calibration), and the best identity over a set (`best_confidence`).
+//! Not here: the confidence scale for resolver answers, which is the identity resolver's own
+//! calibration. `best_confidence` is here because `project` is its only caller.
 
 use crate::model;
 

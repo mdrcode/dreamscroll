@@ -1,10 +1,11 @@
 //! This authority's request kinds, and the two components of the cache key each one pins: the name
 //! it is cached under and its *shape* — the revision and parameters of that question.
 //!
-//! The variant order *is* the plan's, and every dispatch on it is exhaustive — a typo can no longer
-//! fall through to the label path. Nothing outside this provider reads it: the fetch layer only ever
-//! sees [`WikidataKind`]'s `Display` and [`WikidataKind::shape`], which together with the query are
-//! the key a cached answer is filed under.
+//! Every dispatch on it is exhaustive — a typo can no longer fall through to the label path. The
+//! plan's order is `plan::Strategy::ALL`'s, not this enum's: a strategy is a way of asking, and one
+//! strategy may use a kind this enum declares elsewhere. Nothing outside this provider reads it: the
+//! fetch layer only ever sees [`WikidataKind`]'s `Display` and [`WikidataKind::shape`], which
+//! together with the query are the key a cached answer is filed under.
 //!
 //! Bump a shape's version when the construction changes, and put a parameter that changes the answer
 //! in the string too. Both are per kind, so a change invalidates exactly the answers it changes and

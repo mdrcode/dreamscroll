@@ -6,7 +6,7 @@
 //! so a stale index is countable instead of being discovered later as a recall bug.
 //!
 //! See AGENTS.md §Derived Data for why the version is a behavioural fingerprint rather than a
-//! hand-bumped number, and `plan/knowledge-blocking.md` §Storage for why this is a table.
+//! hand-bumped number, and `plan/archive/knowledge-blocking.md` §Storage for why this is a table.
 
 use sea_orm::sea_query::{Expr, ExprTrait, OnConflict, Query};
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};

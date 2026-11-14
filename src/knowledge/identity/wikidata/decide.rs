@@ -16,7 +16,7 @@ use super::ranking::{self, Ranked};
 const SEARCH_FLOOR: f32 = 0.7;
 /// The floor for a candidate an exact query produced: the same words at minimum.
 const EXACT_FLOOR: f32 = 0.6;
-/// When two candidates bear the same surface, their descriptions must separate them by this much.
+/// Two candidates that fit must be separated by this much, or neither is chosen.
 const MARGIN: f32 = 0.05;
 /// A claim needs a minimum of evidence, not just a lead over the runner-up: with a set of one,
 /// there is no runner-up to lose to, and a surface-only candidate would assert itself.
