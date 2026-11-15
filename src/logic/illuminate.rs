@@ -85,6 +85,14 @@ pub async fn exec(
         )));
     };
 
+    // Grounding is the only capability requested today, and the task stores it as a flag. Keep the
+    // translation here so both prompt versions take the provider-facing slice unchanged.
+    let capabilities: &[llms::InferenceCapability] = if task.web_search {
+        &[llms::InferenceCapability::WebSearch]
+    } else {
+        &[]
+    };
+
     match task.prompt_version {
         illumination::IlluminationVersion::V1 => {
             tracing::warn!(
@@ -97,7 +105,7 @@ pub async fn exec(
                 &capture,
                 &task.model_id,
                 task.thinking_level,
-                task.web_search,
+                capabilities,
             )
             .await
             .map_err(api::ApiError::internal)?;
@@ -134,7 +142,7 @@ pub async fn exec(
                 &capture,
                 &task.model_id,
                 task.thinking_level,
-                task.web_search,
+                capabilities,
             )
             .await
             .map_err(api::ApiError::internal)?;

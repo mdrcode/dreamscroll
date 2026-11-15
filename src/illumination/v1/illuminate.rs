@@ -15,7 +15,7 @@ pub async fn illuminate(
     capture: &api::CaptureInfo,
     model_id: &str,
     thinking_level: Option<llms::gemini::ThinkingLevel>,
-    web_search: bool,
+    capabilities: &[llms::InferenceCapability],
 ) -> anyhow::Result<llms::InferenceOutcome<Illumination>> {
     let media = capture
         .medias
@@ -32,12 +32,6 @@ pub async fn illuminate(
         },
     ];
     let schema = make_schema();
-    let capabilities: Vec<llms::InferenceCapability> = if web_search {
-        vec![llms::InferenceCapability::WebSearch]
-    } else {
-        vec![]
-    };
-
     tracing::info!(
         capture.id,
         media.id,
@@ -50,7 +44,7 @@ pub async fn illuminate(
             model_id,
             input: &input,
             response_schema: Some(&schema),
-            capabilities: &capabilities,
+            capabilities,
             thinking_level,
         })
         .await?;
