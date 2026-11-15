@@ -190,17 +190,6 @@ mod tests {
             backfill_id: Some("webhook-backfill".to_string()),
             task: task.clone(),
         };
-        // Execute an older queued payload that omitted the new field, not just a
-        // serde round trip: the worker must still persist and enqueue indexing.
-        let mut legacy_payload = serde_json::to_value(&first_task_run).unwrap();
-        legacy_payload["task"]
-            .as_object_mut()
-            .unwrap()
-            .remove("persist_projection");
-        let first_task_run: crate::task::TaskRun<logic::illuminate::IlluminationTask> =
-            serde_json::from_value(legacy_payload).unwrap();
-        assert!(first_task_run.task.persist_projection);
-
         let failed_attempt = crate::webhook::r_illuminate::post(
             axum::extract::State(state.clone()),
             axum::Json(first_task_run.clone()),

@@ -34,6 +34,7 @@ pub async fn post_illuminate(
             request.prompt_version,
             request.thinking_level,
             request.persist_projection,
+            request.web_search,
         )
         .await?;
     Ok(accepted_task_run_response(run_id))
@@ -111,6 +112,9 @@ mod tests {
             crate::illumination::IlluminationVersion::V2
         );
         assert_eq!(default.thinking_level, None);
+        // Omitted flags defer to IlluminationTask's defaults rather than repeating them here.
+        assert_eq!(default.persist_projection, None);
+        assert_eq!(default.web_search, None);
 
         for (version, expected) in [
             ("v1", crate::illumination::IlluminationVersion::V1),
@@ -128,7 +132,6 @@ mod tests {
     #[test]
     fn illuminate_request_accepts_typed_thinking_levels_and_rejects_unknown_levels() {
         for (value, expected) in [
-            ("minimal", crate::llms::gemini::ThinkingLevel::Minimal),
             ("low", crate::llms::gemini::ThinkingLevel::Low),
             ("medium", crate::llms::gemini::ThinkingLevel::Medium),
             ("high", crate::llms::gemini::ThinkingLevel::High),
@@ -140,12 +143,16 @@ mod tests {
             .unwrap();
             assert_eq!(request.thinking_level, Some(expected));
         }
-        assert!(
-            serde_json::from_value::<IlluminateTaskRequest>(serde_json::json!({
-                "capture_id": 42,
-                "thinking_level": "ultra"
-            }))
-            .is_err()
-        );
+        for rejected in ["ultra", "minimal", "xhigh"] {
+            // `minimal` and `xhigh` are real Gemini levels that our models reject, so they are
+            // absent from ThinkingLevel; `ultra` is not a level at all.
+            assert!(
+                serde_json::from_value::<IlluminateTaskRequest>(serde_json::json!({
+                    "capture_id": 42,
+                    "thinking_level": rejected
+                }))
+                .is_err()
+            );
+        }
     }
 }

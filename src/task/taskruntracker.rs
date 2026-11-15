@@ -451,7 +451,8 @@ mod tests {
                 "entity_owner_id": 1,
                 "model_id": "test-model",
                 "prompt_version": "v2",
-                "persist_projection": true
+                "persist_projection": true,
+                "web_search": false
             }))
         );
         assert_eq!(stored.attempts, 0);

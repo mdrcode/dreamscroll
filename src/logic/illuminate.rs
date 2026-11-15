@@ -11,22 +11,17 @@ pub struct IlluminationTask {
     pub model_id: String,
     /// Result schema and persistence path selected for this task.
     pub prompt_version: illumination::IlluminationVersion,
-    /// Optional reasoning effort override; omitted tasks retain the provider default.
-    /// As of Oct 2026, Gemini defaults are model-specific: e.g. `high` for
-    /// `gemini-3-flash-preview` and `gemini-3.1-pro-preview`, `medium` for
-    /// `gemini-3.8-flash`, and `minimal` for `gemini-3.5-flash-lite`.
-    /// `None` delegates to Gemini rather than pinning any of these defaults.
-    /// See <https://ai.google.dev/gemini-api/docs/thinking#controlling-thinking>.
+    /// Optional reasoning effort override. `None` delegates to Gemini's default, which is
+    /// model-specific (`medium` for `gemini-3.8-flash`, `high` for `gemini-3.1-pro-preview`).
+    /// See <https://ai.google.dev/gemini-api/docs/thinking#thinking-levels>.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_level: Option<llms::gemini::ThinkingLevel>,
     /// Persist the relational projection and enqueue indexing; raw output is always retained.
-    /// Setting to `false` is useful for testing or eval
-    #[serde(default = "default_persist_projection")]
+    /// `new` starts at `true`; `false` is for testing or eval.
     pub persist_projection: bool,
-}
-
-fn default_persist_projection() -> bool {
-    true
+    /// Enable the provider's web-search tool (Gemini `google_search` grounding).
+    /// Billed per grounded request and roughly 30% slower. `new` starts at `false`.
+    pub web_search: bool,
 }
 
 impl IlluminationTask {
@@ -43,6 +38,7 @@ impl IlluminationTask {
             prompt_version,
             thinking_level: None,
             persist_projection: true,
+            web_search: false,
         }
     }
 }
@@ -101,6 +97,7 @@ pub async fn exec(
                 &capture,
                 &task.model_id,
                 task.thinking_level,
+                task.web_search,
             )
             .await
             .map_err(api::ApiError::internal)?;
@@ -137,6 +134,7 @@ pub async fn exec(
                 &capture,
                 &task.model_id,
                 task.thinking_level,
+                task.web_search,
             )
             .await
             .map_err(api::ApiError::internal)?;
@@ -178,4 +176,23 @@ pub async fn exec(
     tracing::info!(capture_id, task_run_id, prompt_version = ?task.prompt_version, persist_projection = task.persist_projection, "Illumination completed and persisted");
 
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_tasks_are_projected_and_ungrounded() {
+        let task = IlluminationTask::new(7, 1, "m", illumination::IlluminationVersion::V2);
+        assert!(task.persist_projection);
+        assert!(!task.web_search);
+
+        // Both flags are always written, so a queued payload round-trips with no defaults.
+        let queued: IlluminationTask =
+            serde_json::from_value(serde_json::to_value(&task).unwrap()).unwrap();
+        assert!(queued.persist_projection);
+        assert!(!queued.web_search);
+        assert_eq!(queued.capture_id, 7);
+    }
 }

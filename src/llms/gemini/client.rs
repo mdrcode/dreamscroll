@@ -300,6 +300,24 @@ fn inference_response(
             .provider_metadata
             .insert("provider_usage".to_string(), usage);
     }
+    // Grounding is billed per query, and the steps are the only place that count lives: the
+    // model-output text cannot tell us whether a run searched.
+    let queries: usize = response
+        .get("steps")
+        .and_then(Value::as_array)
+        .map(|steps| {
+            steps
+                .iter()
+                .filter(|step| step["type"] == "google_search_call")
+                .map(|step| step["arguments"]["queries"].as_array().map_or(0, Vec::len))
+                .sum()
+        })
+        .unwrap_or(0);
+    if queries > 0 {
+        metadata
+            .provider_metadata
+            .insert("provider_search_queries".to_string(), json!(queries));
+    }
 
     let output = if status.is_success() {
         serde_json::from_value::<GeminiInteractionResponse>(response)
@@ -353,7 +371,6 @@ mod tests {
 
         for (level, expected) in [
             (None, None),
-            (Some(gemini::ThinkingLevel::Minimal), Some("minimal")),
             (Some(gemini::ThinkingLevel::Low), Some("low")),
             (Some(gemini::ThinkingLevel::Medium), Some("medium")),
             (Some(gemini::ThinkingLevel::High), Some("high")),
@@ -382,6 +399,23 @@ mod tests {
     }
 
     #[test]
+    fn request_body_omits_tools_without_web_search_capability() {
+        let client = developer_api_client();
+        let input = [InferenceInput::Text("hello")];
+        let capabilities: [InferenceCapability; 0] = [];
+        let request = InferenceRequest {
+            model_id: "model-a",
+            input: &input,
+            response_schema: None,
+            capabilities: &capabilities,
+            thinking_level: None,
+        };
+
+        let body = client.interaction_body(&request).unwrap();
+        assert!(body.get("tools").is_none());
+    }
+
+    #[test]
     fn request_body_rejects_missing_input() {
         let client = developer_api_client();
         let input: [InferenceInput; 0] = [];
@@ -395,6 +429,41 @@ mod tests {
         };
 
         assert!(client.interaction_body(&request).is_err());
+    }
+
+    #[test]
+    fn response_counts_grounding_queries_across_calls() {
+        let searching = json!({
+            "status": "completed",
+            "steps": [
+                {"type": "thought", "signature": "sig"},
+                {"type": "google_search_call", "arguments": {"queries": ["Ada Lovelace", "Analytical Engine"]}},
+                {"type": "google_search_result", "result": []},
+                {"type": "google_search_call", "arguments": {"queries": ["Charles Babbage"]}},
+                {"type": "model_output", "content": [{"type": "text", "text": "{}"}]}
+            ]
+        });
+        let quiet = json!({
+            "status": "completed",
+            "steps": [{"type": "model_output", "content": [{"type": "text", "text": "{}"}]}]
+        });
+
+        for (response, expected) in [(searching, Some(3)), (quiet, None)] {
+            let outcome = inference_response(
+                response,
+                reqwest::StatusCode::OK,
+                "vertex",
+                "gemini-3.8-flash",
+                10,
+                json!({}),
+            );
+            let recorded = outcome
+                .metadata
+                .provider_metadata
+                .get("provider_search_queries")
+                .cloned();
+            assert_eq!(recorded, expected.map(|n| json!(n)));
+        }
     }
 
     #[test]

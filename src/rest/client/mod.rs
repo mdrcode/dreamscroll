@@ -43,12 +43,10 @@ pub struct IlluminateTaskRequest {
     pub prompt_version: crate::illumination::IlluminationVersion,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_level: Option<crate::llms::gemini::ThinkingLevel>,
-    #[serde(default = "default_persist_projection")]
-    pub persist_projection: bool,
-}
-
-fn default_persist_projection() -> bool {
-    true
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persist_projection: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub web_search: Option<bool>,
 }
 
 impl Client {
@@ -421,7 +419,8 @@ impl Client {
         capture_id: i32,
         prompt_version: illumination::IlluminationVersion,
         thinking_level: Option<llms::gemini::ThinkingLevel>,
-        persist_projection: bool,
+        persist_projection: Option<bool>,
+        web_search: Option<bool>,
     ) -> anyhow::Result<String> {
         let response = self
             .reqwest_client
@@ -432,6 +431,7 @@ impl Client {
                 prompt_version,
                 thinking_level,
                 persist_projection,
+                web_search,
             })
             .send()
             .await

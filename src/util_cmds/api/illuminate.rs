@@ -27,15 +27,19 @@ pub struct IlluminateArgs {
 
     #[argh(option, long = "thinking-level")]
     #[argh(
-        description = "reasoning effort: minimal, low, medium, or high (default: provider default)"
+        description = "reasoning effort: low, medium, or high (default: provider default)"
     )]
     thinking_level: Option<crate::llms::gemini::ThinkingLevel>,
 
-    #[argh(option, long = "persist-projection", default = "true")]
+    #[argh(option, long = "persist-projection")]
     #[argh(
         description = "persist relational projection and enqueue search indexing (default: true)"
     )]
-    persist_projection: bool,
+    persist_projection: Option<bool>,
+
+    #[argh(option, long = "web-search")]
+    #[argh(description = "let the model use provider web search (default: false)")]
+    web_search: Option<bool>,
 
     #[argh(option, long = "wait-seconds", default = "60")]
     #[argh(description = "maximum seconds to wait for task completion (default: 60)")]
@@ -60,6 +64,7 @@ pub async fn run(state: ApiCmdState, args: IlluminateArgs) -> anyhow::Result<()>
             prompt_version,
             args.thinking_level,
             args.persist_projection,
+            args.web_search,
         )
         .await?;
     eprintln!("Enqueued TaskRun {run_id}.");
@@ -367,21 +372,24 @@ mod tests {
     }
 
     #[test]
-    fn persist_projection_defaults_true_and_requires_a_bool() {
+    fn omitted_flags_defer_to_the_task_defaults() {
         let parse = |args: &[&str]| IlluminateArgs::from_args(&["illuminate"], args);
-        assert!(parse(&["42"]).unwrap().persist_projection);
-        assert!(
-            parse(&["42", "--persist-projection", "true"])
+        let default = parse(&["42"]).unwrap();
+        assert_eq!(default.persist_projection, None);
+        assert_eq!(default.web_search, None);
+        assert_eq!(
+            parse(&["42", "--persist-projection", "false"])
                 .unwrap()
-                .persist_projection
+                .persist_projection,
+            Some(false)
         );
-        assert!(
-            !parse(&["42", "--persist-projection", "false"])
-                .unwrap()
-                .persist_projection
+        assert_eq!(
+            parse(&["42", "--web-search", "true"]).unwrap().web_search,
+            Some(true)
         );
+        assert!(parse(&["42", "--web-search", "yes"]).is_err());
+        assert!(parse(&["42", "--web-search"]).is_err());
         assert!(parse(&["42", "--persist-projection", "yes"]).is_err());
-        assert!(parse(&["42", "--persist-projection"]).is_err());
     }
 
     #[test]
@@ -389,7 +397,6 @@ mod tests {
         let parse = |args: &[&str]| IlluminateArgs::from_args(&["illuminate"], args);
         assert_eq!(parse(&["42"]).unwrap().thinking_level, None);
         for (value, expected) in [
-            ("minimal", crate::llms::gemini::ThinkingLevel::Minimal),
             ("low", crate::llms::gemini::ThinkingLevel::Low),
             ("medium", crate::llms::gemini::ThinkingLevel::Medium),
             ("high", crate::llms::gemini::ThinkingLevel::High),
@@ -402,6 +409,7 @@ mod tests {
             );
         }
         assert!(parse(&["42", "--thinking-level", "ultra"]).is_err());
+        assert!(parse(&["42", "--thinking-level", "minimal"]).is_err());
     }
 
     #[test]
