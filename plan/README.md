@@ -37,6 +37,7 @@ rather than rewriting it; history is the point.
 | [topology_and_throughput.md](topology_and_throughput.md) | Reference | Cloud Run / Cloud SQL connection and concurrency budgets. |
 | [vertex-throughput.md](vertex-throughput.md) | Research — active | Vertex Gemini tail latency: evidence, hypotheses, experiments, mitigations. |
 | [upload-formats.md](upload-formats.md) | Partly implemented | Upload format policy: blocklist at the single ingest point, 415s, client `accept` steering shipped 2026-10-29. Client re-encode and server HEIC normalize deferred. |
+| [task-abandoned-status.md](task-abandoned-status.md) | Deferred — trigger-gated | A seventh terminal status for operator-closed runs, so intent stops living in `last_error_message` prose. Design only. |
 
 ## archive/ — inactive records (default: ignore)
 

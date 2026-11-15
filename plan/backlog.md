@@ -387,6 +387,7 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 | Identity `confidence`: label or probability         | [wikidata-cleanup-20261112.md](archive/wikidata-cleanup-20261112.md)  | Anything starts sorting entities by confidence again |
 | The title step's own name-relatedness rule            | [wikidata-cleanup-20261112.md](archive/wikidata-cleanup-20261112.md)  | A second provider answers title queries                          |
 | Media transcode and format policy                  | [upload-formats.md](upload-formats.md)                                 | `rejected_format` fires for a real user, uploads stay multi-MB on cellular, or a non-browser ingestion path carries originals |
+| Abandoned task-run status                          | [task-abandoned-status.md](task-abandoned-status.md)                   | Abandonment becomes a production operation                    |
 
 ## Product direction — not yet scoped
 
