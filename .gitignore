@@ -15,3 +15,6 @@ config_prod.env
 src/rest/.env
 # local smoke credentials
 smoke.env
+
+# generated eval dataset (2 MB); regenerate with util/export-illumination-readings.py
+plan/eval/illumination-readings.jsonl

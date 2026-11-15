@@ -47,3 +47,37 @@ Categories:
 
 Add a row when a capture is inspected and something looks wrong. Judge it once; do not rewrite a
 row because a later build changes the outcome — add a new row for the new build if it matters.
+
+# Illumination output ablations
+
+Separate from the identity sets above, because it measures the *illuminator*, not the resolver.
+
+| file | job |
+| --- | --- |
+| `web-search-ablation-20261114.tsv` | one row per capture: the grounded baseline vs the same capture re-run with `web_search: false` |
+| `web-search-ablation-20261114.md` | the method, the cost table, the grounded-vs-grounded noise floor, and what each verdict class is made of |
+
+Reproduce an arm with `dreamscroll_api illuminate <capture_id> --web-search false
+--persist-projection false`; nothing projected, so the graph is untouched. Keep the baseline raw
+in place — the pair is the instrument.
+
+# Thinking level
+
+| file | job |
+| --- | --- |
+| `thinking-levels-20261114.md` | low / medium / high on `gemini-3.8-flash` with grounding off: cost ladder, cross-arm agreement, and the confusable-still swap |
+| `illumination-readings.jsonl` | every illumination reading in one shape — `capture_id`, `arm`, `model_id`, `thinking_level`, `web_search`, tokens, duration, and the parsed entities/summary/details. **Generated, not committed** (~2 MB); rebuild it with the script below |
+
+Regenerate the readings with `util/export-illumination-readings.py` (read-only, local dev DB). New
+arms — including a different model — append in the same shape, and comparisons are joins on
+`capture_id`.
+
+# Model comparison
+
+| file | job |
+| --- | --- |
+| `hydrogen-20261114.md` | Flash 3.8 medium (prod flow) vs Gemini 4 Hydrogen low/medium on all 104 captures: token totals, per-capture and per-1,000 price, latency, and what the outputs look like |
+
+The readings file already carries `model_id`, so a model comparison is a filter on that column, not a
+separate dataset. Prices used are in the doc; they are list prices and must be checked against the
+Vertex bill.

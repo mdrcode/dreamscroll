@@ -1,0 +1,105 @@
+capture_id	verdict	category	note
+172	worse	missed_visible_entity	image shows Nietzsche/Spinoza portraits, book spines; baseline had Brothers Karamazov + Wojak, ablation dropped both
+508	equal	-	single entity, same identity, same platform; prose differs trivially
+589	mixed	unresolved_attribution	image is a cookbook page with no author; baseline asserts Joy of Cooking/Rombauer, ablation asserts Sheila Hibben/'A Kitchen Manual'; neither verifiable from image, web search inconclusive
+593	better	extra_valid_entity	ablation adds Mikhail Porechenkov (real cast member); core set identical
+669	worse	unsupported_specificity	image is generic English stone cottage + bridge; ablation asserts Cotswolds honey-coloured Jurassic limestone, not supported
+671	worse	missed_visible_entity	"BRING IT IN, GUYS!!!" is legible in the image; ablation dropped that entity, baseline kept it
+673	equal	alias_variance	Tanizaki vs Jun'ichirō Tanizaki; same book, same facts
+682	better	extra_valid_entity	ablation adds Boris Kaufman (actual L'Atalante cinematographer)
+683	worse	wrong_identification	image is Apocalypse Now hotel scene (Martin Sheen); ablation returns Wake in Fright/Gary Bond/Ted Kotcheff, a coherent but wholly wrong entity set
+684	better	avoided_fabricated_attribution	baseline asserts John Singer Sargent + Caravaggio for an anonymous painting; ablation returns no entities rather than inventing artists
+685	equal	minor_recall_loss	ablation drops only the quoted speaker Lucifer; Schwarz, Pelosi, Democrats, Iraq War and Paradise Lost all present in both
+781	worse	missed_visible_entity	paper title "A Theory of Negligence" is legible and named in the ablation's own summary, but only the grounded arm emits it as an entity
+686	mixed	-	ablation adds The Times (supported by visible blurb); drops A Requiem for Homo Sapiens trilogy + Danlo (not visible, but useful series context)
+687	equal	minor_recall_loss	ablation drops Evan Wright (author, not visible); core 3 entities identical
+688	equal	-	identical four entities, same meme framing
+689	worse	missed_visible_entity	@bo66ie29 handle is legible in the post header; ablation dropped the social_media_account entity
+690	equal	minor_recall_loss	ablation drops Wasteland Weekend (contextual event, not visible)
+691	equal	alias_variance	same two entities; summary phrasing only
+692	mixed	-	ablation adds The Hustler + Martin Scorsese (valid, useful); drops Vincent Lauria character
+693	equal	-	identical entity set and framing
+694	equal	-	identical entity set; GQ/Americans/Russell/Rhys
+695	worse	minor_factual_error	September, September is 1978 (ablation says 1977); Civil War: A Narrative is 1958-1974 (ablation says 1954-1974)
+696	equal	minor_recall_loss	ablation drops the X-platform software entity; person entity and platform_link identical
+697	equal	-	identical four entities, same film
+698	equal	-	photograph carries no visible credit line; baseline's Cervin Robinson/HABS and ablation's Landmarks Commission are both contextual, not visible
+699	equal	-	ablation swaps Special Air Service org for Peaky Blinders (poster credits Knight); both fair
+700	better	removed_spurious_entity	baseline misreads essay title "Who Watches The Watchmen?" as the Alan Moore comic; ablation instead names the actual Stalker still
+701	equal	-	identical five entities, NPR naming variant
+702	better	extra_valid_entity	avatar is a Pudgy Penguins NFT; ablation names it, baseline misses it
+703	equal	-	single Wojak entity, same reading
+704	worse	wrong_identification	image is Reginald Barclay (human skin, curly hair, yellow ops uniform) — confirmed by the author; ablation asserts Data/Brent Spiner; two grounded readings of the same capture were correct
+705	equal	-	identical five entities
+706	equal	minor_recall_loss	ablation drops the 'Tis Pity She's a Whore film guess; still unverified from a close-up
+707	equal	-	identical three entities
+708	worse	missed_all_entities	identifiable East German interior (Palast der Republik Bühnencasino); ablation returns zero entities, baseline names place, photographer, monograph
+709	equal	-	identical three entities
+710	equal	alias_variance	same book/author/editor; A.W. vs A. W. Moore
+711	equal	-	ablation adds The Economist and EIU (plausible chart legend sources); no contradiction
+712	worse	missed_artwork_identity	the painting is The Justice of Emperor Otto III / Execution of the Innocent Count; ablation gives only the artist, a movement (mistyped as art_work) and a helmet type
+713	equal	minor_recall_loss	ablation drops illustrator Alexander Klünder and riverrun imprint; core book/author/translator/introducer identical
+714	equal	-	baseline Cheesecake Factory vs ablation Trader Joe's; different chart entries, both plausible
+715	equal	extra_context	ablation adds Courrières (Breton's birthplace), not visible but true
+716	equal	extra_context	ablation adds Lockheed Have Blue (on the slide's aircraft timeline); no contradiction
+717	equal	-	identical four entities
+718	equal	alias_variance	Star Wars vs Star Wars: Episode IV naming
+720	mixed	unresolved_disagreement	baseline says Toshiba Pasopia/14V14 TV, ablation says National JR-200/Lode Runner; the ad shows a colour TV labelled 14V14 and a game screen, brand of the computer not legible
+721	equal	minor_recall_loss	ablation drops FIRE's "Expression" publication entity
+722	equal	minor_recall_loss	ablation drops Arcade Publishing; book/author identical
+723	equal	alias_variance	same four entities; handle written @dinokuznik vs dinokuznik
+724	equal	-	identical two entities
+725	equal	minor_recall_loss	ablation drops the two X account entities; film/director identical
+726	worse	type_error	ablation drops the Pulldrone music entity and types the instagram account zacharyraber as real_person
+727	equal	-	identical four entities plus Berlin
+728	equal	attribution_variance	baseline asserted Jacob Epstein, the same-capture grounded control (raw 154) asserted George Charles Beresford, ablation named neither; no confirmed fact was dropped
+729	worse	wrong_identification	image is bearded Eastwood = The Outlaw Josey Wales; ablation asserts High Plains Drifter (clean-shaven role); same misidentification has been observed in production with grounding on, so not attributable to the ablation
+730	equal	-	identical journal and four authors
+731	better	correct_contextual_identity	image is Piranesi fan art (the House, the Faun, elephant on the arch, flooded hall); ablation names Piranesi/Clarke, baseline reads it as generic capriccio/satyr/howdah
+732	equal	-	identical three entities
+733	equal	minor_recall_loss	ablation drops cover designer David Mann; book/author/publisher identical
+734	equal	-	identical four entities
+735	equal	-	identical four entities
+736	equal	extra_context	ablation adds George Harrison (HandMade co-founder); everything else identical
+737	equal	alias_variance	same five entities; Lady Margot Fenring vs Margot Fenring
+738	equal	type_quibble	sets match; ablation types the DeLorean time machine as fictional_character (baseline: product); neither is clean
+739	worse	missed_visible_entity	altarpiece panels show Saint Sebastian and John the Baptist; ablation keeps only Jesus and Saint Anthony
+740	equal	granularity	baseline names individual novels/authors, ablation consolidates into Thrawn trilogy; same subject
+741	equal	-	identical four entities
+742	unresolved	unresolved_disagreement	baseline says Pyramid of Khafre, ablation says Great Pyramid; one pyramid visible and the image cannot settle which
+743	worse	missed_artwork_identity	image is Chopin's Nocturne Op. 15 No. 1 in the Klindworth edition; ablation returns only generic "time signature"/"polymeter" and names no composer or piece
+744	equal	-	identical six entities
+745	equal	minor_recall_loss	ablation drops the C++ software entity; speaker/event identical
+746	equal	-	ablation drops Frodo/Middle-earth, adds Discord; same core
+747	equal	-	identical three entities plus Scorched Earth
+748	equal	minor_recall_loss	ablation drops Fanboys (the film Ebert was reviewing); quote and franchises identical
+751	equal	minor_recall_loss	ablation drops Villeneuve; Dune/Spacing Guild/costume designer identical
+752	equal	cast_variance	baseline Richard Jordan + George V. Higgins vs ablation Alex Rocco; same film and montage
+753	equal	alias_variance	Ming vs Xiao Ming; same four entities
+754	equal	alias_variance	Scaphandrier vs Le Scaphandrier; Lumière naming variant
+755	better	factual_correction	Damnation is 1988; baseline says 1987, ablation 1988
+756	equal	cast_variance	ablation adds Clive Brook + Noah Beery, drops the two directors; poster cast both ways
+757	worse	type_error	ablation types Araucaria angustifolia (a tree species) as `place` and drops the Teresópolis/Serra dos Órgãos locations
+758	equal	-	identical three entities
+759	equal	unverified_recall_loss	ablation drops Sweet's Catalog File and Drafting Machine entities; the catalog may be legible on the shelf but is not confirmed
+760	equal	unverified_recall_loss	ablation drops cover painting (Albert Goodwin) and the two shelf manga/novels, adds Hachette India
+761	worse	missed_named_book	the post names The End of Everything (the Booker-winning novel); baseline keeps it, ablation drops it and keeps only The Course of the Heart
+762	equal	extra_valid_entity	ablation adds The Eridanos Library brand and types the account correctly; core set identical
+763	equal	-	identical three entities
+764	equal	minor_recall_loss	ablation drops the YouTube platform brand entity; channel/person identical
+765	equal	minor_recall_loss	ablation drops the MeatCanyon brand entity; person identical
+766	equal	-	identical two entities
+767	worse	missed_core_entity	article's core subject BlūMorpho transmitter and Project Monarch are in baseline only; ablation keeps zoo/author/publication
+768	better	named_artist	image is an Olbiński painting (style, composition, signature); baseline fabricates a descriptive title as art_work, ablation names the artist
+769	equal	alias_variance	Singapore Harbour vs Singapore; same four entities otherwise
+770	equal	-	identical three entities
+771	equal	alias_variance	Jake Blues vs Joliet Jake Blues; same five entities
+772	equal	unverified_recall_loss	baseline credits photographer A. G. Dew-Smith (1885); the mount credit is not legible in my view, ablation drops it
+773	mixed	-	baseline has Troy, New York (where the painting is set), ablation adds World War II; both dropped something
+774	equal	minor_recall_loss	ablation drops writer Bill Mantlo and the Rom #48 issue entity; core Marvel/Rom/Wraiths identical
+775	equal	minor_recall_loss	ablation drops Telegraph Hill; eight of nine entities identical
+776	equal	alias_variance	Catherine Burns vs Cathy Burns; same film and cast
+777	equal	-	identical three entities
+778	equal	-	identical four entities
+779	equal	unverified_recall_loss	baseline adds postcard printer Curt Teich & Co.; not confirmed legible
+780	equal	minor_recall_loss	Private Eye vs Private Eye display naming; five entities otherwise identical
