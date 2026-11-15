@@ -12,6 +12,20 @@ use crate::{config, llms::*};
 const CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const DEVELOPER_API_URL: &str = "https://generativelanguage.googleapis.com/v1beta/interactions";
 
+/// Ceiling on generated tokens per request, thinking included.
+///
+/// The provider's default is 65,536, and a degenerate generation can spend all of it:
+/// capture 766 emitted 65,090 tokens over 335 s at 30x a normal run's cost, then the
+/// JSON truncated mid-string. This bounds that to an eighth.
+///
+/// It is not a cost lever — over 1,222 runs, 4,096 would save $0.14 of $7.39 — so the
+/// number is chosen to avoid killing good runs. Thinking counts toward the limit, and
+/// the median run bills 1,440 tokens while only 2 of 1,222 exceed 8,192; those two are
+/// also the worse answers (capture 743's 11,185-thought run invented `r/musictheory`
+/// entities, where its 1,461-thought run named Chopin's Nocturne correctly).
+const MAX_OUTPUT_TOKENS: u32 = 8_192;
+
+
 #[derive(Clone)]
 enum Backend {
     DeveloperApi {
@@ -138,9 +152,11 @@ impl GeminiInferenceClient {
             body["tools"] = json!(tools);
         }
 
+        let mut generation_config = json!({ "max_output_tokens": MAX_OUTPUT_TOKENS });
         if let Some(thinking_level) = request.thinking_level {
-            body["generation_config"] = json!({"thinking_level": thinking_level});
+            generation_config["thinking_level"] = json!(thinking_level);
         }
+        body["generation_config"] = generation_config;
 
         if let Some(schema) = request.response_schema {
             match &self.backend {
@@ -391,10 +407,13 @@ mod tests {
             assert_eq!(body["response_format"]["schema"], schema);
             match expected {
                 Some(level) => {
-                    assert_eq!(body["generation_config"], json!({"thinking_level": level}))
+                    assert_eq!(body["generation_config"]["thinking_level"], json!(level))
                 }
-                None => assert!(body.get("generation_config").is_none()),
+                None => assert!(body["generation_config"].get("thinking_level").is_none()),
             }
+            // Every request carries the ceiling: a degenerate generation otherwise runs
+            // unbounded (65k tokens, 335 s, truncated JSON on capture 766).
+            assert_eq!(body["generation_config"]["max_output_tokens"], json!(8192));
         }
     }
 

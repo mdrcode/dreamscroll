@@ -6,8 +6,6 @@ use crate::{api, illumination::KnowledgeEntityType, llms, storage};
 
 use super::*;
 
-const PROMPT_VERSION: &str = "capture_illumination_v2";
-
 #[tracing::instrument(skip(client, storage_provider, capture), fields(capture_id = %capture.id))]
 pub async fn illuminate(
     client: &dyn llms::InferenceClient,
@@ -60,7 +58,7 @@ pub async fn illuminate(
     inference
         .metadata
         .params
-        .insert("prompt_version".to_string(), json!(PROMPT_VERSION));
+        .insert("prompt_version".to_string(), json!(prompt::PROMPT_VERSION));
     Ok(llms::InferenceOutcome {
         output: inference.output.and_then(|output| {
             Illumination::from_raw_json(output).with_context(|| {

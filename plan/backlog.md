@@ -8,40 +8,35 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ### Illumination inference
 
-- [ ] **Hydrogen's empty entity list is what blocks adopting it.** `gemini-4-hydrogen` at `medium`
-  returned **no entities on 10 of 104 captures (9.6%)**, against 2/104 for `gemini-3.8-flash` at
-  `medium`. Those are not blanks: capture 754's Hydrogen prose names "standard diving dress" and
-  "manual air pump", 758's names "Googie" and "Space Age Bachelor Pad" — the knowledge is in
-  `details` and the `entities` array is empty. Since the graph consumes `entities`, that is a 10%
-  miss rate on the product's core output while paying 2.67× Flash's price.
-
-  Where it wins is real and concentrated on hard identification: capture 708 (Flash: zero entities,
-  "a 1970s German cafeteria") came back as *Spiegel-Kantine, Hamburg — Verner Panton, 1969*; 740
-  listed 15 novels and authors against Flash's 4 series-level entities. So the goal is to keep the
-  knowledge and fix the emission, not to choose between them.
-
-  Start here: add an explicit instruction that every named thing in `details` must also appear in
-  `entities`, run the same 104 captures, and read the zero-entity rate. If it drops to Flash's ~2%,
-  re-judge the pairs and take the model decision below on behaviour rather than price. Evidence and
-  the per-capture verdicts are in `plan/eval/hydrogen-20261114.md`; rebuild the readings with
-  `util/export-illumination-readings.py`.
-
 - [ ] **Revisit the illumination model on 2027-01-01.** Flash 3.8's introductory rate ($0.75 input /
-  $3.75 output per 1M) ends 2026-12-31 and becomes $1.50 / $7.50 — identical to Hydrogen. Measured on
-  the 104-capture corpus, per 1,000 captures: Flash medium **$7.43** today and **$14.87** after the
-  change; Hydrogen low **$14.25**; Hydrogen medium **$19.85**. So today Flash medium is 2.67× cheaper
-  than Hydrogen medium, and from January it is 1.33× — while Hydrogen low and Flash medium land within
-  4% of each other.
+  $3.75 output per 1M) ends 2026-12-31 and becomes $1.50 / $7.50 — identical to Hydrogen. Measured
+  on the corpus at the shipped prompt (`capture_illumination_v2`, ungrounded):
 
-  Where they differ after January is behaviour, not price: Hydrogen medium emits more entities
-  (4.14 vs 3.66/capture) and finds things Flash cannot, but misses the entire entity list on 9.6% of
-  captures. Decide once the emission item above is measured. Do not switch before then on price
-  grounds alone — at prototype volume the monthly difference is single-digit dollars.
+  | cell | $/1,000 now | $/1,000 from 2027 | empty lists | entities/capture | p50 |
+  | --- | ---: | ---: | ---: | ---: | ---: |
+  | Flash default (shipped) | **$7.18** | $14.36 | 2 of 106 | 3.63 | 10.9 s |
+  | Hydrogen low | $13.71 | **$13.71** | 8 of 104 | 3.38 | 9.2 s |
+  | Hydrogen medium | $19.07 | $19.07 | 10 of 104 | 4.14 | 12.6 s |
 
-  If Hydrogen does become the default, pin `thinking_level: Some(Medium)` in the capture path:
-  Hydrogen's provider default is `high`, not `medium`, so an omitted level silently buys the
-  expensive cell. Verify with one smoke capture that `params.generation_config.thinking_level` is
-  `medium` in `inference_metas`.
+  **Decided 2026-11-15: stay on Flash.** It is 1.91× cheaper than the best Hydrogen cell today, and
+  Hydrogen never matches it on emission. Hydrogen medium is not the cell to compare: its thinking
+  more than doubles billed output (1,725 vs 868 tokens per capture), which is why it looks expensive
+  despite identical rates.
+
+  The entity-completeness rule was measured and **reverted**; it took Flash to 0 empty lists and 5.27
+  entities per capture but cost 6 points of per-entity connectedness (82% → 76%), with 2 in 5 of the
+  additions unrelated to the image. It did not change the ordering: Flash $8.27, Hydrogen low $15.32,
+  Hydrogen medium $23.78. A narrower four-line variant fixed Flash's two empty lists at v2-level
+  per-entity quality on 22 captures, but was never run at corpus scale.
+
+  After the rate change the paper ranking flips — Hydrogen **low** undercuts Flash by ~5% and is 1.7 s
+  faster, giving up 8% of lists and 0.25 entities per capture. Take that decision when the rate
+  lands, not now.
+
+  If Hydrogen does become the default, pin `thinking_level: Some(Medium)` in the capture path — its
+  provider default is `high`, not `medium`, so an omitted level silently buys the expensive cell.
+  Verify with one smoke capture that `params.generation_config.thinking_level` is `medium` in
+  `inference_metas`.
 
 ### Knowledge identity resolver
 
