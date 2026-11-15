@@ -164,6 +164,10 @@ async fn sweep(db: &database::DbHandle, sweep: Sweep<'_>) -> anyhow::Result<()> 
                 model::task_run::Column::LastErrorMessage,
                 Expr::value(note),
             )
+            .col_expr(
+                model::task_run::Column::UpdatedAt,
+                Expr::current_timestamp(),
+            )
             .filter(model::task_run::Column::RunId.is_in(run_ids))
             .exec_with_returning(&db.conn)
             .await?;
@@ -282,6 +286,15 @@ mod tests {
             .unwrap()
             .last_error_message
             .unwrap_or_default();
+        let drained = model::task_run::Entity::find_by_id(queued.id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            drained.updated_at > old,
+            "the repair stamps updated_at, like every other status transition"
+        );
         assert!(
             note.starts_with("drained: was queued"),
             "the note names what the run was: {note}"
