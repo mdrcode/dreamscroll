@@ -1,30 +1,30 @@
 //! The illumination composition: what to link and annotate, and the corpus-wide resolve.
 //!
-//! [`KnowledgeGraph::link`] knows only about a collection of observations, and
-//! [`IdentityEngine::resolve`] knows only about a collection of entities. Everything that knows they
-//! arrive one illumination at a time lives here: the batch is one illumination's observations, a
-//! capture's identities are written after its entities exist. The per-illumination resolve is not
-//! here: the read that turns an illumination into its entity batch is the service API's join, and
-//! the task that owns that read hands the batch straight to the engine.
+//! [`KnowledgeGraph::link`] knows only about a batch of observations, and [`IdentityEngine::resolve`]
+//! knows only about a collection of entities. Everything that knows they arrive one illumination at
+//! a time lives here: the batch is one illumination's observations, and a capture's identities are
+//! written with them. The per-illumination resolve is not here: the read that turns an illumination
+//! into its entity batch is the service API's join, and the task that owns that read hands the batch
+//! straight to the engine.
 //!
 //! [`link_all_pending`] and [`resolve_all_pending`] are the same compositions over the whole
 //! outstanding set — the rebuild steps, and the only places that decide what a corpus run touches.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use sea_orm::sea_query::{Expr, ExprTrait, Query};
 use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
 use crate::fetch::FetchCache;
-use crate::knowledge::evidence::{
-    Identity, IdentitySelection, PLATFORM_LINK_PROVIDER_ID, platform_link,
-};
+use crate::knowledge::evidence::IdentitySelection;
 use crate::knowledge::graph::{KnowledgeGraph, LinkReport};
 use crate::knowledge::identity::{IdentityEngine, ResolutionReport};
 use crate::model;
 
 /// Link one illumination: its observations become entities, then their handles become identities.
+///
+/// The app's unit. [`KnowledgeGraph::link`] is what makes it atomic.
 pub async fn link_illumination(
     graph: &KnowledgeGraph,
     illumination: &model::illumination::ModelEx,
@@ -43,9 +43,7 @@ pub async fn link_illumination(
         .map(|row| row.clone().into())
         .collect();
 
-    let (mut report, linked) = graph.link(&observations).await?;
-    report.vetoed = write_observation_identities(graph, &observations, &linked).await?;
-    Ok(report)
+    graph.link(&observations).await
 }
 
 /// What a batch of links did, summed over every illumination it was handed.
@@ -150,33 +148,4 @@ pub async fn resolve_all_pending(
     }
 
     engine.resolve(&entities, cache, allowance).await
-}
-
-/// Annotate each linked observation's handle, and project where it landed.
-///
-/// The only place a capture's identity is written. Returns how many a standing veto refused.
-async fn write_observation_identities(
-    graph: &KnowledgeGraph,
-    observations: &[model::user_observed_entity::Model],
-    linked: &HashMap<i32, i32>,
-) -> anyhow::Result<usize> {
-    let vetoes = graph.vetoed().await?;
-    let mut vetoed = 0;
-    for observation in observations {
-        let Some(entity) = linked.get(&observation.id).copied() else {
-            continue;
-        };
-        if let Some(link) = platform_link(observation)
-            && let Ok(mut identity) = Identity::try_from(&link)
-        {
-            identity.observation_id = Some(observation.id);
-            vetoed += graph
-                .add_identity(entity, PLATFORM_LINK_PROVIDER_ID, &identity, &vetoes)
-                .await?
-                .vetoed;
-        }
-        // After the annotations: status and confidence are functions of them.
-        graph.update_projection(entity).await?;
-    }
-    Ok(vetoed)
 }

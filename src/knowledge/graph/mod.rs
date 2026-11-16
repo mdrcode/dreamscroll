@@ -4,6 +4,7 @@
 //! observation onto one, goes through its methods. Its parts:
 //!
 //! - `knowledge_graph` — the facade itself, and the primitives every write shares.
+//! - `link` — a batch of observations' writes, in one transaction.
 //! - `project` — the derived columns, including the blocking index row.
 //! - [`merge`] — fold one entity into another.
 //!
@@ -11,8 +12,9 @@
 //! on — the connection, and the [`Heuristic`](crate::knowledge::linker::heuristic::Heuristic) they
 //! measure with — because they are not part of the graph's contract: [`crate::knowledge::proximity`]
 //! lives above and is driven by a caller. Operations over the graph's own state are methods, because
-//! the graph is the only handle a caller has on them: `link`, `merge`, and replay, which lives here
-//! because applying the log is a move on the graph while the log itself is the verdict store.
+//! the graph is the only handle a caller has on them: `link`, `merge`, and replay, which
+//! lives here because applying the log is a move on the graph while the log itself is the verdict
+//! store.
 
 mod link;
 pub mod merge;

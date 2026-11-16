@@ -94,23 +94,27 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   Settle first whether the guard belongs here (an `ensure!` on type compatibility, the shape of the
   tombstone guard) or upstream in resolution (a character should not resolve to a work's item). The
   answer decides whether the collision record's `reason` needs a `type_incompatible` value.
-- [ ] **Make `link_illumination` transactional.** Linking one reading writes several times per
-  decision: create or load the entity, attach the observation, add the capture's identity (or fold
-  and discard the row it just made), then project. A crash between any two leaves an entity with
-  members and no identity, or an identity on an entity the projection never recomputed — and
-  nothing repairs either. `merge` already shows the shape: `merge_in_transaction<C>` takes the
-  connection and its five writes share one transaction. Two things block doing the same here. The
-  executor has to take the connection as a parameter rather than reach for `&self.db.conn`, and
-  `Evidence` has to borrow that connection instead of owning one: an identity written outside the
-  transaction would reference a `knowledge_entity_id` the transaction has not committed, which is a
-  foreign-key violation rather than a torn read. `Evidence` holds a `DatabaseConnection` today and
-  seven call sites build one.
-  **Observed consequence, from the 2026-11 audit:** the identities are written by
-  `write_observation_identities`, and only for the observations the linker decided *in that call*
-  (`linked`, `helper.rs`). A failure after the links land leaves the observations attached and the
-  identity unwritten; the retry finds nothing pending, so `linked` is empty and the handle identity
-  is never written. A torn read heals on the next projection — a lost identity does not: the entity
-  stays unfindable by the handle that named it until someone re-links it by hand.
+- [x] **Make `link_illumination` transactional.** Shipped 2026-11-16 as one transaction per
+  illumination, and both blockers the item named turned out smaller than stated.
+
+  The executor took the connection rather than the graph: the primitives (`insert_new`, `attach`,
+  `project`) were already generic over `ConnectionTrait`, so `graph::link` gained a
+  connection-taking `apply`, and only the transaction had to move. `Evidence` never had to borrow
+  the connection — `move_identities` already took one, so `add_identity` now does too and the seven
+  sites that build an `Evidence` are untouched. The graph stayed illumination-blind:
+  `KnowledgeGraph::link` still takes a batch of observations, and `helper::link_illumination` is the
+  per-reading wrapper that holds the `ModelEx` and the `is_loaded` guard. The decider runs before the
+  transaction opens: its reads are committed state, its decisions are unchanged by the writes, and it
+  is the slow part. Composition is a caller's unit, not a rule — the heuristic decides each
+  observation against the corpus as it stood before the batch (see `linker/heuristic/linker.rs`), so
+  a wider batch only widens the transaction.
+
+  Two things lost their last caller and are gone: `KnowledgeGraph::add_identity` and
+  `helper::write_observation_identities`. `KnowledgeGraph::create` went too, superseded by the
+  executor's own `insert_new`. The property is locked by
+  `graph::link::unit::a_refused_decision_rolls_the_whole_reading_back`, which fails the second
+  decision of a batch on a tombstone and asserts the first decision's entity and both attaches are
+  gone — the retry therefore finds the whole reading pending.
 - [ ] **Assert the projection invariant.** `knowledge_stats` prints `platform_from_members` beside
   `with_platform`, and the field is documented as always equal: a divergence means `project` lost a
   presence that some member still carries. Nothing asserts it — a lost presence currently shows up
@@ -325,8 +329,18 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   loses the reading. A re-illumination from a *new* run is unaffected. This is the supersede change
   and the only part of the illumination-history work that touches ingest.
 
-- [ ] **Surface the ghost set.** "Every member of this entity is superseded" is a one-line query and a
-  decent drift signal, and nothing reports it; `knowledge_stats` is where it belongs.
+- [ ] **Surface the ghost set — but it is the memberless set, not the superseded one.**
+  Checked against `project` on 2026-11-16: `current` compares a member's illumination against the
+  maximum *among the entity's own members*, and the member holding that maximum is one of them, so
+  `members.iter().find(current)` succeeds whenever `members` is non-empty. "Every member of this
+  entity is superseded" therefore has exactly one spelling — the entity has no members at all — and
+  such an entity keeps its previous `name` and `description` (the `row.*` fallback in `project`)
+  while nothing can attach to it. That is the real ghost: a row wearing surfaces no observation
+  supports any more.
+  `link_illumination`'s transaction (shipped 2026-11-16) closed the only capture-side path that made
+  them, so the count should be structurally zero — which makes a `knowledge_stats` column an
+  invariant rather than a signal. Decide whether that is worth a column, or whether the
+  `Assert the projection invariant` item above covers it at the fixture level.
 
 - [ ] **Rebuild the resolution gold-set harness.** The 13 verified rows survive in
   `localdev/analysis/entity-promotion/evidence/resolve-gold.tsv`, but the harness that scored them

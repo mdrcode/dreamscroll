@@ -4,10 +4,9 @@
 //! onto one goes through [`KnowledgeGraph`], and the handle itself never leaves this module tree — the
 //! primitives here are private, and the collaborators (`decider`, `blocker`, `evidence`, `verdicts`)
 //! are `pub(super)` because only the passes beside the facade read them. Identity writes are
-//! [`KnowledgeGraph::replace_provider_identities`] and [`KnowledgeGraph::add_identity`], so `helper`
-//! and the resolver hold a graph, not a store. There is no connection getter: `link_illumination` and
-//! `proximity` take the pool as an argument, and the two stores hold their own. Outside `graph`, a
-//! caller sees [`KnowledgeGraph`]'s methods and nothing else.
+//! [`KnowledgeGraph::replace_provider_identities`] and the capture path's append, so `helper` and the
+//! resolver hold a graph, not a store. There is no public connection getter: `db` is `pub(super)`
+//! because `link` opens one transaction per call, and the two stores hold their own.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -39,7 +38,7 @@ use super::replay::ReplayReport;
 /// so every writer is visible to it and nothing has to be told about a projection.
 #[derive(Clone)]
 pub struct KnowledgeGraph {
-    db: DbHandle,
+    pub(super) db: DbHandle,
     pub(super) blocker: Option<Arc<dyn Blocker>>,
     pub(super) decider: Option<Arc<dyn Linker>>,
     pub(super) evidence: Evidence,
@@ -85,13 +84,6 @@ impl KnowledgeGraph {
         )
     }
 
-    pub async fn create(
-        &self,
-        observation: &model::user_observed_entity::Model,
-    ) -> anyhow::Result<model::knowledge_entity::Model> {
-        insert_new(&self.db.conn, observation).await
-    }
-
     pub async fn get(
         &self,
         knowledge_entity_id: i32,
@@ -112,17 +104,14 @@ impl KnowledgeGraph {
             .await
     }
 
-    /// Append one identity annotation, unless a standing veto names it.
-    pub async fn add_identity(
+    /// Link a batch of observations: decide, attach, annotate the handles they assert, project.
+    ///
+    /// One transaction per call, so the batch lands whole or not at all — see [`super::link`].
+    pub async fn link(
         &self,
-        entity_id: i32,
-        provider: &str,
-        identity: &Identity,
-        vetoes: &HashSet<(i32, String, String)>,
-    ) -> anyhow::Result<IdentityWrite> {
-        self.evidence
-            .add_identity(entity_id, provider, identity, vetoes)
-            .await
+        observations: &[model::user_observed_entity::Model],
+    ) -> anyhow::Result<LinkReport> {
+        super::link::link(self, observations).await
     }
 
     /// Apply the recorded decisions to a rebuilt graph. See [`crate::knowledge::verdicts`].
@@ -186,17 +175,6 @@ impl KnowledgeGraph {
         attach(&self.db.conn, observation_id, knowledge_entity_id).await
     }
 
-    /// Link a batch of observations into entities: decide, attach, project.
-    ///
-    /// Nothing here knows about identities. [`crate::knowledge::link_illumination`] is the caller
-    /// that batches by illumination and annotates what each capture showed.
-    pub async fn link(
-        &self,
-        observations: &[model::user_observed_entity::Model],
-    ) -> anyhow::Result<(LinkReport, std::collections::HashMap<i32, i32>)> {
-        super::link::link(self, observations).await
-    }
-
     /// Recompute an entity's projected columns.
     ///
     /// Every change to those columns funnels through here, so the graph has one definition of what
@@ -250,7 +228,7 @@ impl KnowledgeGraph {
 // The implementation. Connection-generic, so a caller inside a transaction can share it.
 // ---------------------------------------------------------------------------------------------
 
-async fn insert_new<C: ConnectionTrait>(
+pub(super) async fn insert_new<C: ConnectionTrait>(
     conn: &C,
     observation: &model::user_observed_entity::Model,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
@@ -307,7 +285,7 @@ pub(crate) async fn current_generation<C: ConnectionTrait>(conn: &C) -> anyhow::
 ///
 /// The target entity must be live — `merged_into_id IS NULL` — and that condition is in the SQL
 /// write itself, so a stale blocker cannot park an observation on a tombstone.
-async fn attach<C: ConnectionTrait>(
+pub(super) async fn attach<C: ConnectionTrait>(
     conn: &C,
     observation_id: i32,
     knowledge_entity_id: i32,

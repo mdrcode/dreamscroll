@@ -1,6 +1,6 @@
 # Pragmatism — tolerated trade-offs
 
-**Status:** living document. Last updated 2026-11-15.
+**Status:** living document. Last updated 2026-11-16.
 
 > **See also:**
 > - `plan/archive/task-status.md` — the task framework (implemented).
@@ -57,6 +57,7 @@ largest category, and the least urgent, because the app is single-user today.
 | **Attempt claiming is read-then-write** | Concurrent deliveries can both execute; racing reads can claim the same attempt number, while a later `InProgress` redelivery may increment it. | Cloud Tasks is at-least-once; there is no atomic claim or lease fencing workers. Duplicate work and status races are accepted for the prototype. | Concurrent duplicates cause noticeable cost, incorrect status, or user-visible result ambiguity. |
 | **Status transitions are permissive** | A late attempt can overwrite a newer status or run-keyed raw/relational output because updates are not fenced by attempt. | Duplicate overlap is possible, but strict transition/fencing logic adds lifecycle complexity; accepted for the prototype. | Out-of-order delivery produces visible incorrect status or raw output. |
 | **Entity snapshot order is not a presentation contract**                     | The latest-run query orders rows by entity, task type, and descending run for PostgreSQL `DISTINCT ON`, not by UI presentation needs.                                                                                                      | Current consumers need the latest row per entity/task type, not a custom cross-entity order.                                                                                                                                                                    | The UI requires a different explicit ordering.                                                       |
+| **A link holds its rows' locks for one reading**                             | Every write of one illumination — each attach, the identity append, each projection — commits inside one transaction, so the rows it touches stay locked until that reading is done.                                                   | The illuminate queue dispatches one task at a time (`maxConcurrentDispatches: 1`, `plan/vertex-throughput.md` §5), so two links contending for one entity is not today's shape. Contention would end as a Postgres deadlock abort, which the retryable task path absorbs. | The queue runs links concurrently and one times out or deadlocks against another.                     |
 
 > **Note on the removed guards:** the `illuminate` and `search_index` idempotency
 > guards were deleted outright. A "skip if already illuminated" check silently

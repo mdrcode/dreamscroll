@@ -100,12 +100,15 @@ impl Evidence {
         })
     }
 
-    /// Append one annotation, insert-if-absent.
+    /// Append one annotation, insert-if-absent, on the caller's connection.
     ///
     /// The capture path uses this, never a replacement: one illumination is not the complete history
-    /// of an entity, so a later capture must not delete an earlier capture's handle.
-    pub async fn add_identity(
+    /// of an entity, so a later capture must not delete an earlier capture's handle. It writes where
+    /// it is told rather than on its own pool handle, so the append commits with the attach that put
+    /// the entity there — one illumination, one transaction.
+    pub async fn add_identity<C: ConnectionTrait>(
         &self,
+        conn: &C,
         entity_id: i32,
         provider: &str,
         identity: &Identity,
@@ -129,7 +132,7 @@ impl Evidence {
                 .do_nothing()
                 .to_owned(),
             )
-            .exec_without_returning(&self.conn)
+            .exec_without_returning(conn)
             .await?;
         // A repeat is an idempotent no-op; the capture path only asks whether the write landed.
         Ok(IdentityWrite {
@@ -365,6 +368,7 @@ mod tests {
 
         evidence
             .add_identity(
+                &db.conn,
                 entity,
                 "illuminator",
                 &identity("x_twitter", "tsoding"),
@@ -429,6 +433,7 @@ mod tests {
 
         evidence
             .add_identity(
+                &db.conn,
                 entity,
                 "illuminator",
                 &identity("x_twitter", "tsoding"),
@@ -438,6 +443,7 @@ mod tests {
             .unwrap();
         evidence
             .add_identity(
+                &db.conn,
                 entity,
                 "illuminator",
                 &identity("youtube", "tsoding"),
@@ -447,6 +453,7 @@ mod tests {
             .unwrap();
         evidence
             .add_identity(
+                &db.conn,
                 entity,
                 "illuminator",
                 &identity("x_twitter", "tsoding"),

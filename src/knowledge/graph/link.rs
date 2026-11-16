@@ -1,15 +1,18 @@
-//! The linking executor: a linker's decisions applied to a collection of observations.
+//! The linking executor: a linker's decisions applied to a batch of observations.
 //!
-//! No network, no identities. The [`Linker`] decides, the executor attaches, and each
-//! entity is projected so it exists with its surfaces. Asserting what a capture showed is the
-//! caller's job — see [`crate::knowledge::helper`], which knows that the batch is one illumination.
+//! One call is one transaction: decide, attach, annotate the handles the observations assert,
+//! project — or nothing.
 
 use std::collections::{HashMap, HashSet};
 
+use sea_orm::{ConnectionTrait, TransactionTrait};
+
+use crate::knowledge::evidence::{Identity, PLATFORM_LINK_PROVIDER_ID, platform_link};
 use crate::knowledge::linker::{Action, Decision};
 use crate::model;
 
 use super::KnowledgeGraph;
+use super::knowledge_graph::{attach, insert_new};
 
 // Linking: the one write path that decides before it applies.
 // ---------------------------------------------------------------------------------------------
@@ -34,21 +37,58 @@ impl LinkReport {
     }
 }
 
-/// Link a collection of observations: decide, attach, and project each entity.
+/// Link a batch of observations: decide, attach, annotate the handles they assert, project.
 ///
-/// Returns the stats and the `observation → entity` mapping, so the caller can assert what each
-/// observation showed. One entry point, because the blocker is the store's: a caller linking a
-/// thousand observations and a caller linking one take the same path.
+/// One transaction, so a failure leaves every observation of the batch pending for the retry.
+/// Attached-but-unannotated does not heal on the next projection: the identity is never written.
+///
+/// The decider runs before the transaction opens — its reads are committed state, and it is the
+/// slow part. The batch is the caller's unit only: the policy decides each observation against the
+/// corpus as it stood before the batch, so a wider batch only widens the transaction.
 pub(crate) async fn link(
     graph: &KnowledgeGraph,
     observations: &[model::user_observed_entity::Model],
-) -> anyhow::Result<(LinkReport, HashMap<i32, i32>)> {
+) -> anyhow::Result<LinkReport> {
+    let vetoes = graph.vetoed().await?;
+    let decisions = decide(graph, observations).await?;
+
+    // The callback must be `'static`: the graph is cloned (a pool handle) and the batch moves in.
+    let conn = graph.db.conn.clone();
+    let graph = graph.clone();
+    let observations = observations.to_vec();
+    conn.transaction(move |txn| {
+        Box::pin(async move {
+            let (mut report, linked) = apply(txn, &observations, &decisions).await?;
+            report.vetoed =
+                write_identities(&graph, txn, &observations, &linked, &vetoes).await?;
+            Ok::<LinkReport, anyhow::Error>(report)
+        })
+    })
+    .await
+    .map_err(|error| anyhow::anyhow!("link transaction failed: {error}"))
+}
+
+/// Ask the linker what each observation is.
+async fn decide(
+    graph: &KnowledgeGraph,
+    observations: &[model::user_observed_entity::Model],
+) -> anyhow::Result<Vec<Decision>> {
     let (Some(decider), Some(blocker)) = (&graph.decider, &graph.blocker) else {
         anyhow::bail!(
             "this KnowledgeGraph was built without a linker; use KnowledgeGraph::with_linking"
         );
     };
+    decider
+        .decide_link(&**blocker, &graph.evidence, observations)
+        .await
+}
 
+/// Apply the decisions and project each entity they touched.
+async fn apply<C: ConnectionTrait>(
+    conn: &C,
+    observations: &[model::user_observed_entity::Model],
+    decisions: &[Decision],
+) -> anyhow::Result<(LinkReport, HashMap<i32, i32>)> {
     // Only the unlinked ones: a linked observation is already where it belongs.
     let pending: HashSet<i32> = observations
         .iter()
@@ -56,13 +96,9 @@ pub(crate) async fn link(
         .map(|row| row.id)
         .collect();
 
-    let decisions = decider
-        .decide_link(&**blocker, &graph.evidence, observations)
-        .await?;
-
     let mut report = LinkReport::default();
     let mut linked: HashMap<i32, i32> = HashMap::with_capacity(decisions.len());
-    for decision in &decisions {
+    for decision in decisions {
         // The guarantee the `Decision` doc makes: the subject is one the Linker was given, and it was
         // not linked before this batch.
         anyhow::ensure!(
@@ -70,8 +106,8 @@ pub(crate) async fn link(
             "the linker decided about observation {}, which is not pending in this batch",
             decision.observation.id
         );
-        let entity = apply_decision(graph, decision).await?;
-        graph.update_projection(entity).await?;
+        let entity = apply_decision(conn, decision).await?;
+        super::project::project(conn, entity).await?;
         linked.insert(decision.observation.id, entity);
         report.record(decision);
     }
@@ -88,17 +124,51 @@ pub(crate) async fn link(
 }
 
 /// Apply one decision: attach the observation to its entity.
-async fn apply_decision(graph: &KnowledgeGraph, decision: &Decision) -> anyhow::Result<i32> {
+async fn apply_decision<C: ConnectionTrait>(
+    conn: &C,
+    decision: &Decision,
+) -> anyhow::Result<i32> {
     let observation = &decision.observation;
     let entity = match &decision.action {
         Action::Attach(entity) => *entity,
-        Action::Create => graph.create(observation).await?.id,
+        Action::Create => insert_new(conn, observation).await?.id,
     };
 
     // `attach` refuses a tombstone, so this also covers an entity merged away since the decision.
-    graph.attach_observation(observation.id, entity).await?;
+    attach(conn, observation.id, entity).await?;
 
     Ok(entity)
+}
+
+/// Annotate each linked observation's handle, and project where it landed.
+///
+/// The only place a capture's identity is written. Returns how many a standing veto refused.
+async fn write_identities<C: ConnectionTrait>(
+    graph: &KnowledgeGraph,
+    conn: &C,
+    observations: &[model::user_observed_entity::Model],
+    linked: &HashMap<i32, i32>,
+    vetoes: &HashSet<(i32, String, String)>,
+) -> anyhow::Result<usize> {
+    let mut vetoed = 0;
+    for observation in observations {
+        let Some(entity) = linked.get(&observation.id).copied() else {
+            continue;
+        };
+        if let Some(link) = platform_link(observation)
+            && let Ok(mut identity) = Identity::try_from(&link)
+        {
+            identity.observation_id = Some(observation.id);
+            vetoed += graph
+                .evidence
+                .add_identity(conn, entity, PLATFORM_LINK_PROVIDER_ID, &identity, vetoes)
+                .await?
+                .vetoed;
+        }
+        // After the annotations: status and confidence are functions of them.
+        super::project::project(conn, entity).await?;
+    }
+    Ok(vetoed)
 }
 
 #[cfg(test)]
@@ -115,7 +185,7 @@ mod unit {
     use crate::model::knowledge_entity as entity;
     use crate::test_support::{db_or_skip, fixtures};
 
-    /// The public path for one illumination: the helper owns the composition.
+    /// The public path for one illumination: the helper owns the composition, the graph the writes.
     async fn link_illumination(
         store: &KnowledgeGraph,
         illumination: &model::illumination::ModelEx,
@@ -226,6 +296,95 @@ mod unit {
             0,
             "and nothing was written"
         );
+    }
+
+    /// A decider whose second decision names a tombstone, after the first has already written.
+    struct SecondDecisionIsATombstone {
+        tombstone: i32,
+    }
+
+    #[async_trait::async_trait]
+    impl Linker for SecondDecisionIsATombstone {
+        async fn decide_link(
+            &self,
+            _blocker: &dyn Blocker,
+            _evidence: &Evidence,
+            observations: &[model::user_observed_entity::Model],
+        ) -> anyhow::Result<Vec<Decision>> {
+            assert_eq!(observations.len(), 2, "the fixture captures two");
+            Ok(vec![
+                Decision {
+                    observation: observations[0].clone(),
+                    action: Action::Create,
+                },
+                Decision {
+                    observation: observations[1].clone(),
+                    action: Action::Attach(self.tombstone),
+                },
+            ])
+        }
+    }
+
+    /// Both writes vanish with the refusal — the created entity and both attaches — so the retry
+    /// finds the whole reading pending.
+    #[tokio::test]
+    async fn a_refused_decision_rolls_the_whole_reading_back() {
+        db_or_skip!(db);
+        let store = KnowledgeGraph::new(&db);
+        let winner = fixtures::knowledge_entity_with_member(&db, "Train").await;
+        let loser = fixtures::knowledge_entity_with_member(&db, "Old Train").await;
+        store
+            .merge(loser, winner, crate::knowledge::verdicts::Cause::Repair)
+            .await
+            .expect("the two entities are mergeable");
+        let before = entity::Entity::find().count(&db.conn).await.unwrap();
+
+        let capture = fixtures::Capture::new(&db, "link_rollback").await;
+        fixtures::observe(
+            &db,
+            &capture,
+            0,
+            "Train Dreams",
+            Some("a novella by Denis Johnson"),
+            "book",
+            None,
+            None,
+        )
+        .await;
+        fixtures::observe(
+            &db,
+            &capture,
+            1,
+            "The Largesse of the Sea Maiden",
+            Some("a short story collection"),
+            "book",
+            None,
+            None,
+        )
+        .await;
+
+        let loaded = load_illumination(&db, capture.illumination_id).await;
+        let store = linking_store(
+            &db,
+            Arc::new(SecondDecisionIsATombstone { tombstone: loser }),
+        )
+        .await;
+        let error = link_illumination(&store, &loaded).await.unwrap_err();
+        assert!(error.to_string().contains("tombstone"), "{error}");
+
+        assert_eq!(
+            entity::Entity::find().count(&db.conn).await.unwrap(),
+            before,
+            "the entity the first decision created was rolled back"
+        );
+        let unlinked = crate::model::user_observed_entity::Entity::find()
+            .filter(
+                crate::model::user_observed_entity::Column::KnowledgeEntityId.is_null(),
+            )
+            .count(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(unlinked, 2, "both observations are pending again");
     }
 
     /// A store built for writing has no policy, and linking on it says so rather than pretending.

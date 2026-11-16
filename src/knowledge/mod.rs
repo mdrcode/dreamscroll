@@ -49,7 +49,5 @@ pub mod text;
 pub mod verdicts;
 
 pub use graph::{KnowledgeGraph, LinkReport, ReplayReport};
-pub use helper::{
-    LinkAllReport, link_all_pending, link_illumination, resolve_all_pending,
-};
+pub use helper::{LinkAllReport, link_all_pending, link_illumination, resolve_all_pending};
 pub use proximity::AutoMergeReport;

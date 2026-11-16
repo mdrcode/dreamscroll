@@ -158,6 +158,7 @@ pub async fn identity(
 ) {
     crate::knowledge::evidence::Evidence::from_handle(db)
         .add_identity(
+            &db.conn,
             knowledge_entity_id,
             provider,
             &crate::knowledge::evidence::Identity {
