@@ -403,6 +403,36 @@ mod tests {
         group(rows)
     }
 
+    /// Drop every archive table this pooled schema inherited from an earlier test.
+    ///
+    /// `TestDb` recycles schemas and `reset` retains the newest `RETAIN_SNAPSHOTS` *per schema*, so a
+    /// leftover decides what a prune here keeps. One test's synthetic family, dated in the future,
+    /// filled the whole window and cost its neighbours the snapshots they had just taken.
+    ///
+    /// The predicate mirrors `prune_snapshots`: a `SNAPSHOT_FAMILIES` prefix, then `__<suffix>`. The
+    /// families are also live table names, so the separator is what keeps this off the real tables.
+    async fn clear_snapshots(db: &database::DbHandle) {
+        let families = SNAPSHOT_FAMILIES
+            .iter()
+            .map(|family| format!("'{family}'"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        db.conn
+            .execute_unprepared(&format!(
+                "DO $clean$ DECLARE r record; BEGIN \
+                   FOR r IN SELECT table_name FROM information_schema.tables \
+                             WHERE table_schema = current_schema() \
+                               AND table_name ~ '__[0-9]{{8}}T[0-9]{{9}}$' \
+                               AND split_part(table_name, '__', 1) IN ({families}) \
+                   LOOP \
+                     EXECUTE format('DROP TABLE %I.%I', current_schema(), r.table_name); \
+                   END LOOP; \
+                 END $clean$"
+            ))
+            .await
+            .expect("clearing inherited snapshots should succeed");
+    }
+
     async fn seed(db: &database::DbHandle) {
         let user_id = fixtures::user(db, "reset").await;
         for name in ["Train Dreams", "train dreams", "Gravity's Rainbow"] {
@@ -420,6 +450,7 @@ mod tests {
     #[tokio::test]
     async fn reset_preserves_the_partition_and_empties_the_graph() {
         db_or_skip!(db);
+        clear_snapshots(&db).await;
         seed(&db).await;
         crate::test_support::link::link_all(&db)
             .await
@@ -479,6 +510,7 @@ mod tests {
     #[tokio::test]
     async fn two_resets_keep_two_separate_snapshots() {
         db_or_skip!(db);
+        clear_snapshots(&db).await;
         seed(&db).await;
 
         crate::test_support::link::link_all(&db)
@@ -502,6 +534,7 @@ mod tests {
     #[tokio::test]
     async fn resetting_an_empty_graph_creates_no_snapshot() {
         db_or_skip!(db);
+        clear_snapshots(&db).await;
 
         let report = reset(&db).await.expect("reset should succeed");
 
@@ -512,22 +545,7 @@ mod tests {
     #[tokio::test]
     async fn reset_keeps_only_the_newest_ten_snapshot_suffixes() {
         db_or_skip!(db);
-
-        // A pooled test schema may still hold this family from an earlier run.
-        db.conn
-            .execute_unprepared(
-                "DO $clean$ DECLARE r record; \
-                 BEGIN \
-                   FOR r IN SELECT table_name FROM information_schema.tables \
-                             WHERE table_schema = current_schema() \
-                               AND table_name LIKE 'knowledge_entities__20990101T%' \
-                   LOOP \
-                     EXECUTE format('DROP TABLE %I.%I', current_schema(), r.table_name); \
-                   END LOOP; \
-                 END $clean$;",
-            )
-            .await
-            .unwrap();
+        clear_snapshots(&db).await;
 
         for index in 0..12 {
             let suffix = format!("20990101T000000{index:03}");
@@ -540,9 +558,8 @@ mod tests {
 
         let report = reset(&db).await.expect("reset should succeed");
 
-        // Other tests in a pooled schema may leave their own archive tables behind; this test owns
-        // only the synthetic family and asserts its retention below.
-        assert!(report.pruned_snapshots >= 2, "{report:?}");
+        // The schema started empty, so this prune can only have removed this test's own two.
+        assert_eq!(report.pruned_snapshots, 2, "{report:?}");
         let remaining: i64 = db
             .conn
             .query_one_raw(Statement::from_string(

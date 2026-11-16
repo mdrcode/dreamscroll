@@ -265,17 +265,25 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `parse_search` builds `Weights` itself instead of asking the policy, which is the visible oddity
   rather than a hidden one.
 
-- [ ] **Destructive DB tests are racy under parallel execution.** Observed 2026-11-12 and twice more
-  on 2026-11-14: three different tests, each failing once in a full run and passing alone and on the
-  next full run. `snapshot::reset::tests::two_resets_keep_two_separate_snapshots` (`relation
-  "knowledge_entity_membership__<ts>" does not exist`), `snapshot::reset::tests::reset_preserves_the_partition_and_empties_the_graph`,
-  and `sync_schema::tests::schema_sync_drops_manual_indexes_only_in_current_schema`. All three own the
-  *schema or partition layout*, not just rows: `reset` keeps a bounded number of snapshots and prunes
-  by age, so one test's reset can drop another's snapshot tables while they are read, and the sync
-  test drops and recreates manual indexes. The rest of the suite shares one database, so a neighbour
-  sees the window. (First observed while verifying the wikidata review, not caused by it.)
-  Next step: reproduce in a loop (`cargo test --lib -- --test-threads=8`), then either serialise the
-  destructive tests behind one lock or give them their own schema.
+- [x] **Destructive DB tests are racy under parallel execution.** Reproduced 2026-11-16, and the two
+  snapshot failures were one test poisoning a pooled schema:
+
+  `cargo test --lib knowledge::snapshot::reset -- --test-threads=1` failed 2 of 6 with exactly the
+  recorded symptom (`relation "knowledge_entity_membership__<ts>" does not exist`). Cause:
+  `reset_keeps_only_the_newest_ten_snapshot_suffixes` left its ten synthetic
+  `knowledge_entities__20990101T…` tables behind, and `TestDb` recycles schemas. `prune_snapshots`
+  keeps the newest `RETAIN_SNAPSHOTS` (10) suffixes **per schema**, so those future-dated leftovers
+  filled the whole window and the next reset in that slot dropped every real snapshot — including the
+  one the test running next had just taken. Verified in the leftover schema: ten `2099` tables, no
+  membership table, nothing else.
+
+  Fixed in test code only: a `clear_snapshots` helper drops every `<family>__<suffix>` table the
+  schema inherited, and the four snapshot tests call it before asserting. The retention test's
+  assertion tightened from `pruned_snapshots >= 2` to `== 2`, since the schema now starts empty.
+
+  Still unproven: `schema_sync_drops_manual_indexes_only_in_current_schema` was in the same reported
+  set, but it has not been reproduced — 4 runs of the module and 2 full suites were green, and it
+  drops both the extra schema and its index. No fix applied, deliberately.
 
 - [ ] **Normalisation at the query boundary — watch, do not build.** Entity names reach Wikidata as
   `trim()`ed surfaces and nothing else. That is correct: the label question is an exact `rdfs:label`
