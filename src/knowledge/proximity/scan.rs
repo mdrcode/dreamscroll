@@ -8,7 +8,7 @@ use crate::knowledge::evidence::Evidence;
 use crate::knowledge::linker::heuristic::Heuristic;
 use crate::model;
 
-use super::Basis;
+use super::CandidateWhy;
 
 /// Derive the candidate set and replace the table with it. Returns how many rows the batch holds.
 ///
@@ -84,7 +84,7 @@ async fn insert<C: ConnectionTrait>(conn: &C, row: &Row) -> anyhow::Result<usize
         counterpart_id: Set(row.counterpart_id),
         scheme: Set(row.scheme.clone()),
         external_id: Set(row.external_id.clone()),
-        basis: Set(Basis::SharedId.as_str().to_string()),
+        candidate_why: Set(CandidateWhy::SharedId.as_str().to_string()),
         score: Set(row.score),
         ..Default::default()
     })

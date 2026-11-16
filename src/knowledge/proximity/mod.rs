@@ -21,18 +21,18 @@ mod scan;
 pub use auto_merge::{AutoMergeReport, auto_merge};
 pub use scan::scan;
 
-/// Why a proximity was raised.
+/// What made a pair a candidate — the evidence that two entities look close.
 ///
-/// A named type rather than a string at the call sites: the value is stored, compared, and will grow a
-/// second case (entities that look alike without sharing an identity), so a typo should not become a
-/// third basis that every query silently misses.
+/// A named type rather than a string at the call sites, so a typo cannot become a reason that every
+/// query silently misses. One case today; a second (entities that look alike without sharing an
+/// identity) would arrive as a variant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Basis {
+pub enum CandidateWhy {
     /// Two entities hold the same identity.
     SharedId,
 }
 
-impl Basis {
+impl CandidateWhy {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::SharedId => "shared_id",

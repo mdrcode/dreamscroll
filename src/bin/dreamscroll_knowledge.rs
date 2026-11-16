@@ -1022,26 +1022,25 @@ async fn main() -> anyhow::Result<()> {
                         println!("{}", serde_json::to_string_pretty(&values)?);
                     } else {
                         println!(
-                            "{:>5}  {:<13}  {:<14}  {:>5}  {:<16}  {:<15}  pair",
-                            "row", "status", "why", "score", "type", "basis"
+                            "{:>5}  {:<13}  {:<14}  {:>5}  {:<15}  pair",
+                            "row", "status", "status_why", "score", "candidate_why"
                         );
                         for row in rows {
                             let score = row.score.map_or("-".to_string(), |s| format!("{s:.2}"));
                             let status = row.status.filter_name();
-                            let why = match (row.status, row.why) {
+                            let status_why = match (row.status, row.status_why) {
                                 (stats::proximities::Status::Merged, Some(why)) => why.as_str(),
                                 (stats::proximities::Status::Merged, None) => "?",
                                 (_, Some(why)) => why.as_str(),
                                 (_, None) => "",
                             };
                             println!(
-                                "{:>5}  {:<13}  {:<14}  {score:>5}  {:<16}  {:<15}  #{:<6} {}  \
+                                "{:>5}  {:<13}  {:<14}  {score:>5}  {:<15}  #{:<6} {}  \
                                  \u{21c4}  #{:<6} {}  [{}]",
                                 row.id,
                                 status,
-                                why,
-                                row.type_note,
-                                row.basis,
+                                status_why,
+                                row.candidate_why,
                                 row.holder_id,
                                 row.holder,
                                 row.counterpart_id,

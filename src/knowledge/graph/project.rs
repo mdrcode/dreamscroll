@@ -273,7 +273,7 @@ mod tests {
             counterpart_id: Set(claimant),
             scheme: Set(Some(scheme.to_string())),
             external_id: Set(Some(value.to_string())),
-            basis: Set(crate::knowledge::proximity::Basis::SharedId
+            candidate_why: Set(crate::knowledge::proximity::CandidateWhy::SharedId
                 .as_str()
                 .to_string()),
             ..Default::default()

@@ -48,15 +48,15 @@ impl Status {
     }
 }
 
-/// Why a pair is decided. `replayed` is an application event, not a why.
+/// Why the pair's `status` is what it is. `replayed` is an application event, not a why.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Why {
+pub enum StatusWhy {
     Repair,
     ProximityAuto,
     Distinct,
 }
 
-impl Why {
+impl StatusWhy {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Repair => "repair",
@@ -70,9 +70,7 @@ impl Why {
 pub struct ProximityRow {
     pub id: i32,
     pub score: Option<f32>,
-    /// Why the pair is worth a second look — `same entity_type`, or blank.
-    pub type_note: String,
-    pub basis: String,
+    pub candidate_why: String,
     /// The entity ids `merge` and `identity inspect` take; the names are for reading.
     pub holder_id: i32,
     pub counterpart_id: i32,
@@ -85,7 +83,7 @@ pub struct ProximityRow {
     pub status: Status,
     /// The standing decision, when there is one: `repair`, `proximity_auto` or `distinct`.
     /// `replayed` is an application event and is deliberately not a why here.
-    pub why: Option<Why>,
+    pub status_why: Option<StatusWhy>,
 }
 
 impl ProximityRow {
@@ -93,10 +91,9 @@ impl ProximityRow {
         serde_json::json!({
             "row": self.id,
             "status": self.status.filter_name(),
-            "why": self.why.map(|why| why.as_str()),
+            "status_why": self.status_why.map(|why| why.as_str()),
             "score": self.score,
-            "type_note": self.type_note,
-            "basis": self.basis,
+            "candidate_why": self.candidate_why,
             "holder_id": self.holder_id,
             "counterpart_id": self.counterpart_id,
             "holder_origin": self.holder_origin,
@@ -123,9 +120,7 @@ pub async fn proximity_list(
             DatabaseBackend::Postgres,
             "SELECT p.id, \
                     p.score, \
-                    CASE WHEN h.entity_type = c.entity_type \
-                         THEN 'same entity_type' ELSE '' END, \
-                    p.basis, \
+                    p.candidate_why, \
                     h.name || ' [' || h.entity_type || ']', \
                     c.name || ' [' || c.entity_type || ']', \
                     coalesce(p.scheme || ':' || p.external_id, ''), \
@@ -138,8 +133,7 @@ pub async fn proximity_list(
                FROM knowledge_proximities p \
                JOIN knowledge_entities h ON h.id = p.holder_id \
                JOIN knowledge_entities c ON c.id = p.counterpart_id \
-              ORDER BY (h.entity_type = c.entity_type) DESC, \
-                       p.score DESC NULLS LAST, \
+              ORDER BY p.score DESC NULLS LAST, \
                        p.id",
         ))
         .await?;
@@ -147,7 +141,7 @@ pub async fn proximity_list(
     // A verdict names two origins; a candidate row names two entities. This is where the two meet.
     // The latest standing decision wins: a repair beats an auto fold, and a distinct verdict is a
     // decision of its own. `replayed` is an application event, not a decision.
-    let mut decisions: BTreeMap<(i32, i32), Why> = BTreeMap::new();
+    let mut decisions: BTreeMap<(i32, i32), StatusWhy> = BTreeMap::new();
     for verdict in model::knowledge_verdicts::Entity::find()
         .order_by_asc(model::knowledge_verdicts::Column::Id)
         .all(&db.conn)
@@ -160,15 +154,15 @@ pub async fn proximity_list(
         match verdict.kind {
             Kind::Merge => match verdict.cause {
                 Cause::Repair => {
-                    decisions.insert(pair, Why::Repair);
+                    decisions.insert(pair, StatusWhy::Repair);
                 }
                 Cause::ProximityAuto => {
-                    decisions.entry(pair).or_insert(Why::ProximityAuto);
+                    decisions.entry(pair).or_insert(StatusWhy::ProximityAuto);
                 }
                 Cause::Replayed => {}
             },
             Kind::Distinct => {
-                decisions.insert(pair, Why::Distinct);
+                decisions.insert(pair, StatusWhy::Distinct);
             }
             Kind::VetoIdentity => {}
         }
@@ -177,22 +171,22 @@ pub async fn proximity_list(
     let mut rows: Vec<ProximityRow> = rows
         .iter()
         .map(|row| {
-            let holder_origin: Option<i32> = row.try_get_by_index(7)?;
-            let counterpart_origin: Option<i32> = row.try_get_by_index(8)?;
-            let holder_merged: Option<i32> = row.try_get_by_index(11)?;
-            let counterpart_merged: Option<i32> = row.try_get_by_index(12)?;
+            let holder_origin: Option<i32> = row.try_get_by_index(6)?;
+            let counterpart_origin: Option<i32> = row.try_get_by_index(7)?;
+            let holder_merged: Option<i32> = row.try_get_by_index(10)?;
+            let counterpart_merged: Option<i32> = row.try_get_by_index(11)?;
 
-            let why = match (holder_origin, counterpart_origin) {
+            let status_why = match (holder_origin, counterpart_origin) {
                 (Some(h), Some(c)) => decisions.get(&pair_key(h, c)).copied(),
                 _ => None,
             };
             let merged = holder_merged.is_some() || counterpart_merged.is_some();
-            let (status, why) = if merged {
-                (Status::Merged, why)
-            } else if why == Some(Why::Distinct) {
-                (Status::KeptApart, why)
-            } else if why == Some(Why::Repair) {
-                (Status::MergePending, why)
+            let (status, status_why) = if merged {
+                (Status::Merged, status_why)
+            } else if status_why == Some(StatusWhy::Distinct) {
+                (Status::KeptApart, status_why)
+            } else if status_why == Some(StatusWhy::Repair) {
+                (Status::MergePending, status_why)
             } else {
                 // An old `proximity_auto` verdict on two live entities is history: the auto pass
                 // re-derives every generation, so it is not a standing decision.
@@ -202,17 +196,16 @@ pub async fn proximity_list(
             Ok(ProximityRow {
                 id: row.try_get_by_index(0)?,
                 score: row.try_get_by_index(1)?,
-                type_note: row.try_get_by_index(2)?,
-                basis: row.try_get_by_index(3)?,
-                holder: row.try_get_by_index(4)?,
-                counterpart: row.try_get_by_index(5)?,
-                identity: row.try_get_by_index(6)?,
-                holder_id: row.try_get_by_index(9)?,
-                counterpart_id: row.try_get_by_index(10)?,
+                candidate_why: row.try_get_by_index(2)?,
+                holder: row.try_get_by_index(3)?,
+                counterpart: row.try_get_by_index(4)?,
+                identity: row.try_get_by_index(5)?,
+                holder_id: row.try_get_by_index(8)?,
+                counterpart_id: row.try_get_by_index(9)?,
                 holder_origin,
                 counterpart_origin,
                 status,
-                why,
+                status_why,
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -235,7 +228,7 @@ mod tests {
             counterpart_id: Set(counterpart),
             scheme: Set(None),
             external_id: Set(None),
-            basis: Set("shared_id".to_string()),
+            candidate_why: Set("shared_id".to_string()),
             score: Set(Some(0.5)),
             ..Default::default()
         })
@@ -285,7 +278,7 @@ mod tests {
             .unwrap();
     }
 
-    /// `status` is the graph fact, `why` the standing decision: a repair with both sides live is
+    /// `status` is the graph fact, `status_why` the standing decision: a repair with both sides live is
     /// pending, a distinct verdict keeps them apart, an auto verdict on two live sides is history,
     /// and only an applied fold is merged.
     #[tokio::test]
@@ -340,23 +333,23 @@ mod tests {
         let row = |id: i32| rows.iter().find(|row| row.id == id).expect("row");
 
         assert_eq!(row(pending_row).status, Status::MergePending);
-        assert_eq!(row(pending_row).why, Some(Why::Repair));
+        assert_eq!(row(pending_row).status_why, Some(StatusWhy::Repair));
         assert_eq!(row(pending_row).to_json()["status"], "merge_pending");
-        assert_eq!(row(pending_row).to_json()["why"], "repair");
+        assert_eq!(row(pending_row).to_json()["status_why"], "repair");
         assert!(row(pending_row).to_json()["holder_origin"].is_number());
 
         assert_eq!(row(auto_row).status, Status::Merged);
-        assert_eq!(row(auto_row).why, Some(Why::ProximityAuto));
-        assert_eq!(row(auto_row).to_json()["why"], "proximity_auto");
+        assert_eq!(row(auto_row).status_why, Some(StatusWhy::ProximityAuto));
+        assert_eq!(row(auto_row).to_json()["status_why"], "proximity_auto");
 
         assert_eq!(row(distinct_row).status, Status::KeptApart);
-        assert_eq!(row(distinct_row).why, Some(Why::Distinct));
+        assert_eq!(row(distinct_row).status_why, Some(StatusWhy::Distinct));
         assert_eq!(row(distinct_row).to_json()["status"], "kept_apart");
-        assert_eq!(row(distinct_row).to_json()["why"], "distinct");
+        assert_eq!(row(distinct_row).to_json()["status_why"], "distinct");
 
         assert_eq!(row(old_row).status, Status::Open);
-        assert_eq!(row(old_row).why, None);
+        assert_eq!(row(old_row).status_why, None);
         assert_eq!(row(old_row).to_json()["status"], "open");
-        assert!(row(old_row).to_json()["why"].is_null());
+        assert!(row(old_row).to_json()["status_why"].is_null());
     }
 }

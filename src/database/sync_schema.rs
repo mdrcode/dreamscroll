@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 39;
+const REQUIRED_SCHEMA_VERSION: i32 = 40;
 
 /// Schema 23 reshapes claims into an edge — entity plus identity — and keys collisions by identity.
 ///
@@ -295,6 +295,40 @@ async fn retire_claim_source_user<C: ConnectionTrait>(conn: &C) -> Result<(), Db
     Ok(())
 }
 
+/// Schema 40 renames the proximity's `basis` to `candidate_why`.
+///
+/// `basis` collided with the claim vocabulary retired in schema 38, where it answered a different
+/// question. The pair now names both of its axes: `candidate_why` (what made it a candidate) and
+/// `status_why` (what decided it). The value is one word and `scan` rewrites every row, so the
+/// rename is the whole migration. `raised_by` is covered because schema 40 was applied with that
+/// name locally before it settled.
+async fn rename_proximity_candidate_why<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $sync$ \
+         BEGIN \
+           IF to_regclass('knowledge_proximities') IS NOT NULL \
+              AND NOT EXISTS (SELECT 1 FROM information_schema.columns \
+                               WHERE table_name = 'knowledge_proximities' \
+                                 AND column_name = 'candidate_why') \
+           THEN \
+             IF EXISTS (SELECT 1 FROM information_schema.columns \
+                         WHERE table_name = 'knowledge_proximities' \
+                           AND column_name = 'raised_by') \
+             THEN \
+               ALTER TABLE knowledge_proximities RENAME COLUMN raised_by TO candidate_why; \
+             ELSIF EXISTS (SELECT 1 FROM information_schema.columns \
+                            WHERE table_name = 'knowledge_proximities' \
+                              AND column_name = 'basis') \
+             THEN \
+               ALTER TABLE knowledge_proximities RENAME COLUMN basis TO candidate_why; \
+             END IF; \
+           END IF; \
+         END $sync$",
+    )
+    .await?;
+    Ok(())
+}
+
 /// Schema 38 removes the claim's route. Confidence is the best claim's score; nothing reads the
 /// distinction between a handle and a text claim any more.
 async fn retire_claim_basis<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
@@ -493,6 +527,7 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
 
             retire_reshaped_claim_tables(transaction).await?;
             retire_proximity_status(transaction).await?;
+            rename_proximity_candidate_why(transaction).await?;
             retire_merge_audit(transaction).await?;
             relax_verdict_columns(transaction).await?;
             rename_identity_asserted_by(transaction).await?;

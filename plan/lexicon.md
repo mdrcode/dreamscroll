@@ -52,7 +52,7 @@ observation.
 | **knowledge entity** | `KnowledgeEntity` | `knowledge_entities` | `id`, `created_at`, `updated_at`, `name`, `alt_names`, `entity_type`, `alt_types`, `description`, `alt_descriptions`, `search_query`, `alt_search_queries`, `platform`, `platform_handle`, `platform_display_name`, `status`, `confidence`, `merged_into_id`, `origin_observation_id` |
 | **identity** (schema 39) | `KnowledgeIdentity` | `knowledge_identities` | `id`, `knowledge_entity_id`, `scheme`, `external_id`, `label`, `description`, `classes`, `provider`, `method`, `confidence`, `user_observed_entity_id`, `observed_at` |
 | **merge** | `KnowledgeVerdict` | `knowledge_verdicts` | `id`, `generation`, `kind`, `cause`, `winner_origin`, `loser_origin`, `subject_origin`, `identity_scheme`, `identity_external_id`, `winner_label`, `loser_label`, `decided_at`, `note` |
-| **proximity** | `KnowledgeProximity` | `knowledge_proximities` | `id`, `holder_id`, `counterpart_id`, `scheme`, `external_id`, `basis`, `score`, `scanned_at` |
+| **proximity** | `KnowledgeProximity` | `knowledge_proximities` | `id`, `holder_id`, `counterpart_id`, `scheme`, `external_id`, `candidate_why`, `score`, `scanned_at` |
 
 Two things have no table: an **identity key** is `(scheme, external_id)`, which one or more entity
 annotations may carry, and a **snapshot** is what `reset` saves and `compare` diffs.

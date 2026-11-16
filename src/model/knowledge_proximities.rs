@@ -28,8 +28,8 @@ pub struct Model {
     #[sea_orm(nullable)]
     pub external_id: Option<String>,
 
-    /// Why the pair was raised: `shared_id` today.
-    pub basis: String,
+    /// What made the pair a candidate: `shared_id` today. `status_why` is the decision, not this.
+    pub candidate_why: String,
     /// How close they looked at this scan — the linker's weighted total, so the batch reads in
     /// likelihood order. Null for a pair recorded without scoring.
     #[sea_orm(nullable)]
