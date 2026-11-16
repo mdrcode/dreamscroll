@@ -246,8 +246,9 @@ knowledge_proximities  two entities the graph considers close, the score a pass 
                        what nominated them (`candidate_why`) — one scan's batch, replaced wholesale
                        by the next
 knowledge_verdicts     a person's decision, and what decided it — the modification log: a
-                       `merge` (two origins), a `veto_identity` (an entity is not an
-                       identity), or a `distinct` (two origins are deliberately separate)
+                       `merge` (two origins), a `veto_identity` (the annotation is not
+                       evidence for that entity), or a `distinct` (two origins are
+                       deliberately separate, usually under one canonical document)
 ```
 
 An identity annotation belongs to one entity. Its durable name is the pair `(scheme, external_id)`;
@@ -255,6 +256,23 @@ the row is one provider's statement of it. Two providers may assert one key for 
 corroboration with its own confidence and method — and two entities may hold one key, which is what
 `proximity` asks about. The uniqueness is `(entity, provider, scheme, external_id)`: one provider
 annotates an entity with a key once, and replacing that provider's set is one delete and one insert.
+
+**A key is a document, not a unique name.** `(scheme, external_id)` is the most canonical record we
+have for an entity, and one record can cover several distinct referents: Wikidata often has no item
+for a song, so the song carries its album's QID; a character carries the film's; a board carries its
+site's. The row says "this is the best attestation we found", not "these are the same thing".
+Sharing a key is therefore only ever a **candidate** for `proximity`, never a verdict.
+
+The answers follow, and the distinction is the point:
+
+- **One referent** — `merge`. Fold the entities.
+- **Different referents, one canonical document** — `proximity distinct`. Both keep the annotation,
+  because it is still the best attestation either has; the pair reads `kept_apart` and survives a
+  rebuild. This is the ordinary case, not an error.
+- **The document does not describe the entity at all** — `identity veto`. A resolver false positive
+  (a namesake, a different thing with the same label) is not evidence, so the annotation is deleted.
+  Never veto merely because two referents differ: granularity is not error.
+- **Undecided** — no action. The pair stays `open` for a person.
 
 A proximity is a judgement about our own rows and a merge is a mutation of them. `enrichment` and
 `rejection` stay reserved vocabulary, not tables: the identity row's `label`, `description` and

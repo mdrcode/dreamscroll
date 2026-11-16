@@ -102,7 +102,10 @@ struct IdentityInspectArgs {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "veto")]
-#[argh(description = "an entity is not an identity: record it and delete the annotation")]
+#[argh(
+    description = "delete an annotation that is not evidence for this entity (a resolver false \
+                   positive); not for different referents sharing a canonical document"
+)]
 struct VetoArgs {
     #[argh(option, description = "knowledge entity id")]
     entity: i32,
@@ -216,7 +219,10 @@ struct ProximityAutoMergeArgs {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "distinct")]
-#[argh(description = "record that two entities are deliberately separate")]
+#[argh(
+    description = "record that two entities are deliberately separate, even when one canonical \
+                   identity covers both (an album and its songs)"
+)]
 struct DistinctArgs {
     #[argh(positional, description = "first knowledge entity id")]
     a: i32,

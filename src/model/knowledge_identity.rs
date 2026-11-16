@@ -4,13 +4,14 @@ use sea_orm::entity::prelude::*;
 /// One identity resolver's annotation of one entity with one durable identity.
 ///
 /// An identity is the pair `(scheme, external_id)` — a Wikidata item, a platform account, a
-/// Wikimedia file. The row says **this entity is named that**, and carries the identity resolver's answer
-/// about it: label, description, classes, method and confidence.
+/// Wikimedia file. The row says **this document identifies that entity**, and carries the identity
+/// resolver's answer about it: label, description, classes, method and confidence.
 ///
 /// Rows are per provider, not per key. Two identity resolvers may name the same key for the same entity;
 /// that corroboration has its own confidence and method, and a resolver's full replace must not be
 /// able to delete another provider's annotation. A key may also be held by several entities — one
-/// Wikidata item can name an album and cover its songs — which is what `proximity` asks about.
+/// Wikidata item can name an album and cover its songs — which is what `proximity` asks about;
+/// sharing a key is a candidate, not a claim of sameness.
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "knowledge_identities")]

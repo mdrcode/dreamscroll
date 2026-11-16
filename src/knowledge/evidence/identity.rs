@@ -21,6 +21,9 @@ pub fn platform_link(observation: &model::user_observed_entity::Model) -> Option
 }
 
 /// An identity's durable name: the pair a rebuild can reproduce.
+///
+/// A document, not a unique name: several entities may carry one key when it is the most canonical
+/// attestation they have (a song under its album, a character under its film).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IdentityKey {
     pub scheme: String,

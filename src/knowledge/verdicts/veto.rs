@@ -1,4 +1,4 @@
-//! Standing vetoes: an entity is *not* an identity.
+//! Standing vetoes: an annotation is *not* evidence for an entity.
 
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
 
@@ -18,7 +18,11 @@ pub struct VetoReport {
 }
 
 impl VerdictStore {
-    /// Record that an entity is *not* an identity.
+    /// Record that an annotation is *not* evidence for an entity: the document describes something
+    /// else (a resolver false positive), so it is deleted.
+    ///
+    /// Not for two referents sharing one canonical document — a song under its album, a character
+    /// under its film. Those are `distinct`, and both keep the annotation.
     ///
     /// Idempotent per subject and identity, and deliberately not per generation: a fold recurs every
     /// build, but a veto is a standing decision about the graph.

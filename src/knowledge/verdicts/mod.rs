@@ -3,7 +3,7 @@
 //! One table, two statements. A **merge** row says two things were one, keyed by each side's
 //! `origin_observation_id` so it survives a rebuild; the store writes it, but on the merge's
 //! transaction rather than its own, so the fold and its log entry commit together. A **veto_identity** row
-//! says an entity is not an identity: `vetoed` answers admission, and a replay applies it.
+//! says an annotation is not evidence for an entity: `vetoed` answers admission, and a replay applies it.
 //!
 //! The register is data, and the store knows nothing about entities beyond the origins a verdict
 //! names. Applying it to a rebuilt graph is the graph's command (`graph/replay.rs`): a rebuild

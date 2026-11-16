@@ -119,7 +119,10 @@ impl KnowledgeGraph {
         super::replay::replay(self).await
     }
 
-    /// Record that an entity is *not* an identity, and delete the annotation it names.
+    /// Record that an annotation is *not* evidence for an entity, and delete it.
+    ///
+    /// For a document that describes something else (a resolver false positive), not for two
+    /// referents sharing one canonical document; those are [`Self::distinct`].
     ///
     /// Recording and applying are one act: a register that disagrees with the graph is a decision
     /// nobody has taken. The next replay does the same thing after a rebuild, through origins.
@@ -148,7 +151,8 @@ impl KnowledgeGraph {
         self.verdicts.unveto(verdict_id).await
     }
 
-    /// Record that two entities are deliberately separate. Consultative: no graph mutation.
+    /// Record that two entities are deliberately separate, even when they share a canonical
+    /// identity (an album and its songs). Consultative: no graph mutation.
     pub async fn distinct(
         &self,
         entity_a: i32,

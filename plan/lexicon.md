@@ -97,9 +97,9 @@ per-kind index.
 
 | Table | Is | Written by |
 | --- | --- | --- |
-| `knowledge_identities` | a fact about the world: this entity is named `(scheme, external_id)` by this provider | `link` (a capture's handle), `resolve` (an identity resolver's complete answer) |
+| `knowledge_identities` | the canonical document a provider holds for this entity: `(scheme, external_id)`. One document may cover several distinct referents (an album and its songs, a film and its characters) | `link` (a capture's handle), `resolve` (an identity resolver's complete answer) |
 | `knowledge_proximities` | a judgement about our data: two entities looked close enough to ask about at the last scan, and the score that pass gave them — one scan's batch, replaced wholesale | `proximity::scan`, and nothing else |
-| `knowledge_verdicts` | a mutation of our data: one thing folded into another (`kind` = `merge`), an entity declared not an identity (`veto_identity`), or two origins declared separate (`distinct`) — what decided it (`repair`, `proximity_auto`, `replayed`), and which generation; a log, keyed by origin so it survives a rebuild | `proximity auto-merge`, `merge`, the veto commands, and `verdicts replay` |
+| `knowledge_verdicts` | a mutation of our data: one thing folded into another (`kind` = `merge`), an annotation declared not evidence (`veto_identity`), or two origins declared separate despite a shared canonical document (`distinct`) — what decided it (`repair`, `proximity_auto`, `replayed`), and which generation; a log, keyed by origin so it survives a rebuild | `proximity auto-merge`, `merge`, the veto commands, and `verdicts replay` |
 
 `enrichment` and `rejection` remain reserved kinds in the vocabulary, not tables: enrichment is the
 identity resolver's answer about an identity — its `label`, `description`, and `classes` — and it lives on
@@ -108,6 +108,12 @@ identity resolver's answer about an identity — its `label`, `description`, and
 An identity annotation is owned by one provider. Its metadata is that provider's answer, not a
 reconciliation of several; a second provider asserting the same key adds its own row, with its own
 method and confidence. Replacing a provider's set never rewrites another provider's annotation.
+
+**A key is a document, not a unique name.** `(scheme, external_id)` is the most canonical record we
+have for an entity, and one record can cover several distinct referents: Wikidata often has no item
+for a song, so the song carries its album's QID; a character carries the film's. Sharing a key is a
+`proximity` candidate, not a claim of sameness. `distinct` is the ordinary answer when the referents
+differ; `veto_identity` is only for an annotation that does not describe the entity at all.
 
 ## Status
 

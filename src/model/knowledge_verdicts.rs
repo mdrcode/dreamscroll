@@ -8,11 +8,13 @@ pub enum Kind {
     /// Two origins are one thing.
     #[sea_orm(string_value = "merge")]
     Merge,
-    /// An entity is not an identity. The item stays valid and claimable by everything else.
+    /// The annotation is not evidence for this entity (a resolver false positive). The item stays
+    /// valid and claimable by everything else.
     #[sea_orm(string_value = "veto_identity")]
     VetoIdentity,
-    /// Two entities are deliberately separate. Consultative: it suppresses an automatic fold and
-    /// has no effect on the graph by itself.
+    /// Two entities are deliberately separate, even when one canonical document covers both (an
+    /// album and its songs). Consultative: it suppresses an automatic fold and has no effect on the
+    /// graph by itself.
     #[sea_orm(string_value = "distinct")]
     Distinct,
 }

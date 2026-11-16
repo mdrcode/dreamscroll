@@ -1,4 +1,5 @@
-//! Identity annotations: what an entity is called, and by whom.
+//! Identity annotations: the canonical document a provider holds for an entity, and the answer it
+//! gave.
 //!
 //! - a [`PlatformLink`](crate::illumination::v2::PlatformLink) is the illuminator's optional
 //!   platform/handle (plus display name and URL). It is not an identity; [`platform_link`] reads it
@@ -11,8 +12,11 @@
 //! The store is [`Evidence`]. A resolver's run replaces its provider's complete annotation set for
 //! an entity; a capture appends one; a veto deletes one. Nothing brokers the relation.
 //!
-//! A key may have several holders: one Wikidata item can name an album and cover its songs. This
-//! module reports them and leaves "are these one thing?" to `proximity`.
+//! A key is a canonical document, not a unique name: one Wikidata item can name an album and cover
+//! its songs, or a film and its characters. Holders of one key are candidates for `proximity`, not
+//! duplicates. This module reports them and leaves "are these one thing?" to `proximity`; differing
+//! referents are `distinct`, and `veto_identity` is only for a document that does not describe the
+//! entity at all.
 
 /// The provider id for identities carried by an observation's platform link.
 pub const PLATFORM_LINK_PROVIDER_ID: &str = "illuminator";
