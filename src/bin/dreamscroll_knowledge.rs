@@ -346,7 +346,7 @@ struct ResolveArgs {
 struct StatsArgs {}
 
 /// Print one entity's walk through the pipeline.
-fn print_inspection(report: &knowledge::identity::inspect::Report) {
+fn print_inspection(report: &knowledge::eval::inspect::Report) {
     let entity = &report.entity;
     println!(
         "entity {} · {} [{}] · {}",
@@ -1150,7 +1150,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Identity(args) => match args.command {
             IdentityCommand::Resolve(args) => resolve_identity(&db, args).await?,
             IdentityCommand::Inspect(args) => {
-                let report = knowledge::identity::inspect::inspect(&db, &args.target).await?;
+                let report = knowledge::eval::inspect::inspect(&db, &args.target).await?;
                 match report {
                     Some(report) => {
                         if args.json {

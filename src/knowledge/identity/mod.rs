@@ -11,8 +11,9 @@
 //!
 //! A resolver returns an entity's identities, not an edge to a shared row. The engine replaces that
 //! provider's complete set for every entity the run answered about.
+//!
+//! The read-only walkthrough of one entity (`identity inspect`) lives in [`crate::knowledge::eval`].
 
-pub mod inspect;
 pub mod engine;
 pub mod wikidata;
 

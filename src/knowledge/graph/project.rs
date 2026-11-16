@@ -136,7 +136,7 @@ pub(super) async fn project<C: ConnectionTrait>(
     // granularity — a third status value conflated the two and had to be re-projected on every scan.
     let status = model::knowledge_entity::Status::of(identities.len());
 
-    let confidence = crate::knowledge::linker::heuristic::scoring::best_confidence(&identities);
+    let confidence = best_confidence(&identities);
 
     let updated = model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
         id: Set(knowledge_entity_id),
@@ -248,6 +248,14 @@ pub(super) async fn reproject(
     Ok(total)
 }
 
+/// Confidence is the best identity's claim, not a sum or a bonus; one with no score adds nothing.
+fn best_confidence(identities: &[Option<f32>]) -> Option<f32> {
+    identities
+        .iter()
+        .filter_map(|identity| *identity)
+        .max_by(f32::total_cmp)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,6 +265,16 @@ mod tests {
     use crate::database::DbHandle;
     use crate::model::{knowledge_entity as entity, user_observed_entity as observation};
     use crate::test_support::{fixtures, test_db};
+
+    /// Confidence is the best claim, not a sum or a bonus.
+    #[test]
+    fn confidence_is_the_best_claim() {
+        assert_eq!(best_confidence(&[]), None);
+        assert_eq!(best_confidence(&[None]), None);
+        assert_eq!(best_confidence(&[Some(0.8)]), Some(0.8));
+        assert_eq!(best_confidence(&[Some(0.8), Some(0.9)]), Some(0.9));
+        assert_eq!(best_confidence(&[Some(0.8), None, Some(0.5)]), Some(0.8));
+    }
 
     fn store(db: &DbHandle) -> crate::knowledge::KnowledgeGraph {
         crate::knowledge::KnowledgeGraph::new(db)

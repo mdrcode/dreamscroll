@@ -17,7 +17,7 @@
 //! the seam; git history has the version that was measured out.
 //!
 //! Not here: the confidence scale for resolver answers, which is the identity resolver's own
-//! calibration. `best_confidence` is here because `project` is its only caller.
+//! calibration.
 
 use crate::model;
 
@@ -115,16 +115,6 @@ impl Features {
         self.name >= NAME_FLOOR
             && (self.type_match >= AGREEMENT_FLOOR || self.description >= AGREEMENT_FLOOR)
     }
-}
-
-/// How substantiated an entity is: its best identity's score.
-///
-/// An identity without a confidence cannot substantiate anything; the best known confidence wins.
-pub(in crate::knowledge) fn best_confidence(identities: &[Option<f32>]) -> Option<f32> {
-    identities
-        .iter()
-        .filter_map(|identity| *identity)
-        .max_by(f32::total_cmp)
 }
 
 /// The observation being compared, with its folded forms precomputed.
@@ -550,16 +540,6 @@ mod tests {
         assert_eq!(ranked.len(), 2, "{ranked:?}");
         assert_eq!(ranked[0].0, 1, "the corroborated one leads: {ranked:?}");
         assert!(ranked.iter().all(|(index, _)| *index != 2));
-    }
-
-    /// Confidence is the best claim, not a sum or a bonus.
-    #[test]
-    fn confidence_is_the_best_claim() {
-        assert_eq!(best_confidence(&[]), None);
-        assert_eq!(best_confidence(&[None]), None);
-        assert_eq!(best_confidence(&[Some(0.8)]), Some(0.8));
-        assert_eq!(best_confidence(&[Some(0.8), Some(0.9)]), Some(0.9));
-        assert_eq!(best_confidence(&[Some(0.8), None, Some(0.5)]), Some(0.8));
     }
 
     /// A handle is settled *before* measuring; folding it into the name is how a handle and a real

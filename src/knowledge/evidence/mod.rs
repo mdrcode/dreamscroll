@@ -1,8 +1,8 @@
 //! Identity annotations: what an entity is called, and by whom.
 //!
 //! - a [`PlatformLink`](crate::illumination::v2::PlatformLink) is the illuminator's optional
-//!   platform/handle (plus display name and URL). It is not an identity; [`Identity::from_platform_link`]
-//!   maps it to one when it has a handle.
+//!   platform/handle (plus display name and URL). It is not an identity; [`platform_link`] reads it
+//!   off an observation, and [`Identity`] is what it becomes when it has a handle.
 //! - an [`IdentityKey`] is the durable name — `(scheme, external_id)`, both folded — that survives a
 //!   rebuild.
 //! - an [`Identity`] is one provider's annotation of one entity with that key: the metadata an

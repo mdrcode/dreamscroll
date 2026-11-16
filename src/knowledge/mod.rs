@@ -8,25 +8,27 @@
 //!
 //! - [`blocker`] — which entities are worth considering: the [Blocker] trait, the query that answers
 //!   from `knowledge_blocking_index`, and the index itself.
-//! - [`linker`] — which candidate wins, and making it happen: the [Linker] trait, today's heuristic,
-//!   and the executor that writes one illumination.
+//! - [`linker`] — which candidate wins: the [Linker] trait and today's heuristic.
 //! - [`graph`] — what the graph holds and every way it changes: [`KnowledgeGraph`], projection, merge
 //!   and the verdicts.
 //! - [`proximity`] — the derived batch of look-alike pairs, and the passes that produce and answer it.
+//! - [`identity`] — resolution: the `IdentityResolver` trait, the run loop, and today's Wikidata
+//!   resolver.
+//! - [`eval`] — offline diagnostics: blocking recall, and one entity's walk through the resolver.
 //!
 //! [`verdicts`] is not a cluster: it is the store for the modification log and the standing vetoes.
 //! The graph holds one and writes its merge rows through it on the fold's transaction; applying the
 //! log is the graph's command (`graph/replay.rs`), exposed as a method alongside `veto` and
 //! `unveto`.
 //!
-//! Three things stay at the root because more than one cluster needs them, and a stage that imports
+//! Four things stay at the root because more than one cluster needs them, and a stage that imports
 //! a cluster to reach its own vocabulary has the dependency backwards:
 //!
 //! - [`evidence`] — [`Identity`](evidence::Identity) and the store for `knowledge_identities`.
 //!   `identity` writes through it and `linking` reads it; it depends on `model`, `text` and
-//!   `scoring` and on nothing else here.
-//! - [`text`] and [`scoring`] — the surface fold, the keys derived from it, the words a measure
-//!   compares, and a confidence comparison; used by blocking, identity, evidence and projection.
+//!   `illumination::v2` and on nothing else here.
+//! - [`text`] — the surface fold, the keys derived from it, and the words a measure compares; used
+//!   by blocking, identity, evidence and projection.
 //! - [`snapshot`] — copy the projection, empty it, diff two copies: an operation over the whole
 //!   graph, not a way of changing it.
 //! - [`helper`] — the illumination composition: which observations are linked together, and the
