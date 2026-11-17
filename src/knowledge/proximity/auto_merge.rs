@@ -10,7 +10,7 @@ use sea_orm::{
 
 use crate::knowledge::graph::KnowledgeGraph;
 use crate::knowledge::graph::merge::Outcome;
-use crate::knowledge::linker::heuristic::Heuristic;
+use crate::knowledge::linker::heuristic::HeuristicScorer;
 use crate::knowledge::verdicts::{Cause, pair_key};
 use crate::model;
 
@@ -38,7 +38,7 @@ pub struct AutoMergeReport {
 pub async fn auto_merge(
     conn: &DatabaseConnection,
     graph: &KnowledgeGraph,
-    scoring: &Heuristic,
+    scoring: &HeuristicScorer,
     apply: bool,
 ) -> anyhow::Result<AutoMergeReport> {
     let mut report = AutoMergeReport::default();

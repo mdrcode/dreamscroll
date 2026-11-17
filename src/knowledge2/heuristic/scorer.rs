@@ -1,16 +1,16 @@
-//! The heuristic: every number the heuristic guesses, in one file.
+//! The heuristic scorer: every number the heuristic guesses, in one file.
 //!
 //! Three questions, answered concretely for the pairs the graph asks about:
 //!
-//! - [`Heuristic::link`] — a capture against the graph's entities: the qualifying candidates, best
+//! - [`HeuristicScorer::link`] — a capture against the graph's entities: the qualifying candidates, best
 //!   first. Empty means start a new entity.
-//! - [`Heuristic::merge`] — two entities, as a verdict. A set of one is the pair question.
-//! - [`Heuristic::pair`] — two entities, as the number a proximity row stores.
+//! - [`HeuristicScorer::merge`] — two entities, as a verdict. A set of one is the pair question.
+//! - [`HeuristicScorer::pair`] — two entities, as the number a proximity row stores.
 //!
 //! The filter is the part a number could not carry: `same` is a conjunction — a name match *and*
 //! something corroborating it — which is why the questions answer with a filtered, ordered list
 //! rather than a threshold on the score. A pair that fails the conjunction still answers
-//! [`Heuristic::pair`], so "same name, different type: 0.74" stays visible on the proximity list
+//! [`HeuristicScorer::pair`], so "same name, different type: 0.74" stays visible on the proximity list
 //! even though it will never be folded.
 //!
 //! One implementation, so this is a type and not a trait bundle. A second policy would reintroduce
@@ -49,9 +49,9 @@ const TYPE_UNKNOWN_MATCH: f32 = 0.5;
 
 /// The heuristic policy, as one value. Stateless: every number is a constant above.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct Heuristic;
+pub struct HeuristicScorer;
 
-impl Heuristic {
+impl HeuristicScorer {
     /// A capture against the graph's entities: the qualifying candidates, best first.
     ///
     /// Empty means start a new entity. The bar is [`Features::qualifies`] — a conjunction, not a
@@ -328,7 +328,7 @@ fn type_similarity(a: &str, b: &str) -> f32 {
 
 // ---------------------------------------------------------------------------------------------
 // The string plumbing the scoring and the blocker share. `comparable` is the core's;
-// these are the guess's, and nothing outside `heuristic::scoring` asks for them.
+// these are the guess's, and nothing outside `heuristic::scorer` asks for them.
 // ---------------------------------------------------------------------------------------------
 
 /// The words of a surface, in order, folded the same way `comparable` folds it.
@@ -424,7 +424,7 @@ mod tests {
         let (a, b) = train_dreams_pair();
 
         for (subject, candidate) in [(&a, &b), (&b, &a)] {
-            let ranked = Heuristic.merge(subject, std::slice::from_ref(candidate));
+            let ranked = HeuristicScorer.merge(subject, std::slice::from_ref(candidate));
             assert_eq!(
                 ranked.len(),
                 1,
@@ -436,7 +436,7 @@ mod tests {
     #[test]
     fn article_or_word_order_alone_still_clears() {
         let candidate = entity(1, "Train Dreams", None, "book");
-        let ranked = Heuristic.link(&observation("The Train Dreams", None, "book"), &[candidate]);
+        let ranked = HeuristicScorer.link(&observation("The Train Dreams", None, "book"), &[candidate]);
         assert_eq!(
             ranked.len(),
             1,
@@ -455,7 +455,7 @@ mod tests {
         let features = features(&probe, &candidate);
         assert!((features.total - 0.59).abs() < 1e-6, "{features:?}");
         assert_eq!(
-            Heuristic.link(&probe, &[candidate]).len(),
+            HeuristicScorer.link(&probe, &[candidate]).len(),
             1,
             "the conjunction accepts what its own floors accept"
         );
@@ -467,7 +467,7 @@ mod tests {
         let candidate = entity(1, "Dominic Ng", None, "book");
         let probe = observation("Dominic Ng", None, "software");
         assert!(
-            Heuristic.link(&probe, &[candidate]).is_empty(),
+            HeuristicScorer.link(&probe, &[candidate]).is_empty(),
             "same name, disagreeing type, no text"
         );
     }
@@ -490,7 +490,7 @@ mod tests {
             (features.total - WEIGHT_NAME).abs() < 1e-6,
             "the total is the name weight alone: {features:?}"
         );
-        assert!(Heuristic.link(&frame, &[django]).is_empty());
+        assert!(HeuristicScorer.link(&frame, &[django]).is_empty());
     }
 
     /// The other arm of the corroboration: a shared description carries a name match on its own,
@@ -506,7 +506,7 @@ mod tests {
             features.description >= AGREEMENT_FLOOR,
             "the text agrees: {features:?}"
         );
-        assert_eq!(Heuristic.link(&probe, &[candidate]).len(), 1);
+        assert_eq!(HeuristicScorer.link(&probe, &[candidate]).len(), 1);
     }
 
     /// The extractor could not type either side: that is an absence of information, so an exact
@@ -514,7 +514,7 @@ mod tests {
     #[test]
     fn an_unknown_type_does_not_disqualify_a_name() {
         let candidate = entity(1, "Wojak", None, "concept");
-        let ranked = Heuristic.link(&observation("Wojak", None, "unknown"), &[candidate]);
+        let ranked = HeuristicScorer.link(&observation("Wojak", None, "unknown"), &[candidate]);
         assert_eq!(
             ranked.len(),
             1,
@@ -534,7 +534,7 @@ mod tests {
             "book",
         );
         let unrelated = entity(3, "Dune", None, "book");
-        let ranked = Heuristic.link(
+        let ranked = HeuristicScorer.link(
             &observation("Train Dreams", Some("a novella by Denis Johnson"), "book"),
             &[weak, strong, unrelated],
         );
@@ -556,8 +556,8 @@ mod tests {
 
         let candidate = fixtures::stub_entity(9, "Alex Lei", "real_person");
         assert_eq!(
-            Heuristic.link(&plain, std::slice::from_ref(&candidate)),
-            Heuristic.link(&present, std::slice::from_ref(&candidate)),
+            HeuristicScorer.link(&plain, std::slice::from_ref(&candidate)),
+            HeuristicScorer.link(&present, std::slice::from_ref(&candidate)),
         );
     }
 }

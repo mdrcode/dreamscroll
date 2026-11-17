@@ -3,7 +3,7 @@
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 
 use crate::knowledge::graph::KnowledgeGraph;
-use crate::knowledge::linker::heuristic::Heuristic;
+use crate::knowledge::linker::heuristic::HeuristicScorer;
 use crate::model;
 use crate::test_support::{db_or_skip, fixtures};
 
@@ -30,7 +30,7 @@ async fn scanning_records_a_shared_identity() {
     db_or_skip!(db);
     claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
 
-    let raised = scan(&db.conn, &Heuristic).await.expect("scan");
+    let raised = scan(&db.conn, &HeuristicScorer).await.expect("scan");
 
     assert_eq!(raised, 1);
     let row = model::knowledge_proximities::Entity::find()
@@ -43,7 +43,7 @@ async fn scanning_records_a_shared_identity() {
     assert!((row.score.unwrap() - 0.7).abs() < 1e-6, "{:?}", row.score);
 
     // The batch is replaced, not appended: a second scan leaves exactly one row.
-    assert_eq!(scan(&db.conn, &Heuristic).await.unwrap(), 1);
+    assert_eq!(scan(&db.conn, &HeuristicScorer).await.unwrap(), 1);
     assert_eq!(batch_size(&db).await, 1);
 }
 
@@ -62,7 +62,7 @@ async fn a_pair_sharing_two_identities_is_raised_once() {
     }
 
     assert_eq!(
-        scan(&db.conn, &Heuristic).await.expect("scan"),
+        scan(&db.conn, &HeuristicScorer).await.expect("scan"),
         1,
         "one pair, one question"
     );
@@ -76,9 +76,9 @@ async fn merging_folds_the_pair_and_answers_it() {
     db_or_skip!(db);
     let store = KnowledgeGraph::new(&db);
     claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
-    scan(&db.conn, &Heuristic).await.unwrap();
+    scan(&db.conn, &HeuristicScorer).await.unwrap();
 
-    let report = auto_merge(&db.conn, &store, &Heuristic, true)
+    let report = auto_merge(&db.conn, &store, &HeuristicScorer, true)
         .await
         .expect("merge");
 
@@ -103,8 +103,8 @@ async fn merging_leaves_a_pair_it_cannot_claim() {
     let store = KnowledgeGraph::new(&db);
     claim_pairs(&db, ["Belfast, Maine", "The Fishing Fleet"]).await;
 
-    scan(&db.conn, &Heuristic).await.unwrap();
-    let report = auto_merge(&db.conn, &store, &Heuristic, true)
+    scan(&db.conn, &HeuristicScorer).await.unwrap();
+    let report = auto_merge(&db.conn, &store, &HeuristicScorer, true)
         .await
         .expect("merge");
 
@@ -119,9 +119,9 @@ async fn a_dry_run_reports_without_folding() {
     db_or_skip!(db);
     let store = KnowledgeGraph::new(&db);
     claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
-    scan(&db.conn, &Heuristic).await.unwrap();
+    scan(&db.conn, &HeuristicScorer).await.unwrap();
 
-    let report = auto_merge(&db.conn, &store, &Heuristic, false)
+    let report = auto_merge(&db.conn, &store, &HeuristicScorer, false)
         .await
         .expect("preview");
 
@@ -147,7 +147,7 @@ async fn a_distinct_pair_is_not_folded() {
     let (first, second) = claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
     fixtures::set_origin(&db, first, 100_001).await;
     fixtures::set_origin(&db, second, 100_002).await;
-    scan(&db.conn, &Heuristic).await.unwrap();
+    scan(&db.conn, &HeuristicScorer).await.unwrap();
     assert!(
         store
             .distinct(first, second, Some("two different works"))
@@ -155,7 +155,7 @@ async fn a_distinct_pair_is_not_folded() {
             .unwrap()
     );
 
-    let report = auto_merge(&db.conn, &store, &Heuristic, true)
+    let report = auto_merge(&db.conn, &store, &HeuristicScorer, true)
         .await
         .expect("merge");
 
@@ -194,8 +194,8 @@ async fn a_distinct_pair_survives_a_rebuild() {
         "the rebuild renumbered the pair: {reborn:?} vs [{first}, {second}]"
     );
 
-    scan(&db.conn, &Heuristic).await.unwrap();
-    let report = auto_merge(&db.conn, &store, &Heuristic, true)
+    scan(&db.conn, &HeuristicScorer).await.unwrap();
+    let report = auto_merge(&db.conn, &store, &HeuristicScorer, true)
         .await
         .expect("merge");
 

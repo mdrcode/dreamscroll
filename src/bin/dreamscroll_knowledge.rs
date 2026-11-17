@@ -984,7 +984,7 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Proximity(args) => {
             let store = knowledge::KnowledgeGraph::new(&db);
-            let scoring = &knowledge::linker::heuristic::Heuristic;
+            let scoring = &knowledge::linker::heuristic::HeuristicScorer;
             match args.command {
                 ProximityCommand::Scan(_) => {
                     println!(

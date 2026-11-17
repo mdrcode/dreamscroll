@@ -16,7 +16,7 @@ use crate::fetch::{Answer, Outcome, Request};
 use crate::knowledge::blocker::SqlBlocker;
 use crate::knowledge2::heuristic::identification::{decide, gather, plan, ranking};
 use crate::knowledge2::wikidata::{WikidataCandidate, WikidataKind};
-use crate::knowledge::linker::heuristic::Heuristic;
+use crate::knowledge::linker::heuristic::HeuristicScorer;
 use crate::knowledge::text;
 use crate::model;
 
@@ -138,7 +138,7 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
     }
 
     // The same heuristic the linker asks, so "would it attach" here means what it means there.
-    let scoring = Heuristic;
+    let scoring = HeuristicScorer;
     let ranked = match &probe {
         Some(observation) => scoring
             .link(observation, &found)

@@ -261,7 +261,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
   1 is ranker policy and belongs with the resolver, not the linker. Full statement, options and the
   rebuild recipe: [wikidata-cleanup-20261112.md](archive/wikidata-cleanup-20261112.md). Note that the scoring
-  split (`scoring.rs` verbs, `linker/heuristic/scoring.rs` policy) makes it cheaper to state:
+  split (`scorer.rs` verbs, `identification/measure.rs` policy) makes it cheaper to state:
   `parse_search` builds `Weights` itself instead of asking the policy, which is the visible oddity
   rather than a hidden one.
 

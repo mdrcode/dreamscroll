@@ -6,15 +6,15 @@
 //!
 //! - [`HeuristicLinker`] — a held identity wins; else the best qualifying candidate; else create.
 //! - [`identification`] — the Wikidata-backed identity policy: plan, gather, rank, decide.
-//! - [`scoring`] — every number the policy guesses.
+//! - [`scorer`] — every number the policy guesses.
 //! - [`text`] — the non-core text measures (tokens, grams, Jaccard, near-surface, word-prefix).
 
 pub mod identification;
 pub mod identifier;
 pub mod linker;
-pub mod scoring;
+pub mod scorer;
 pub mod text;
 
 pub use identifier::HeuristicIdentifier;
 pub use linker::HeuristicLinker;
-pub use scoring::Heuristic;
+pub use scorer::HeuristicScorer;

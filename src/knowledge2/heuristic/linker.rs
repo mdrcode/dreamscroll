@@ -7,12 +7,12 @@ use crate::knowledge2::blocker::Blocker;
 use crate::knowledge2::graph::GraphSelector;
 use crate::knowledge2::identity::Identity;
 use crate::knowledge2::ids::{EntityOriginId, ObservationId};
-use super::Heuristic;
+use super::HeuristicScorer;
 
 /// Today's link policy: a held identity wins; else the best qualifying candidate; else create.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct HeuristicLinker {
-    scoring: Heuristic,
+    scorer: HeuristicScorer,
 }
 
 impl HeuristicLinker {
@@ -51,7 +51,7 @@ impl HeuristicLinker {
             }
 
             let candidates = blocker.candidates(&observation).await?;
-            let ranked = self.scoring.link(&observation, &candidates);
+            let ranked = self.scorer.link(&observation, &candidates);
 
             // The best candidate that qualifies. An empty ranking is a decision too: nothing here
             // is this observation, so it starts a new entity.

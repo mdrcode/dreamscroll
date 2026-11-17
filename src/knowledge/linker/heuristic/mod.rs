@@ -5,5 +5,5 @@
 
 pub mod linker;
 
-pub use crate::knowledge2::heuristic::Heuristic;
+pub use crate::knowledge2::heuristic::HeuristicScorer;
 pub use linker::HeuristicLinker;

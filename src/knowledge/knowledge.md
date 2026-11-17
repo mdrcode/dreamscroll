@@ -142,11 +142,11 @@ identity. `merge` refuses that pair (shared illumination), so the scan records i
 open — the terminal state the merge-side rule produces everywhere.
 
 **The heuristic is a type, not a trait bundle.** It answers the graph's two questions, and both live
-in `linker/heuristic/scoring.rs`:
+in `../knowledge2/heuristic/scorer.rs`:
 
-- `Heuristic::link` — a capture against the graph's entities: the qualifying candidates, best first.
+- `HeuristicScorer::link` — a capture against the graph's entities: the qualifying candidates, best first.
   Empty means start a new entity.
-- `Heuristic::merge` — two entities, as a verdict. A set of one is the pair question; `Heuristic::pair`
+- `HeuristicScorer::merge` — two entities, as a verdict. A set of one is the pair question; `HeuristicScorer::pair`
   is the same number without the filter, which is what a proximity row stores.
 
 The filter is not a threshold on the score: the rule is a conjunction — a name match has to be
@@ -369,7 +369,7 @@ one.
 | `../knowledge2/blocker/index.rs` | `knowledge_blocking_index`: the folded forms a blocker matches on — `rebuild`, `check`, `write`, `forget` |
 | `linker/mod.rs` | the `Linker` trait: one batch of observations in, decisions out. No policy argument is passed — the implementation holds its own. Everything upstream is recall, everything downstream is effect; the caller decides how the batch was assembled |
 | `linker/heuristic/linker.rs` | `HeuristicLinker`: the procedure over the heuristic — best candidate that clears the bar, else create |
-| `linker/heuristic/scoring.rs` | the heuristic: `link`, `merge` and `pair`, the weights, and the merge rule (a name match plus one corroborating signal) |
+| `../knowledge2/heuristic/scorer.rs` | the heuristic scorer: `link`, `merge` and `pair`, the weights, and the merge rule (a name match plus one corroborating signal) |
 | `graph/link.rs` | `link`: a batch of observations in, and one transaction applying everything the decisions imply — creates and attaches, the identities the handles assert, and a projection of each entity touched. Returns `LinkReport` |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `evidence/` | the v1 vocabulary — `PlatformLink`, `IdentityKey`, `Identity` — and the capture write path in `store.rs`: `add_identity` appends a capture's handle on the caller's connection (so it commits with the link that created the entity), `query_identities` and `query_entities_for_identity` answer the reads. `store.rs` also owns `move_identities` on a fold and `delete_identity` on a veto. Identity identification is now `knowledge2::heuristic::identifier::HeuristicIdentifier` |
@@ -377,7 +377,7 @@ one.
 | `graph/replay.rs` | the verdict effects: `replay` (merges, then withdrawals) and the withdrawal the veto command shares |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is the best identity's score. `reproject` repairs a scope of entities, with `Stale` the "live, no identity annotation" rule |
 | `graph/merge.rs` | fold one entity into another |
-| `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `CandidateWhy` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `auto_merge.rs` folds what it can on its own and leaves the rest. Both take the connection and the `Heuristic` as arguments |
+| `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `CandidateWhy` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `auto_merge.rs` folds what it can on its own and leaves the rest. Both take the connection and the `HeuristicScorer` as arguments |
 | `verdicts/` | the register: the modification log and the standing vetoes, held by `KnowledgeGraph`. `store.rs` is the type, its connection, `record` (the one write that takes the caller's transaction, so a merge's row commits with the fold) and the reads the replay and `stats` share; `veto.rs` holds `veto`/`unveto`/`vetoed`; `origin.rs` turns an origin into the entity it names now. Applying the log is the graph's command (`graph/replay.rs`), exposed as `KnowledgeGraph::replay_verdicts`; `pair_key` is shared with `stats` |
 | `../knowledge2/wikidata/` | the common authority core: `kind` (request kinds and cache shapes), `candidate` (the parsed item), `transport` (the wire), `sparql`, `property_query`, `disambiguation`. No ranking or writes |
 | `../knowledge2/heuristic/identifier.rs` | the automated provider: `HeuristicIdentifier` — select, batch, call, replace, report |

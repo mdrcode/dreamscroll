@@ -1,6 +1,6 @@
 //! The default linker: take the best candidate that clears the bar, otherwise create.
 //!
-//! A procedure, not a policy. It asks one question — [`Heuristic::link`] — and applies the answer:
+//! A procedure, not a policy. It asks one question — [`HeuristicScorer::link`] — and applies the answer:
 //! the best qualifying candidate is where the observation attaches, and no qualifying candidate is
 //! a new entity. The bar lives in `Features::qualifies`, because it is a conjunction over what was
 //! compared and a number cannot carry that.
@@ -10,7 +10,7 @@ use crate::model;
 use crate::knowledge::evidence::{IdentityKey, platform_link};
 use crate::knowledge::linker::{Action, Decision, IdentityHolder, Linker};
 
-use super::Heuristic;
+use super::HeuristicScorer;
 
 /// Take the highest-scoring candidate that clears the bar; otherwise start a new entity.
 ///
@@ -18,7 +18,7 @@ use super::Heuristic;
 /// else.
 #[derive(Clone)]
 pub struct HeuristicLinker {
-    scoring: Heuristic,
+    scoring: HeuristicScorer,
 }
 
 impl std::fmt::Debug for HeuristicLinker {
@@ -31,7 +31,7 @@ impl std::fmt::Debug for HeuristicLinker {
 impl HeuristicLinker {
     /// The heuristic's own policy.
     pub fn new() -> Self {
-        Self { scoring: Heuristic }
+        Self { scoring: HeuristicScorer }
     }
 }
 

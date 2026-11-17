@@ -9,7 +9,7 @@
 //! - [`merge`] — fold one entity into another.
 //!
 //! Single writes are methods. Passes over *derived* data are public functions taking what they act
-//! on — the connection, and the [`Heuristic`](crate::knowledge::linker::heuristic::Heuristic) they
+//! on — the connection, and the [`HeuristicScorer`](crate::knowledge::linker::heuristic::HeuristicScorer) they
 //! measure with — because they are not part of the graph's contract: [`crate::knowledge::proximity`]
 //! lives above and is driven by a caller. Operations over the graph's own state are methods, because
 //! the graph is the only handle a caller has on them: `link`, `merge`, and replay, which

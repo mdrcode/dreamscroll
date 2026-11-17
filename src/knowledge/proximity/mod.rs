@@ -10,10 +10,10 @@
 //! a person.
 //!
 //! Both passes take what they act on — the connection and the
-//! [`Heuristic`] to measure with, and, for [`auto_merge`], the store it folds into — rather than
+//! [`HeuristicScorer`] to measure with, and, for [`auto_merge`], the store it folds into — rather than
 //! reading them off a facade.
 //!
-//! [`Heuristic`]: crate::knowledge::linker::heuristic::Heuristic
+//! [`HeuristicScorer`]: crate::knowledge::linker::heuristic::HeuristicScorer
 
 mod auto_merge;
 mod scan;
