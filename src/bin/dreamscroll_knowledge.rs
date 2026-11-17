@@ -530,7 +530,7 @@ fn print_entity(detail: &stats::entity::Detail) {
     }
 }
 
-/// Ask the identity resolvers what a thing is, cache first.
+/// Ask Wikidata what a thing is, cache first.
 async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow::Result<()> {
     // A budget of zero makes no transport calls, which reads like a successful run that resolved
     // nothing. That is a mode, not a number.

@@ -230,8 +230,7 @@ touching the graph.
   - `word_key` — the same words, order-insensitive.
   - `norm_fingerprint` — the index's currency stamp.
 - **`heuristic::text` is for pluggable components.** Tokens, grams, Jaccard, near-surface and
-  word-prefix are how the heuristic planner and the identity resolvers decide whether two texts mean
-  the same thing. The graph's integrity does not depend on them.
+  word-prefix are how the heuristic linker and Wikidata decide whether two texts mean the same thing. The graph's integrity does not depend on them.
 
 If Link and Resolve are replaced by LLM-driven flows that do their own text, the core keeps `text`;
 `heuristic::text` goes with those components. Identity-key folding (`Identity::from_observation`, v1's

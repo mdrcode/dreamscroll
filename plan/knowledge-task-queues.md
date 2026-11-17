@@ -52,7 +52,7 @@ silent drop.
 
 **The cache lives with the wiring, the engine with the policy.** `FetchCache` owns a pool handle
 (it no longer borrows), so `LogicState` holds exactly one for the process; `HeuristicIdentifier` holds its
-options and resolvers, and a run supplies entities, that cache and an allowance. So the task passes
+options and Wikidata client, and a run supplies entities, that cache and an allowance. So the task passes
 `&state.cache`, never a connection — and no layer but the cache holds one at runtime.
 
 The producer replaces one provider's annotation set per entity it answered and skips entities that
@@ -159,7 +159,7 @@ the next touch of the entity (another capture) or a manual `identity resolve`.
 | `TASK_WIKIDATA_MAX_REQUESTS` | 80 | per-**attempt** spend ceiling; the worst observed illumination needs 58 cold calls, p95 is 24. A retried task can spend `attempts × this` |
 | `TASK_WIKIDATA_MIN_INTERVAL` | 1000 ms | the pace the CLI already uses |
 
-Nothing else: the resolvers, their strategies and their cache are not configurable per environment.
+Nothing else: Wikidata, its strategies and the cache are not configurable per environment.
 
 ### D6 — observability
 

@@ -18,8 +18,7 @@ use std::collections::HashSet;
 
 use crate::fetch::{Gateway, Outcome, Request, Transport};
 use crate::knowledge2::identity::Identity;
-use super::Resolver;
-use crate::knowledge2::wikidata::{ID, Wire, WikidataCandidate, WikidataKind};
+use crate::knowledge2::wikidata::{Wire, WikidataCandidate, WikidataKind};
 use crate::model;
 
 use super::{decide, gather, plan};
@@ -43,21 +42,6 @@ impl Wikidata {
         gateway: &Gateway<'_>,
     ) -> Vec<(i32, Identity)> {
         resolve_batch(&self.wire, entities, gateway).await
-    }
-}
-
-#[async_trait::async_trait]
-impl Resolver for Wikidata {
-    fn id(&self) -> &'static str {
-        ID
-    }
-
-    async fn resolve(
-        &self,
-        entities: &[model::knowledge_entity::Model],
-        gateway: &Gateway<'_>,
-    ) -> Vec<(i32, Identity)> {
-        self.resolve(entities, gateway).await
     }
 }
 
@@ -134,18 +118,13 @@ mod tests {
         }
     }
 
-    fn engine() -> Wikidata {
-        Wikidata::new().expect("client should build")
-    }
-
-    /// The provider on every request is the resolver's id; a drift would split cache and provenance.
+    /// The provider on every request is the authority id; a drift would split cache and provenance.
     #[test]
     fn every_planned_request_carries_the_authority_id() {
         let entity = entity("Train Dreams", Some("a 2011 novella"));
         for (_, request) in plan::all_requests(&entity) {
             assert_eq!(request.provider, crate::knowledge2::wikidata::ID);
         }
-        assert_eq!(Resolver::id(&engine()), crate::knowledge2::wikidata::ID);
     }
 
     /// A wire that answers from a table and records what it was asked: no client, no database.

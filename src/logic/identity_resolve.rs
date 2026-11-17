@@ -1,7 +1,7 @@
 //! Resolve the identities of the entities one illumination touched.
 //!
-//! Chained after the link: the link created or attached the entities, and this asks the identity
-//! resolvers about exactly those. The payload is the illumination, not its entity ids, because entity
+//! Chained after the link: the link created or attached the entities, and this asks Wikidata about
+//! exactly those. The payload is the illumination, not its entity ids, because entity
 //! ids are generation-scoped — a task delivered after a `reset` would name rows that no longer exist,
 //! or different rows — while the illumination is stable and its entity set is derived at execution.
 //!

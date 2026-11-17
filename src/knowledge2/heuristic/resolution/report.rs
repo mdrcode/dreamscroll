@@ -4,8 +4,8 @@ use crate::fetch;
 
 #[derive(Debug, Clone, Default)]
 pub struct Options {
-    /// Ask a resolver again even when it already annotated the entity. `--entity` sets this;
-    /// without it, the per-provider filter makes an entity-scoped run empty.
+    /// Ask Wikidata again even when it already annotated the entity. `--entity` sets this;
+    /// without it, the already-annotated filter makes an entity-scoped run empty.
     pub include_already_annotated: bool,
     /// Report what a positive answer would write, without writing or projecting it.
     pub dry_run: bool,
@@ -44,7 +44,7 @@ pub struct ResolutionReport {
     pub refusal: Option<fetch::Refusal>,
 }
 
-/// What one provider did in one run.
+/// What Wikidata did in one run.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ProviderReport {
     pub provider: String,

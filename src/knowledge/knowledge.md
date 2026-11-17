@@ -168,17 +168,13 @@ resolver keeps its own measure and its own calibration, because its candidate ty
 its fit is corpus-aware (terms are weighed by rarity among the answers it got back) — a pair
 comparison cannot see the corpus.
 
-## Resolving: what can the identity resolvers tell us?
+## Resolving: what can Wikidata tell us?
 
-Resolving is the opposite kind of work: network, cached, and only ever through one door.
+Resolving is the opposite kind of work: network, cached, and only ever through one door. Wikidata is
+the only authority today, held directly by `HeuristicIdentifier`; there is no provider trait to
+implement.
 
 ```rust
-trait Resolver {                              // knowledge2::heuristic::resolution
-    fn id(&self) -> &'static str;
-    async fn resolve(&self, entities: &[Model], gateway: &fetch::Gateway<'_>)
-        -> Vec<(i32, Identity)>;              // knowledge2::Identity
-}
-
 // src/fetch: generic over the provider's own vocabulary, so it can hold none of ours.
 trait Transport {
     type Kind;                                // the provider's request kinds
@@ -189,18 +185,15 @@ trait Transport {
 ```
 
 `resolve` takes a *batch*, not one entity: batching across entities is the difference between a
-hundred transport calls for a corpus walk and five thousand, and only the resolver knows how to
-group its own requests.
+hundred transport calls for a corpus walk and five thousand.
 
-How a resolver gets to its identities is its own business. `Wikidata` **fans out**: one batch applies
-every strategy — handle, title, label, search hint, search label — to every entity at once, and the
-answers merge into **one candidate set per entity**. Nothing is decided per strategy and nothing exits
-early: the set is ranked once and one identity is chosen, or refused with a reason. The strategies are
-independent ways of asking, not a sequence — `plan::Strategy::ALL` documents each one's *authority*
-(a title is unique where a label is not; search is a guess), and the resolver applies all of them
-regardless. That shape is internal to the provider, not vocabulary the engine knows about. `Kind` is
-the *provider's* enum, so **adding an identity resolver means writing one `Resolver` plus one
-`Transport`**, and a resolver is free to make one request or a dozen.
+`Wikidata` **fans out**: one batch applies every strategy — handle, title, label, search hint, search
+label — to every entity at once, and the answers merge into **one candidate set per entity**. Nothing
+is decided per strategy and nothing exits early: the set is ranked once and one identity is chosen,
+or refused with a reason. The strategies are independent ways of asking, not a sequence —
+`plan::Strategy::ALL` documents each one's *authority* (a title is unique where a label is not;
+search is a guess), and Wikidata applies all of them regardless. `Kind` is Wikidata's enum. A second
+authority would need its own path; for now the single provider is the deliberate simplification.
 
 Inside `Wikidata` the decision is a pipeline with one job per file, and none of it fetches:
 
@@ -379,7 +372,7 @@ one.
 | `linker/heuristic/scoring.rs` | the heuristic: `link`, `merge` and `pair`, the weights, and the merge rule (a name match plus one corroborating signal) |
 | `graph/link.rs` | `link`: a batch of observations in, and one transaction applying everything the decisions imply — creates and attaches, the identities the handles assert, and a projection of each entity touched. Returns `LinkReport` |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
-| `evidence/` | the v1 vocabulary — `PlatformLink`, `IdentityKey`, `Identity` — and the capture write path in `store.rs`: `add_identity` appends a capture's handle on the caller's connection (so it commits with the link that created the entity), `query_identities` and `query_entities_for_identity` answer the reads. `store.rs` also owns `move_identities` on a fold and `delete_identity` on a veto. Resolver replacement is now `knowledge2::heuristic::identifier::HeuristicIdentifier` |
+| `evidence/` | the v1 vocabulary — `PlatformLink`, `IdentityKey`, `Identity` — and the capture write path in `store.rs`: `add_identity` appends a capture's handle on the caller's connection (so it commits with the link that created the entity), `query_identities` and `query_entities_for_identity` answer the reads. `store.rs` also owns `move_identities` on a fold and `delete_identity` on a veto. Identity resolution is now `knowledge2::heuristic::identifier::HeuristicIdentifier` |
 | `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors (`new`, `with_linking`, `with_heuristic_linking`) and the operations that own a write path — link, merge, replay, reproject, the veto commands. `KnowledgeGraph2::selector()` exposes `GraphSelector::awaiting_identity`/`identified_by`, `live_entity`/`identity_count`, and `verdicts()` → `VerdictSelector` (`merges`/`vetoes`/`vetoed_keys`), the shared graph read surface. It holds the connection, the blocker, the decider, the evidence and the verdict register — no policy of its own |
 | `graph/replay.rs` | the verdict effects: `replay` (merges, then withdrawals) and the withdrawal the veto command shares |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is the best identity's score. `reproject` repairs a scope of entities, with `Stale` the "live, no identity annotation" rule |
