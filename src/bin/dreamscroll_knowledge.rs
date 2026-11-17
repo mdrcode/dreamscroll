@@ -1197,11 +1197,11 @@ async fn main() -> anyhow::Result<()> {
             }
             IdentityCommand::Reproject(args) => {
                 let scope = if args.all {
-                    knowledge::graph::ReprojectScope::All
+                    knowledge2::ReprojectScope::All
                 } else {
-                    knowledge::graph::ReprojectScope::Stale
+                    knowledge2::ReprojectScope::Stale
                 };
-                let total = knowledge::KnowledgeGraph::new(&db).reproject(scope).await?;
+                let total = knowledge2::KnowledgeGraph2::new(&db).reproject(scope).await?;
                 println!(
                     "reprojected {total} {}",
                     if args.all {

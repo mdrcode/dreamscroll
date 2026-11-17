@@ -1,8 +1,9 @@
 //! The first end-to-end use case: link illuminations into the v2 graph.
 //!
 //! The graph has no linker and no blocker. This helper is the external executor: it hands the
-//! pending observations to a v2 [`Linker`], applies the actions, then runs knowledge1's projection so
-//! the next illumination's SQL blocker sees the same graph v1 would have built.
+//! pending observations to a v2 [`Linker`] and applies the actions. The graph projects natively,
+//! including the blocking index, so the next illumination's SQL blocker sees the same graph v1 would
+//! have built.
 
 use sea_orm::sea_query::{Expr, ExprTrait, Query};
 use sea_orm::{
@@ -10,7 +11,6 @@ use sea_orm::{
 };
 
 use crate::database::DbHandle;
-use crate::knowledge::KnowledgeGraph;
 use crate::knowledge::blocker::{Blocker as V1Blocker, SqlBlocker};
 use crate::knowledge2::action::KnowledgeAction;
 use crate::knowledge2::graph::KnowledgeGraph2;
@@ -39,12 +39,11 @@ pub struct LinkAllReport {
     pub left_pending: usize,
 }
 
-/// The external executor: planner, graph, and the shared projection pass.
+/// The external executor: planner and graph.
 #[derive(Clone)]
 pub struct LinkHelper {
     db: DbHandle,
     graph: KnowledgeGraph2,
-    projector: KnowledgeGraph,
     blocker: SqlBlocker,
     linker: HeuristicPlanner,
 }
@@ -54,8 +53,6 @@ impl LinkHelper {
         Self {
             db: db.clone(),
             graph: KnowledgeGraph2::new(db),
-            // knowledge1, used only as the shared projection/index pass so v1 and v2 are comparable.
-            projector: KnowledgeGraph::new(db),
             blocker: SqlBlocker::new(db),
             linker: HeuristicPlanner::new(),
         }
@@ -101,9 +98,6 @@ impl LinkHelper {
                 "linking refused: {:?}",
                 report.refused
             );
-            for entity in &report.touched {
-                self.projector.update_projection(*entity).await?;
-            }
         }
 
         Ok(LinkReport {

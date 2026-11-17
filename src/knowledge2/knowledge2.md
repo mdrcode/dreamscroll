@@ -1,7 +1,7 @@
 # knowledge2: actions and their parameters
 
-Status: v10, implemented in `graph/`, `helper.rs`, and `linker.rs`. Same four tables. Proximity out
-of scope.
+Status: v11, implemented in `graph/`, `helper.rs`, and `linker.rs`. Projection and the blocking index
+run in v2. Same four tables. Proximity out of scope.
 
 Callers emit actions; one call is one transaction. No action contains a generation-scoped entity id,
 so a list is independent of the generation it is applied to.
@@ -225,6 +225,8 @@ filters them before planning.
   (2,336 / 354 / 2,802 / 2,336).
 - The full v1 rebuild afterwards reproduced the pre-run graph exactly (2,336 entities, 2,060
   identities, 2,802 memberships, 2,322 index rows).
+- Repeated after projection and the blocking index moved into v2: still an empty diff, and the v1
+  restore was byte-identical again.
 
 ## Identities are caller-supplied
 
@@ -304,9 +306,10 @@ What the code paths build:
 - **Projection set** is the union of: the new entity (create); source and target (attach); source
   (detach); winner (merge); subject (attest, retract, veto, unveto). Distinct actions touch none.
   Dedup, project once.
-- **Projection derives no identities.** The call refreshes `status` and `confidence` from the
-  identity rows; name, type, description and platform are set when the entity is created from its
-  origin. The blocking index belongs to the external blocker, never to `proc`.
+- **Projection derives no identities.** The call recomputes name, `alt_*`, descriptions, search,
+  platform presence, status and confidence from the members and the evidence, and writes the
+  entity's blocking-index row. A merge forgets the loser's row. The index is retrieval material, not
+  graph truth.
 
 ## Refusals
 

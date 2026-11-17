@@ -454,6 +454,7 @@ async fn merge<C: ConnectionTrait>(
         tombstoned == 1,
         "entity {loser_id} was tombstoned under another writer"
     );
+    crate::knowledge::blocker::index::forget(conn, loser_id).await?;
 
     execute(
         conn,

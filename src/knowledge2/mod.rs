@@ -15,7 +15,7 @@ pub mod linker;
 pub mod shape;
 
 pub use action::{Cause, KnowledgeAction};
-pub use graph::{KnowledgeGraph2, Refusal, Report};
+pub use graph::{KnowledgeGraph2, Refusal, ReprojectScope, Report};
 pub use helper::{LinkAllReport, LinkHelper, LinkReport, link_all_pending, link_illumination};
 pub use identity::{Identity, IdentityKey, Provider};
 pub use ids::{EntityOriginId, ObservationId};

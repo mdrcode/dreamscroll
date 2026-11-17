@@ -1,7 +1,8 @@
 //! The facade: one transaction per call, one match per action.
 //!
 //! It has no linker, no blocker, no resolver. Callers decide; this applies. The only derived write
-//! is the identity projection, and it runs inside the same transaction.
+//! is projection — the entity's columns and its blocking-index row — and it runs inside the same
+//! transaction.
 
 use std::collections::BTreeSet;
 
@@ -56,11 +57,16 @@ impl KnowledgeGraph2 {
 
         report.touched = touched.iter().copied().collect();
         for entity in touched {
-            project::refresh(&txn, entity).await?;
+            project::project(&txn, entity).await?;
         }
 
         txn.commit().await?;
         Ok(report)
+    }
+
+    /// Recompute projections for a scope. Maintenance, not an action.
+    pub async fn reproject(&self, scope: super::ReprojectScope) -> anyhow::Result<usize> {
+        project::reproject(&self.conn, scope).await
     }
 }
 
