@@ -5,12 +5,13 @@
 //! gate. Nothing here admits or refuses: `decide` applies the eligibility floors and the margin to
 //! the order this produces, and `gather` decided what was in the set at all.
 
-use crate::knowledge::text::content_tokens;
+use crate::knowledge2::heuristic::text::content_tokens;
+use crate::knowledge2::wikidata::WikidataCandidate;
 use crate::model;
 
 use super::gather::CandidateSet;
 use super::measure::{self, Weights};
-use super::{WikidataCandidate, plan};
+use super::plan;
 
 /// The question's authority, as a prior rather than a gate: a title answer starts ahead of a label
 /// answer, which starts ahead of a search hit — but a corroborated candidate can still overtake it.
@@ -140,7 +141,10 @@ pub(crate) fn rank(
                 surface,
                 fit,
                 label_less: label.is_empty(),
-                kind: super::classes::compatible(&entity_types, &aggregate.candidate.classes),
+                kind: crate::knowledge2::wikidata::classes::compatible(
+                    &entity_types,
+                    &aggregate.candidate.classes,
+                ),
                 head: measure::head_agrees(&entity_types, &theirs),
                 year: measure::year_relation(entity, &theirs),
                 strategy,

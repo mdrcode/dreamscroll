@@ -2,8 +2,8 @@
 //!
 //! Callers — a linker, a resolver, a person, a model — decide what should happen and emit
 //! [`KnowledgeAction`] values. [`KnowledgeGraph2::proc`] applies them in one transaction. The graph
-//! itself holds no policy: `heuristic` is the default non-agentic planner, and `blocker` is its
-//! recall.
+//! itself holds no policy: `heuristic` is the default non-agentic planner and resolver, and
+//! `blocker` is its recall.
 //!
 //! Design: `knowledge2.md`.
 

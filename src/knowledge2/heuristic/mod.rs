@@ -5,10 +5,12 @@
 //! planner can replace it without moving the graph.
 //!
 //! - [`HeuristicPlanner`] — a held identity wins; else the best qualifying candidate; else create.
+//! - [`resolution`] — the Wikidata-backed identity policy: plan, gather, rank, decide.
 //! - [`scoring`] — every number the policy guesses.
 //! - [`text`] — the non-core text measures (tokens, grams, Jaccard, near-surface, word-prefix).
 
 pub mod planner;
+pub mod resolution;
 pub mod scoring;
 pub mod text;
 

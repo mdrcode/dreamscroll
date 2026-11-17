@@ -4,10 +4,10 @@
 //! eligible at all, whether the best has enough evidence on its own, and whether it wins by a
 //! margin. A refusal is a first-class answer with a reason, not an empty one.
 
-use crate::knowledge::evidence::Identity;
+use crate::knowledge2::identity::Identity;
 use crate::model;
 
-use super::gather::{self, CandidateSet};
+use super::gather::CandidateSet;
 use super::ranking::{self, Ranked};
 
 /// What a candidate from a guessing question must look like at minimum: a prefix, not a
@@ -68,8 +68,7 @@ pub(crate) fn decide(
         return Err("two candidates fit and neither wins");
     }
     let candidate = &candidate_set[best.index].candidate;
-    Ok(gather::identity(
-        candidate,
+    Ok(candidate.identity(
         ranking::method(best.strategy, best.surface),
         ranking::confidence(&best),
     ))
@@ -86,8 +85,9 @@ fn account_only(entity: &model::knowledge_entity::Model) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::knowledge::identity::wikidata::gather::Aggregate;
-    use crate::knowledge::identity::wikidata::{WikidataCandidate, plan};
+    use super::super::plan;
+    use crate::knowledge2::heuristic::resolution::gather::Aggregate;
+    use crate::knowledge2::wikidata::WikidataCandidate;
 
     fn candidate(id: &str, label: &str, description: &str) -> Aggregate {
         Aggregate {

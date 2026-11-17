@@ -27,8 +27,8 @@
 //! - [`evidence`] — [`Identity`](evidence::Identity) and the store for `knowledge_identities`.
 //!   `identity` writes through it and `linking` reads it; it depends on `model`, `text` and
 //!   `illumination::v2` and on nothing else here.
-//! - [`text`] — the surface fold, the keys derived from it, and the words a measure compares; used
-//!   by blocking, identity, evidence and projection.
+//! - [`text`] — the core surface fold and the keys derived from it; the measures live with the
+//!   heuristic. Blocking, identity, evidence and projection use the core.
 //! - [`snapshot`] — copy the projection, empty it, diff two copies: an operation over the whole
 //!   graph, not a way of changing it.
 //! - [`helper`] — the illumination composition: which observations are linked together, and the
@@ -47,12 +47,8 @@ pub mod identity;
 pub mod linker;
 pub mod proximity;
 pub mod snapshot;
-/// v1 adapter: the core key from `knowledge2`, the measures from the heuristic.
+/// v1 adapter: the core fold and keys; the measures live with the heuristic.
 pub mod text {
-    pub use crate::knowledge2::heuristic::text::jaccard;
-    pub(crate) use crate::knowledge2::heuristic::text::{
-        content_tokens, grams, near_surface, word_prefix,
-    };
     pub(crate) use crate::knowledge2::text::{comparable, word_key};
 }
 pub mod verdicts;

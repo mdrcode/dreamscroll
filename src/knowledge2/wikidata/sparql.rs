@@ -51,8 +51,8 @@ pub(super) fn escape(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::knowledge::identity::wikidata::WikidataKind;
-    use crate::knowledge::identity::wikidata::property_query::PropertyId;
+    use crate::knowledge2::wikidata::WikidataKind;
+    use crate::knowledge2::wikidata::property_query::PropertyId;
 
     fn request(kind: WikidataKind, query: &str) -> Request<WikidataKind> {
         Request {

@@ -238,6 +238,19 @@ If Link and Resolve are replaced by LLM-driven flows that do their own text, the
 `IdentityKey::try_from`) is producer-side: the caller supplies canonical `(scheme, external_id)`
 strings, and the graph stores them as given.
 
+## Identity resolution
+
+`knowledge2::wikidata` is the common authority layer: provider id, language, request kinds, SPARQL,
+transport, parsed candidate and class table. It does not rank or write.
+
+`knowledge2::heuristic::resolution` is today's policy: `plan` asks, `gather` parses the candidate
+set, `measure` and `ranking` score, and `decide` chooses. It produces `knowledge2::Identity`; the v1
+`IdentityResolver` adapter (`knowledge::identity::wikidata`) converts that to the v1 row until the v2
+action producer replaces the engine.
+
+Both the heuristic and a future agentic resolver go through `knowledge2::wikidata`; only the policy
+half is replaceable. Removing `knowledge2::heuristic` leaves the core and the graph untouched.
+
 ## Corpus check
 
 2026-11-17, local corpus, `link` only on both engines (2,802 observations, 732 illuminations):

@@ -6,8 +6,9 @@
 //! first, paces the call and charges the budget. Adding a provider means implementing
 //! [`IdentityResolver`]; it cannot forget the cache, because there is no other door.
 //!
-//! What lives here is everything that knows what a knowledge entity *is*: the authority contract and
-//! the run loop that drives it (`engine`), and the authority that answers today (`wikidata`).
+//! What lives here is the v1 write path: the authority contract and the run loop (`engine`), and the
+//! adapter to the extracted Wikidata authority (`wikidata`). The core is `knowledge2::wikidata`; the
+//! policy is `knowledge2::heuristic::resolution`.
 //!
 //! A resolver returns an entity's identities, not an edge to a shared row. The engine replaces that
 //! provider's complete set for every entity the run answered about.

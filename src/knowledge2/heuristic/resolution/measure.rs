@@ -9,10 +9,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::knowledge::text::{self, content_tokens, grams, near_surface, word_prefix};
+use crate::knowledge2::heuristic::text::{content_tokens, grams, near_surface, word_prefix};
+use crate::knowledge2::text;
+use crate::knowledge2::wikidata::WikidataCandidate;
 use crate::model;
-
-use super::WikidataCandidate;
 
 /// How strongly a surface bears a name: 1.0 is the same name, 0.0 is a different one.
 ///

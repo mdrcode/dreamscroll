@@ -3,12 +3,11 @@
 //! Pure and stateless — no client, no `self`. `resolver` decides *when* to ask and what an answer
 //! means; this decides only *what*.
 
-use super::ID;
-use super::WikidataKind;
-use super::property_query::platform_link_queries;
 use crate::fetch::Request;
 use crate::illumination::v2::PlatformLink;
-use crate::knowledge::text;
+use crate::knowledge2::text;
+use crate::knowledge2::wikidata::property_query::platform_link_queries;
+use crate::knowledge2::wikidata::{ID, WikidataKind};
 use crate::model;
 
 /// One request, carrying the shape that produced it. Only place requests are built here.
@@ -144,7 +143,7 @@ fn title(entity: &model::knowledge_entity::Model) -> Option<Request<WikidataKind
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::knowledge::identity::wikidata::property_query::PropertyId;
+    use crate::knowledge2::wikidata::property_query::PropertyId;
     use crate::test_support::fixtures::stub_entity;
 
     fn entity(label: &str) -> model::knowledge_entity::Model {
