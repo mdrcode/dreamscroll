@@ -215,6 +215,17 @@ A v2 `Linker` is a policy: the pending batch in, one `KnowledgeAction` per obser
 The caller selects the batch. Already-linked observations are not the planner's problem; the helper
 filters them before planning.
 
+## Corpus check
+
+2026-11-17, local corpus, `link` only on both engines (2,802 observations, 732 illuminations):
+
+- v1: 2,336 created · 466 attached · 0 left pending.
+- v2: 2,336 created · 466 attached · 0 left pending.
+- The full shapes — entities, identities, memberships, blocking-index rows — diffed **empty**
+  (2,336 / 354 / 2,802 / 2,336).
+- The full v1 rebuild afterwards reproduced the pre-run graph exactly (2,336 entities, 2,060
+  identities, 2,802 memberships, 2,322 index rows).
+
 ## Identities are caller-supplied
 
 If an observation's platform columns should become an identity, the caller says so. The caller — today
