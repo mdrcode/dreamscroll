@@ -272,8 +272,8 @@ mod tests {
         super::link_all_pending(&right).await.unwrap();
 
         assert_eq!(
-            crate::knowledge2::shape::read(&left).await.unwrap(),
-            crate::knowledge2::shape::read(&right).await.unwrap(),
+            crate::knowledge2::canonical::read(&left).await.unwrap(),
+            crate::knowledge2::canonical::read(&right).await.unwrap(),
         );
     }
 

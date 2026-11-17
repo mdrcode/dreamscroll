@@ -116,5 +116,5 @@ This makes `reproject` a function of the durable graph rather than of its own pr
 - `src/knowledge2/graph/project.rs`
 - `src/knowledge2/graph/graph.rs` (`proc`, `reproject`)
 - `src/knowledge/blocker/index.rs` (fingerprint and write)
-- `src/knowledge2/shape.rs` (verification)
+- `src/knowledge2/canonical.rs` (verification)
 - `src/knowledge/graph/project.rs` (v1 control, until deleted)

@@ -1,9 +1,9 @@
 //! A canonical, id-independent view of the graph, for v1/v2 comparison and diffs.
 //!
-//! This is a logical shape, not a database snapshot: `knowledge::snapshot` archives the projection
-//! tables. Row ids, timestamps, and user ownership are excluded here. An entity is keyed by its
-//! origin observation, which survives a rebuild; every section is a sorted list of lines, so two
-//! runs are a plain text diff.
+//! The `shape` CLI prints its [`CanonicalGraph::render`]. This is a logical view, not a database
+//! snapshot: `knowledge::snapshot` archives the projection tables. Row ids, timestamps, and user
+//! ownership are excluded here. An entity is keyed by its origin observation, which survives a
+//! rebuild; every section is a sorted list of lines, so two runs are a plain text diff.
 
 use std::collections::HashMap;
 
@@ -14,14 +14,14 @@ use crate::model;
 
 /// One graph, in four sorted sections.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Shape {
+pub struct CanonicalGraph {
     pub entities: Vec<String>,
     pub identities: Vec<String>,
     pub memberships: Vec<String>,
     pub index: Vec<String>,
 }
 
-impl Shape {
+impl CanonicalGraph {
     pub fn render(&self) -> String {
         let mut out = String::new();
         section(&mut out, "entities", &self.entities);
@@ -41,7 +41,7 @@ fn section(out: &mut String, name: &str, lines: &[String]) {
     out.push('\n');
 }
 
-pub async fn read(db: &DbHandle) -> anyhow::Result<Shape> {
+pub async fn read(db: &DbHandle) -> anyhow::Result<CanonicalGraph> {
     let entities = model::knowledge_entity::Entity::find()
         .all(&db.conn)
         .await?;
@@ -134,7 +134,7 @@ pub async fn read(db: &DbHandle) -> anyhow::Result<Shape> {
         .collect();
     index_lines.sort();
 
-    Ok(Shape {
+    Ok(CanonicalGraph {
         entities: entity_lines,
         identities: identity_lines,
         memberships: membership_lines,

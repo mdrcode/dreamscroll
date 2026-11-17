@@ -15,7 +15,7 @@ pub mod heuristic;
 pub mod helper;
 pub mod identity;
 pub mod ids;
-pub mod shape;
+pub mod canonical;
 pub mod text;
 pub mod wikidata;
 
