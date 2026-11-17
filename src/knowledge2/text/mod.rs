@@ -17,7 +17,7 @@
 //! moves it, which is what makes a stale `knowledge_blocking_index` visible instead of silent.
 //!
 //! Nothing here knows what a platform is. A capture's `(platform, handle)` becomes an
-//! [`IdentityKey`](crate::knowledge::evidence::IdentityKey) from these folds, and both halves are
+//! [`IdentityKey`](crate::knowledge2::identity::IdentityKey) from these folds, and both halves are
 //! treated like any surface. And nothing here rewrites the captured surface: the questions above are
 //! asked about it, never stored in its place. Inner punctuation is preserved on purpose — `C`, `C#`
 //! and `C++` are three different things.

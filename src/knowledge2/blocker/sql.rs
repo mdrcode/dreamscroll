@@ -11,7 +11,7 @@ use sea_orm::{
 
 use super::Blocker;
 use crate::database::DbHandle;
-use crate::knowledge::text;
+use crate::knowledge2::text;
 use crate::model;
 
 /// Reads `knowledge_blocking_index` for every candidate.

@@ -43,7 +43,7 @@ pub(crate) fn word_prefix(short: &str, long: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::knowledge::text::comparable;
+    use crate::knowledge2::text::comparable;
 
     /// The fold is shared with the graph, so the near-surface test inherits its diacritic and spacing
     /// work. The old bespoke key kept the accent, so `Pokémon` and `Pokemon` never met.

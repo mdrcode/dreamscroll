@@ -56,7 +56,7 @@ pub(crate) fn word_key(comparable: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::knowledge::text::comparable;
+    use crate::knowledge2::text::comparable;
 
     fn key(surface: &str) -> String {
         word_key(&comparable(surface))

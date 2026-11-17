@@ -47,7 +47,7 @@ pub mod identity;
 pub mod linker;
 pub mod proximity;
 pub mod snapshot;
-pub mod text;
+pub use crate::knowledge2::text;
 pub mod verdicts;
 
 pub use graph::{KnowledgeGraph, LinkReport, ReplayReport};

@@ -12,7 +12,7 @@ use sea_orm::sea_query::{Expr, ExprTrait, OnConflict, Query};
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 
 use crate::database::DbHandle;
-use crate::knowledge::text;
+use crate::knowledge2::text;
 use crate::model;
 
 /// The two generations the index stores, in the entity's surface order.
