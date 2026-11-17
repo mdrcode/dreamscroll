@@ -14,14 +14,13 @@ use sea_orm::{
     Statement, TransactionTrait,
 };
 
-use super::record::{CORE_TABLE, IDENTITIES_TABLE, PROXIMITIES_TABLE, Snapshot};
+use super::record::{CORE_TABLE, IDENTITIES_TABLE, Snapshot};
 
 use crate::database;
 use crate::model::{
     knowledge_blocking_index as blocking, knowledge_entity as entity,
     knowledge_generations as generation, knowledge_identity as identities,
-    knowledge_proximities as proximities, knowledge_verdicts as verdicts,
-    user_observed_entity as observation,
+    knowledge_verdicts as verdicts, user_observed_entity as observation,
 };
 
 const OBSERVATION_TABLE: &str = "user_observed_entities";
@@ -36,8 +35,8 @@ const RETAIN_SNAPSHOTS: usize = 10;
 const SNAPSHOT_FAMILIES: &[&str] = &[
     CORE_TABLE,
     IDENTITIES_TABLE,
-    PROXIMITIES_TABLE,
     // Old snapshots keep their shape; the family stays so retention still prunes them.
+    "knowledge_proximities",
     "knowledge_claims",
     "knowledge_entity_membership",
     "core_knowledge_entities",
@@ -63,13 +62,11 @@ fn is_snapshot_suffix(suffix: &str) -> bool {
 pub struct Report {
     /// Observations whose `knowledge_entity_id` was cleared.
     pub unlinked: u64,
-    pub proximities: u64,
     pub entities: u64,
     /// `None` when there was nothing to snapshot.
     pub snapshot: Option<Snapshot>,
     pub snapshot_entities: u64,
     pub snapshot_identities: u64,
-    pub snapshot_proximities: u64,
     pub snapshot_members: u64,
     /// Archive tables dropped by the retention policy.
     pub pruned_snapshots: u64,
@@ -80,7 +77,6 @@ pub struct Report {
 pub struct Preview {
     pub entities: u64,
     pub identities: u64,
-    pub proximities: u64,
     pub members: u64,
 }
 
@@ -89,7 +85,6 @@ pub async fn preview(db: &database::DbHandle) -> anyhow::Result<Preview> {
     Ok(Preview {
         entities: entity::Entity::find().count(&db.conn).await?,
         identities: identities::Entity::find().count(&db.conn).await?,
-        proximities: proximities::Entity::find().count(&db.conn).await?,
         members: observation::Entity::find()
             .filter(observation::Column::KnowledgeEntityId.is_not_null())
             .count(&db.conn)
@@ -107,7 +102,7 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                 if entity::Entity::find().count(txn).await? == 0 {
                     // Nothing to preserve: do not leave empty archive tables behind.
                     let unlinked = unlink(txn).await?;
-                    supersede_generation(txn, None, 0, 0, 0, 0).await?;
+                    supersede_generation(txn, None, 0, 0, 0).await?;
                     let pruned_snapshots = prune_snapshots(txn, RETAIN_SNAPSHOTS).await?;
                     return Ok(Report {
                         unlinked,
@@ -119,8 +114,6 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                 let snapshot_entities = copy(txn, &snapshot.entities(), CORE_TABLE).await?;
                 let snapshot_identities =
                     copy(txn, &snapshot.identities(), IDENTITIES_TABLE).await?;
-                let snapshot_proximities =
-                    copy(txn, &snapshot.proximities(), PROXIMITIES_TABLE).await?;
                 let snapshot_members = copy_membership(txn, &snapshot.membership()).await?;
 
                 // Order follows the foreign keys: annotations before the entities they name,
@@ -128,10 +121,6 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                 let unlinked = unlink(txn).await?;
                 // Derived from the entities themselves: gone before them, back with them.
                 blocking::Entity::delete_many().exec(txn).await?;
-                let proximities = proximities::Entity::delete_many()
-                    .exec(txn)
-                    .await?
-                    .rows_affected;
                 identities::Entity::delete_many().exec(txn).await?;
                 let entities = entity::Entity::delete_many().exec(txn).await?.rows_affected;
 
@@ -140,7 +129,6 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                     Some(&snapshot.suffix),
                     entities,
                     snapshot_identities,
-                    proximities,
                     snapshot_members,
                 )
                 .await?;
@@ -148,12 +136,10 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
 
                 Ok(Report {
                     unlinked,
-                    proximities,
                     entities,
                     snapshot: Some(snapshot),
                     snapshot_entities,
                     snapshot_identities,
-                    snapshot_proximities,
                     snapshot_members,
                     pruned_snapshots,
                 })
@@ -173,7 +159,6 @@ async fn supersede_generation<C: ConnectionTrait>(
     snapshot: Option<&str>,
     entities: u64,
     identities: u64,
-    proximities: u64,
     members: u64,
 ) -> anyhow::Result<()> {
     let current = crate::knowledge2::graph::current_generation(conn).await?;
@@ -209,10 +194,6 @@ async fn supersede_generation<C: ConnectionTrait>(
             Expr::value(Some(identities as i32)),
         )
         .col_expr(generation::Column::Merges, Expr::value(Some(merges as i32)))
-        .col_expr(
-            generation::Column::Proximities,
-            Expr::value(Some(proximities as i32)),
-        )
         .col_expr(
             generation::Column::Members,
             Expr::value(Some(members as i32)),

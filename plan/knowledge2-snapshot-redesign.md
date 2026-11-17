@@ -17,12 +17,12 @@ place; the table-name discovery has not.
 
 Four files under `src/knowledge/snapshot/`:
 
-- `record.rs` — `Snapshot { suffix }`; suffix is `%Y%m%dT%H%M%S%3f`; four archive table names:
+- `record.rs` — `Snapshot { suffix }`; suffix is `%Y%m%dT%H%M%S%3f`; three archive table names:
   `knowledge_entities__<suffix>`, `knowledge_identities__<suffix>`,
-  `knowledge_proximities__<suffix>`, `knowledge_entity_membership__<suffix>`. Copies with
-  `CREATE TABLE AS SELECT`, not rename, because the live tables carry FKs and fixed index names.
-- `reset.rs` — one transaction: copy four tables, unlink observations, delete blocking index,
-  proximities, identities, entities; close the generation row with the snapshot suffix and counts;
+  `knowledge_entity_membership__<suffix>`. Copies with `CREATE TABLE AS SELECT`, not rename,
+  because the live tables carry FKs and fixed index names.
+- `reset.rs` — one transaction: copy three tables, unlink observations, delete blocking index,
+  identities, entities; close the generation row with the snapshot suffix and counts;
   open the next generation; prune old archives. Empty graph creates no snapshot. Retention is
   `RETAIN_SNAPSHOTS = 10`, discovered by scanning `information_schema` and matching a historical
   `SNAPSHOT_FAMILIES` list plus a suffix regex.
@@ -64,8 +64,8 @@ Change:
 3. **Make retention a policy, not a constant.** Keep the default 10, but make the count a CLI/config
    argument; prune by generation order.
 4. **Decide what the archive is for.** `compare` uses only membership and entity labels. Identities
-   and proximities are copied and counted but never read by code. If the archive is only for linker
-   partition diffs, copy less; if it is time-travel, keep identities and document the manual use.
+   are copied and counted but never read by code. If the archive is only for linker partition diffs,
+   copy less; if it is time-travel, keep identities and document the manual use.
 5. **Handle suffix collisions.** Two resets in one millisecond collide. Fail with a clear error or
    use a database-side unique suffix.
 6. **Separate concerns.** `reset.rs` mixes snapshot creation, graph clearing, generation

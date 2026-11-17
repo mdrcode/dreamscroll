@@ -27,7 +27,6 @@ pub struct Model {
     pub entities: Option<i32>,
     pub identities: Option<i32>,
     pub merges: Option<i32>,
-    pub proximities: Option<i32>,
     pub members: Option<i32>,
 }
 

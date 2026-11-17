@@ -11,7 +11,6 @@
 //! - [`linker`] — which candidate wins: the [Linker] trait and today's heuristic.
 //! - [`graph`] — what the graph holds and every way it changes: [`KnowledgeGraph`], projection, merge
 //!   and the verdicts.
-//! - [`proximity`] — the derived batch of look-alike pairs, and the passes that produce and answer it.
 //! - [`eval`] — offline diagnostics: blocking recall, and one entity's walk through the resolver.
 //!
 //! Identification's shared primitive is `KnowledgeGraph2::selector().awaiting_identity`; the
@@ -43,7 +42,6 @@ pub mod evidence;
 pub mod graph;
 pub mod helper;
 pub mod linker;
-pub mod proximity;
 /// v1 adapter: the core fold and keys; the measures live with the heuristic.
 pub mod text {
     pub(crate) use crate::knowledge2::text::{comparable, word_key};
@@ -52,4 +50,3 @@ pub mod verdicts;
 
 pub use graph::{KnowledgeGraph, LinkReport, ReplayReport};
 pub use helper::{LinkAllReport, link_all_pending, link_illumination};
-pub use proximity::AutoMergeReport;

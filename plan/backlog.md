@@ -257,7 +257,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
      function — one comparator, no NULL rule to keep in sync.
   4. **The third holder's pair is never asked.** With three or more holders `scan` pairs every other
      holder against `holders.first()`, so `(h2, h3)` never becomes a proximity and that question is
-     invisible in `proximity list`. The corpus never exceeds two holders, so nothing is missing yet.
+     invisible in `proximity scan`. The corpus never exceeds two holders, so nothing is missing yet.
 
   1 is ranker policy and belongs with the resolver, not the linker. Full statement, options and the
   rebuild recipe: [wikidata-cleanup-20261112.md](archive/wikidata-cleanup-20261112.md). Note that the scoring

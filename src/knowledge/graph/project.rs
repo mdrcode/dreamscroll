@@ -132,8 +132,8 @@ pub(super) async fn project<C: ConnectionTrait>(
         .all(conn)
         .await?;
     // Status is one axis: how well substantiated the entity is. Whether it shares an identity with
-    // another entity is a different question, answered by `knowledge_proximities` at pair
-    // granularity — a third status value conflated the two and had to be re-projected on every scan.
+    // another entity is a different question, answered by a proximity scan at pair granularity — a
+    // third status value conflated the two and had to be re-projected on every scan.
     let status = model::knowledge_entity::Status::of(identities.len());
 
     let confidence = best_confidence(&identities);
@@ -282,23 +282,6 @@ mod tests {
 
     async fn annotate(db: &DbHandle, id: i32, scheme: &str, value: &str) {
         fixtures::identity(db, id, scheme, value, "test", None, None).await;
-    }
-
-    async fn proximity(db: &DbHandle, holder: i32, scheme: &str, value: &str) {
-        let claimant = fixtures::knowledge_entity_with_member(db, "a claimant").await;
-        model::knowledge_proximities::Entity::insert(model::knowledge_proximities::ActiveModel {
-            holder_id: Set(holder),
-            counterpart_id: Set(claimant),
-            scheme: Set(Some(scheme.to_string())),
-            external_id: Set(Some(value.to_string())),
-            candidate_why: Set(crate::knowledge::proximity::CandidateWhy::SharedId
-                .as_str()
-                .to_string()),
-            ..Default::default()
-        })
-        .exec(&db.conn)
-        .await
-        .unwrap();
     }
 
     async fn load(db: &DbHandle, id: i32) -> entity::Model {
@@ -496,25 +479,6 @@ mod tests {
         assert_eq!(
             entity.confidence, None,
             "an identity without a confidence does not invent one"
-        );
-    }
-
-    /// Sharing an identity with another entity is a separate question from how well substantiated
-    /// this one is, so it must not leak into the status.
-    #[tokio::test]
-    async fn a_proximity_does_not_change_the_status() {
-        let Some(db) = test_db::test_db().await else {
-            return;
-        };
-        let db = db.handle();
-        let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        proximity(&db, id, "wikidata", "Q104919").await;
-
-        store(&db).update_projection(id).await.unwrap();
-
-        assert_eq!(
-            load(&db, id).await.status,
-            model::knowledge_entity::Status::Provisional
         );
     }
 

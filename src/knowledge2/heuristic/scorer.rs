@@ -5,12 +5,12 @@
 //! - [`HeuristicScorer::link`] — a capture against the graph's entities: the qualifying candidates, best
 //!   first. Empty means start a new entity.
 //! - [`HeuristicScorer::merge`] — two entities, as a verdict. A set of one is the pair question.
-//! - [`HeuristicScorer::pair`] — two entities, as the number a proximity row stores.
+//! - [`HeuristicScorer::pair`] — two entities, as the number a proximity candidate carries.
 //!
 //! The filter is the part a number could not carry: `same` is a conjunction — a name match *and*
 //! something corroborating it — which is why the questions answer with a filtered, ordered list
 //! rather than a threshold on the score. A pair that fails the conjunction still answers
-//! [`HeuristicScorer::pair`], so "same name, different type: 0.74" stays visible on the proximity list
+//! [`HeuristicScorer::pair`], so "same name, different type: 0.74" stays visible on the candidate list
 //! even though it will never be folded.
 //!
 //! One implementation, so this is a type and not a trait bundle. A second policy would reintroduce
@@ -73,7 +73,7 @@ impl HeuristicScorer {
         )
     }
 
-    /// Two entities, as the number a proximity row stores. No qualification: a pair that will never
+    /// Two entities, as the number a proximity candidate carries. No qualification: a pair that will never
     /// be folded still has a score to show.
     pub fn pair(&self, a: &Entity, b: &Entity) -> f32 {
         features_of_entities(a, b).total

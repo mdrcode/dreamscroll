@@ -83,14 +83,6 @@ END;
 $sync$;
 "#;
 
-/// The pair, which is how the batch is read (the merge pass and the list). Not unique: the table is
-/// one scan's output and is replaced wholesale, and `scan` itself raises a pair once even when two
-/// identities connect the same two entities.
-const PROXIMITIES_PAIR: &str = r#"
-CREATE INDEX IF NOT EXISTS "idx-knowledge_proximities_pair"
-    ON knowledge_proximities (holder_id, counterpart_id)
-"#;
-
 /// A tombstone must point at another entity, never at itself: self-merge is a no-op in the code, and
 /// a row that pointed at itself would be an unbreakable redirect loop.
 ///
@@ -121,7 +113,6 @@ BEGIN
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_identities_provider_entity');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_identities_observation');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-user_observed_entities-knowledge_entity');
-    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_proximities_pair');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_blocking_index-surfaces');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_blocking_index-word_keys');
 END;
@@ -140,9 +131,6 @@ pub async fn after_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr
     conn.execute_unprepared(IDENTITIES_PROVIDER).await?;
     conn.execute_unprepared(IDENTITIES_OBSERVATION).await?;
     conn.execute_unprepared(OBSERVATIONS_ENTITY).await?;
-    conn.execute_unprepared(PROXIMITIES_PAIR).await?;
-    conn.execute_unprepared("DROP INDEX IF EXISTS \"idx-knowledge_proximities_open\"")
-        .await?;
     conn.execute_unprepared(INDEX_SURFACES).await?;
     conn.execute_unprepared(ARRAY_DEFAULTS).await?;
     conn.execute_unprepared(NOT_SELF_MERGED).await?;

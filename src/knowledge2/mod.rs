@@ -10,6 +10,7 @@
 pub mod mutation;
 pub mod blocker;
 pub mod graph;
+pub mod proximity;
 pub mod replay;
 pub mod snapshot;
 pub mod heuristic;

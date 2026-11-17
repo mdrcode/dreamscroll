@@ -52,7 +52,6 @@ observation.
 | **knowledge entity** | `KnowledgeEntity` | `knowledge_entities` | `id`, `created_at`, `updated_at`, `name`, `alt_names`, `entity_type`, `alt_types`, `description`, `alt_descriptions`, `search_query`, `alt_search_queries`, `platform`, `platform_handle`, `platform_display_name`, `status`, `confidence`, `merged_into_id`, `origin_observation_id` |
 | **identity** (schema 39) | `KnowledgeIdentity` | `knowledge_identities` | `id`, `knowledge_entity_id`, `scheme`, `external_id`, `label`, `description`, `classes`, `provider`, `method`, `confidence`, `user_observed_entity_id`, `observed_at` |
 | **merge** | `KnowledgeVerdict` | `knowledge_verdicts` | `id`, `generation`, `kind`, `cause`, `winner_origin`, `loser_origin`, `subject_origin`, `identity_scheme`, `identity_external_id`, `winner_label`, `loser_label`, `decided_at`, `note` |
-| **proximity** | `KnowledgeProximity` | `knowledge_proximities` | `id`, `holder_id`, `counterpart_id`, `scheme`, `external_id`, `candidate_why`, `score`, `scanned_at` |
 
 Two things have no table: an **identity key** is `(scheme, external_id)`, which one or more entity
 annotations may carry, and a **snapshot** is what `reset` saves and `compare` diffs.
@@ -74,11 +73,10 @@ annotations may carry, and a **snapshot** is what `reset` saves and `compare` di
 > **Resolve** asks *what can the identity resolvers tell us about this thing?* — it records the answers as
 > evidence.
 
-Resolution writes identity annotations, and the graph records two things that are **about the graph
-rather than the world**: a proximity (two entities that hold one identity, awaiting a decision) and a
-merge (a mutation, recorded for whoever reverses it). Those live in their own tables — see below —
-because one table answering two questions needs a `kind` discriminator, two payload shapes and a
-per-kind index.
+Identification writes identity annotations, and the graph records one thing that is **about the graph
+rather than the world**: a merge (a mutation, recorded for whoever reverses it). A proximity scan is
+a transient read of the entities that currently share an identity; it is not a table and not a
+decision.
 
 ## Verbs
 
@@ -93,13 +91,12 @@ per-kind index.
 | **reset** | drop derived state, keep observations | pure |
 | **compare** | snapshot → snapshot diff | pure |
 
-## Identities, proximities and merges
+## Identities and merges
 
 | Table | Is | Written by |
 | --- | --- | --- |
 | `knowledge_identities` | the canonical document a provider holds for this entity: `(scheme, external_id)`. One document may cover several distinct referents (an album and its songs, a film and its characters) | `link` (a capture's handle), `resolve` (an identity resolver's complete answer) |
-| `knowledge_proximities` | a judgement about our data: two entities looked close enough to ask about at the last scan, and the score that pass gave them — one scan's batch, replaced wholesale | `proximity::scan`, and nothing else |
-| `knowledge_verdicts` | a mutation of our data: one thing folded into another (`kind` = `merge`), an annotation declared not evidence (`veto_identity`), or two origins declared separate despite a shared canonical document (`distinct`) — what decided it (`repair`, `proximity_auto`, `replayed`), and which generation; a log, keyed by origin so it survives a rebuild | `proximity auto-merge`, `merge`, the veto commands, and `verdicts replay` |
+| `knowledge_verdicts` | a mutation of our data: one thing folded into another (`kind` = `merge`), an annotation declared not evidence (`veto_identity`), or two origins declared separate despite a shared canonical document (`distinct`) — what decided it (`repair`, `replayed`, historical `proximity_auto`), and which generation; a log, keyed by origin so it survives a rebuild | `merge`, the veto commands, and `verdicts replay` |
 
 `enrichment` and `rejection` remain reserved kinds in the vocabulary, not tables: enrichment is the
 identity resolver's answer about an identity — its `label`, `description`, and `classes` — and it lives on
@@ -112,7 +109,7 @@ method and confidence. Replacing a provider's set never rewrites another provide
 **A key is a document, not a unique name.** `(scheme, external_id)` is the most canonical record we
 have for an entity, and one record can cover several distinct referents: Wikidata often has no item
 for a song, so the song carries its album's QID; a character carries the film's. Sharing a key is a
-`proximity` candidate, not a claim of sameness. `distinct` is the ordinary answer when the referents
+`proximity scan` candidate, not a claim of sameness. `distinct` is the ordinary answer when the referents
 differ; `veto_identity` is only for an annotation that does not describe the entity at all.
 
 ## Status
@@ -121,8 +118,8 @@ differ; `veto_identity` is only for an annotation that does not describe the ent
 identity annotation; it is not the past participle of `resolve`, which may abstain.
 
 There is no `contested` status. "This entity shares an identity with another and nobody has decided"
-is a **proximity** — a pair-level record with a score and a verdict — and folding it into one field
-alongside substantiation conflated two questions and had to be re-projected on every scan.
+is a **proximity candidate** — a transient pair-level read with a score — and folding it into one
+field alongside substantiation conflated two questions and had to be re-projected on every scan.
 
 ## Names considered and rejected
 
@@ -138,9 +135,8 @@ against the codebase first; this table is the record.
 | *CoreKnowledgeEvidence* / *evidence* | one table with a `kind` discriminator for three different statements; split into claims, collisions and merges |
 | *knowledge_evidence* (for the identity table, schema 23) | a QID is the referent, not a statement about it, and half of the identities are platform handles read off a capture — neither has an external assertion to be evidence *of*. `identity` is already this lexicon's word for `(scheme, external_id)`, so the table adds no vocabulary. Reconsider only as a fourth, statement-level table (`knowledge_evidence` = one row per resolver answer, with identities derived), which is a different and larger model |
 | *label* / *alt_labels* | technical jargon for the same idea; `name`/`alt_names` is plain and keeps the singular/plural pattern |
-| *identify* | presupposes success, and resolution abstains often; also too narrow — it names only one of the kinds |
 | *related_core_id* | one column with two meanings selected by `kind`; deleted, the role lives in the payload |
-| *contested* (status) | a derived boolean stored beside substantiation; the proximity record already says it at pair granularity |
+| *contested* (status) | a derived boolean stored beside substantiation; the proximity scan already says it at pair granularity |
 | *knowledge_id* | names a layer, not a thing; there is no `knowledge` table, and `knowledge_evidence` invites the wrong join |
 | *oracle* (for a provider, or for `Request::provider`) | already this project's word for the measurement ground truth — *"an exhaustive scan over a corpus is the oracle"* (`plan/archive/knowledge-blocking.md`), and the deleted in-memory blocker was *the parity oracle*. It also connotes infallibility, which is the opposite of the stance: `found` means candidates came back, not that one is the referent. Kept `provider` |
 | *quota* (for what a run may spend) | already the provider's limit, in code: `"vertex: quota exceeded"`. A quota is granted by someone else; `max_calls` is our own anti-spam budget, and the provider's real quota is what a `429` reports. One word for both would erase the distinction `Refusal::RateLimited` exists to draw. Kept `Allowance`, whose two refusals are `Budget` and `RateLimited` |

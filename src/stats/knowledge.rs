@@ -62,10 +62,6 @@ pub struct KnowledgeStats {
     pub entities: u64,
     pub provisional: u64,
     pub identified: u64,
-    /// Candidates in the batch the last scan produced.
-    pub proximities: u64,
-    /// Entities appearing on either side of a candidate.
-    pub entities_in_proximity: u64,
     /// Platform links observed on captures, grouped by platform. This is the input side of the
     /// provider/scheme breakdown: what the illuminator actually saw, before linking collapses
     /// repeated handles into identities.
@@ -306,31 +302,6 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
             })
         })
         .collect::<Result<Vec<_>, sea_orm::DbErr>>()?;
-
-    // One scan's candidates: the whole table.
-    let row = db
-        .conn
-        .query_one_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            "SELECT count(*) FROM knowledge_proximities",
-        ))
-        .await?
-        .expect("count always returns one row");
-    stats.proximities = row.try_get_by_index::<i64>(0)? as u64;
-
-    let row = db
-        .conn
-        .query_one_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            "SELECT count(*) FROM ( \
-               SELECT holder_id AS entity FROM knowledge_proximities \
-               UNION \
-               SELECT counterpart_id FROM knowledge_proximities \
-             ) sides",
-        ))
-        .await?
-        .expect("count always returns one row");
-    stats.entities_in_proximity = row.try_get_by_index::<i64>(0)? as u64;
 
     // The cache owns what an outcome means; this only reports what it counted.
     let cache = crate::fetch::stats::tally(&db.conn).await?;

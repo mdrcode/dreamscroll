@@ -147,14 +147,14 @@ in `../knowledge2/heuristic/scorer.rs`:
 - `HeuristicScorer::link` — a capture against the graph's entities: the qualifying candidates, best first.
   Empty means start a new entity.
 - `HeuristicScorer::merge` — two entities, as a verdict. A set of one is the pair question; `HeuristicScorer::pair`
-  is the same number without the filter, which is what a proximity row stores.
+  is the same number without the filter, which is what a proximity candidate carries.
 
 The filter is not a threshold on the score: the rule is a conjunction — a name match has to be
 corroborated — and a number cannot carry its own components. That is also why a rejected pair still
 reports its score: `Nintendo [organization] ⇄ Nintendo [brand]` at 0.74 is a pair that must never
 merge, and the number is how a person sees why.
 
-The linker **holds** the heuristic; the proximity passes are **handed** it. There is one
+The linker holds the scorer; the proximity scan constructs one to rank its candidates. There is one
 implementation, so there is no trait seam to swap: a second policy would reintroduce one, and the
 measured-out trait version is in git history.
 
@@ -229,15 +229,12 @@ decision can be re-run over cached payloads for free — that is what the resolv
 
 ## Evidence: why we believe it
 
-Three tables, because they answer three different questions:
+Two tables, because they answer two different questions:
 
 ```
 knowledge_identities   an annotation on one entity: scheme + external id, and the answer its
                        provider gave (label, description, classes, method, confidence);
                        provider is a resolver id, `illuminator`, or `model`
-knowledge_proximities  two entities the graph considers close, the score a pass computed, and
-                       what nominated them (`candidate_why`) — one scan's batch, replaced wholesale
-                       by the next
 knowledge_verdicts     a person's decision, and what decided it — the modification log: a
                        `merge` (two origins), a `veto_identity` (the annotation is not
                        evidence for that entity), or a `distinct` (two origins are
@@ -246,15 +243,15 @@ knowledge_verdicts     a person's decision, and what decided it — the modifica
 
 An identity annotation belongs to one entity. Its durable name is the pair `(scheme, external_id)`;
 the row is one provider's statement of it. Two providers may assert one key for one entity — that is
-corroboration with its own confidence and method — and two entities may hold one key, which is what
-`proximity` asks about. The uniqueness is `(entity, provider, scheme, external_id)`: one provider
+corroboration with its own confidence and method — and two entities may hold one key, which a
+proximity scan reports. The uniqueness is `(entity, provider, scheme, external_id)`: one provider
 annotates an entity with a key once, and replacing that provider's set is one delete and one insert.
 
 **A key is a document, not a unique name.** `(scheme, external_id)` is the most canonical record we
 have for an entity, and one record can cover several distinct referents: Wikidata often has no item
 for a song, so the song carries its album's QID; a character carries the film's; a board carries its
 site's. The row says "this is the best attestation we found", not "these are the same thing".
-Sharing a key is therefore only ever a **candidate** for `proximity`, never a verdict.
+Sharing a key is therefore only ever a **candidate**, never a verdict.
 
 The answers follow, and the distinction is the point:
 
@@ -267,28 +264,19 @@ The answers follow, and the distinction is the point:
   Never veto merely because two referents differ: granularity is not error.
 - **Undecided** — no action. The pair stays `open` for a person.
 
-A proximity is a judgement about our own rows and a merge is a mutation of them. `enrichment` and
-`rejection` stay reserved vocabulary, not tables: the identity row's `label`, `description` and
+A proximity candidate is a question about our own rows and a merge is a mutation of them. `enrichment`
+and `rejection` stay reserved vocabulary, not tables: the identity row's `label`, `description` and
 `classes` are filled by whichever identification step wrote it, and nothing fetches them by identity
 alone — a held QID is not yet a reason to ask about its item.
 
-Sharing an identity is a **candidate**, not a verdict. `proximity` asks the question: for each key
-with two or more holder entities, score the holders pairwise with the heuristic the pass is handed,
-fold the pairs that look like one thing, and queue the ones the shared-illumination rule refuses.
+Sharing an identity is a **candidate**, not a verdict. `proximity scan` is a read: for each key with
+two or more live holders, it scores the holders pairwise with `HeuristicScorer` and prints the list.
+Nothing is persisted; the next scan reflects the graph then. Automatic merge is gone — folding is
+always a deliberate `merge`, and a pair that must stay apart is a durable `distinct` verdict.
 
-`proximity` runs in two passes. **Scan** derives the candidate set and replaces the table with
-it in one transaction, so what it holds is always what the graph looked like when it was last asked
-— a scan after a link, and again at the end of a resolve. **Auto-merge** answers the batch: it
-re-checks that both sides still exist, scores the pair with the heuristic it was handed and folds the
-convincing ones, and the pairs it folds (or finds already folded) leave the batch. The rest stay in
-the batch, which is where a person reads them.
-
-Nothing in that table is a status or a verdict: `status` and `status_why` are derived when the batch is
-read (`crate::stats::proximities`) from the verdict log, and an old `proximity_auto` fold is history
-rather than a standing decision — the next scan re-derives it, so a pair it folded last build still
-reads as `open`. A pair that keeps looking like one thing keeps reappearing; one that stops, stops.
-Human decisions that must outlive a rebuild go somewhere durable instead —
-`plan/archive/knowledge-verdicts.md` — and are replayed onto the new graph.
+A pair that keeps looking like one thing keeps reappearing; one that stops, stops. Human decisions
+that must outlive a rebuild go somewhere durable instead — `plan/archive/knowledge-verdicts.md` —
+and are replayed onto the new graph.
 
 ## The view boundary
 
@@ -307,50 +295,43 @@ API decides which one a user sees. Two consequences fall out for free:
 ## Rebuild and repair
 
 Entities are cheap to rebuild and expensive to get wrong, so the model prefers undoable moves. A
-rebuild is six commands, each one job, none invoking another:
+rebuild is five commands, each one job, none invoking another:
 
 ```sh
 reset -y                    snapshot the projection, then empty it
 link                        observations → entities
 verdicts replay             a person's recorded folds, applied to the new ids
 identity resolve --offline  evidence: identity annotations from cached answers
-proximity scan              derive the candidate batch from shared identities
-proximity auto-merge --yes  answer the batch (dry run without --yes)
+proximity scan              read the current shared-identity candidates
 ```
 
 The order is not a preference:
 
 - **`link` first**, because everything else needs entity rows.
-- **`replay` before `identity resolve`**, two reasons. `proximity auto-merge` picks a survivor by the
-  projected `confidence`, and `replay` reports a pair as `already`/`gone` rather than reversing a
-  direction — so if the automatic pass folded a decided pair the other way first, the recorded winner
-  is lost and there is no unmerge. And a folded entity is resolved *once*, from the union of both
-  sides' surfaces, instead of twice and then shuffled by a merge.
+- **`replay` before `identity resolve`**, because a folded entity is resolved *once*, from the union
+  of both sides' surfaces, instead of twice and then shuffled by a merge. A repair also reports a
+  pair as `already`/`gone` rather than reversing a direction; there is no unmerge.
 - **`scan` after `identity resolve`**, because a shared identity is its only candidacy: measured on the local
   corpus, 0 of 345 platform identities have more than one holder, while 13 Wikidata keys account for
   all 26 multi-holder annotations. A scan before identification raises nothing.
-- **`auto-merge` after `scan`**, because it answers the batch the scan wrote.
 
-`identity resolve` reprojects every entity it gives an identity to, before returning: a later
-`auto-merge` reads that confidence, so leaving it stale would fold the wrong side.
+`identity resolve` reprojects every entity it gives an identity to before returning.
 
 **A rebuild is a single-writer operation. Stop the link worker first.** Running these commands
-against a live queue has produced both failures it can produce: a link task attaching to an entity a
-`reset` had just deleted (the illumination is left permanently unlinked), and a `proximity scan`
-taken from a half-built generation (53 rows where the finished graph supports 13). Neither is a bug
-in the command that reported it; both are two writers.
+against a live queue has produced the failure that matters: a link task attaching to an entity a
+`reset` had just deleted, leaving the illumination permanently unlinked. A scan during a rebuild is
+read-only, but its list is still a view of a half-built generation.
 
 Nothing else writes the batch. The live pipeline is `illuminate` → `knowledge_link` →
 `identity_resolve`, both running through `knowledge2`: the link task links and stops, and its
 webhook chains a resolve of exactly the entities that link touched (`logic/identity_resolve.rs`).
 The resolve is queued, budgeted and paced like any other delivery; a capture whose resolve was
 refused or failed keeps its entities `provisional`, and `knowledge identity resolve` is the manual
-catch-up until the nightly drain (`plan/knowledge-batch-job.md`, tabled) exists. Both proximity
-passes remain operator commands: a live capture updates entities immediately and leaves the proximity
-batch untouched until the next `proximity scan` — the table is a snapshot of when it was last asked.
+catch-up until the nightly drain (`plan/knowledge-batch-job.md`, tabled) exists. `proximity scan` is a
+read-only operator command; nothing persists, so running it never changes the graph.
 
-`reset` snapshots the projection, then empties it — entities, identities, proximities and the index
-rows, all of it derived. It keeps the newest **ten snapshot suffixes** and drops older
+`reset` snapshots the projection, then empties it — entities, identities and the index rows, all of
+it derived. It keeps the newest **ten snapshot suffixes** and drops older
 archive tables; the generation register keeps its history even after a suffix is pruned.
 Observations, captures, illuminations, the merge log (`knowledge_verdicts`) and the **fetch cache**
 are untouched. `merge` folds one entity into another, tombstones the loser, and runs in a
@@ -377,7 +358,7 @@ one.
 | `graph/replay.rs` | the verdict effects: `replay` (merges, then withdrawals) and the withdrawal the veto command shares |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is the best identity's score. `reproject` repairs a scope of entities, with `Stale` the "live, no identity annotation" rule |
 | `graph/merge.rs` | fold one entity into another |
-| `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `CandidateWhy` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `auto_merge.rs` folds what it can on its own and leaves the rest. Both take the connection and the `HeuristicScorer` as arguments |
+| `../knowledge2/proximity.rs` | the transient scan: group live entities by shared identity, score each pair, return the list. Nothing persists |
 | `verdicts/` | the register: the modification log and the standing vetoes, held by `KnowledgeGraph`. `store.rs` is the type, its connection, `record` (the one write that takes the caller's transaction, so a merge's row commits with the fold) and the reads the replay and `stats` share; `veto.rs` holds `veto`/`unveto`/`vetoed`; `origin.rs` turns an origin into the entity it names now. Applying the log is the graph's command (`graph/replay.rs`), exposed as `KnowledgeGraph::replay_verdicts`; `pair_key` is shared with `stats` |
 | `../knowledge2/wikidata/` | the common authority core: `kind` (request kinds and cache shapes), `candidate` (the parsed item), `transport` (the wire), `sparql`, `property_query`, `disambiguation`. No ranking or writes |
 | `../knowledge2/heuristic/identifier.rs` | the automated provider: `HeuristicIdentifier` — select, batch, call, replace, report |
@@ -389,10 +370,9 @@ one.
 The three write paths that carry their own logic and tests (`link.rs`, `project.rs`, `merge.rs`) are
 reached through `KnowledgeGraph`'s methods; `link` and `project` are private modules, and what
 escapes them is data and vocabulary — `LinkReport`, `merge::Outcome`, `Preview`, and the verdict
-`Cause`. Passes over *derived* data are public functions taking what they act on —
-`proximity::scan(conn, scoring)` and `proximity::auto_merge(conn, graph, scoring)` — while operations
-over the graph's own state are methods: `link`, `merge`, `replay_verdicts`, which applies the log to a
-rebuilt graph. The graph's health counters are a report over the tables rather than graph work, so
+`Cause`. The transient proximity scan is a public read, `knowledge2::proximity::scan(&db)`, while
+operations over the graph's own state are methods: `link`, `merge`, `replay_verdicts`, which applies
+the log to a rebuilt graph. The graph's health counters are a report over the tables rather than graph work, so
 they live in `crate::stats::knowledge_stats`.
 
 The vocabulary — and the names we rejected — is in `plan/lexicon.md`. The design history, including

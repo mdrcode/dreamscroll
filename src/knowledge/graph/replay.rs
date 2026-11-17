@@ -99,7 +99,7 @@ pub(crate) async fn replay(graph: &KnowledgeGraph) -> anyhow::Result<ReplayRepor
 ///
 /// The deletion and the projection are one act: `status` and `confidence` are functions of the
 /// identity annotations, so withdrawing one without reprojecting leaves the entity `identified` on
-/// nothing — and that is the row the API serves and `proximity auto_merge` ranks.
+/// nothing — and that is the row the API serves.
 async fn withdraw(
     graph: &KnowledgeGraph,
     verdict: &model::knowledge_verdicts::Model,

@@ -178,8 +178,8 @@ async fn lifting_a_veto_stops_suppressing_and_restores_nothing() {
 }
 
 /// Status and confidence are functions of the live claims. Retracting one without reprojecting
-/// leaves a row the API serves as `identified` and `proximity auto-merge` ranks by a score it no
-/// longer earns.
+/// leaves a row the API serves as `identified`, and a proximity scan would score what it no longer
+/// earns.
 #[tokio::test]
 async fn a_veto_reprojects_the_entity_it_empties() {
     db_or_skip!(db);

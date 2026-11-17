@@ -195,7 +195,7 @@ struct EntityShowArgs {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "proximity")]
-#[argh(description = "pairs of entities the graph considers close, and what was decided")]
+#[argh(description = "entities sharing an identity; scan is read-only, distinct records a decision")]
 struct ProximityArgs {
     #[argh(subcommand)]
     command: ProximityCommand,
@@ -205,24 +205,13 @@ struct ProximityArgs {
 #[argh(subcommand)]
 enum ProximityCommand {
     Scan(ProximityScanArgs),
-    AutoMerge(ProximityAutoMergeArgs),
-    List(ProximityListArgs),
     Distinct(DistinctArgs),
 }
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "scan")]
-#[argh(description = "record every pair that shares an identity; changes nothing else")]
+#[argh(description = "list every pair that shares an identity; writes nothing")]
 struct ProximityScanArgs {}
-
-#[derive(FromArgs)]
-#[argh(subcommand, name = "auto-merge")]
-#[argh(description = "fold the open proximities that look like one thing, on their own")]
-struct ProximityAutoMergeArgs {
-    #[argh(switch, short = 'y')]
-    #[argh(description = "apply the folds (otherwise it is a dry run)")]
-    yes: bool,
-}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "distinct")]
@@ -237,23 +226,6 @@ struct DistinctArgs {
     b: i32,
     #[argh(option, description = "why; stored on the verdict")]
     note: Option<String>,
-}
-
-#[derive(FromArgs)]
-#[argh(subcommand, name = "list")]
-#[argh(description = "show what is in the table, most likely first")]
-struct ProximityListArgs {
-    #[argh(option, default = "50", description = "maximum rows to show")]
-    limit: usize,
-    #[argh(
-        option,
-        description = "only this status: open, merge_pending, merged, kept_apart"
-    )]
-    status: Option<String>,
-    #[argh(switch, description = "only open pairs")]
-    open: bool,
-    #[argh(switch, description = "print JSON")]
-    json: bool,
 }
 
 #[derive(FromArgs)]
@@ -983,36 +955,22 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Command::Proximity(args) => {
-            let store = knowledge::KnowledgeGraph::new(&db);
-            let scoring = &knowledge::linker::heuristic::HeuristicScorer;
             match args.command {
                 ProximityCommand::Scan(_) => {
-                    println!(
-                        "raised {} proximities",
-                        knowledge::proximity::scan(&db.conn, scoring).await?
-                    );
-                }
-                ProximityCommand::AutoMerge(args) => {
-                    let report =
-                        knowledge::proximity::auto_merge(&db.conn, &store, scoring, args.yes)
-                            .await?;
-                    if args.yes {
+                    let candidates = knowledge2::proximity::scan(&db).await?;
+                    if candidates.is_empty() {
+                        println!("no proximity candidates");
+                    }
+                    for candidate in candidates {
                         println!(
-                            "auto-merged {} · refused {} · moot {} · kept apart {} · undecided {}",
-                            report.merged,
-                            report.refused,
-                            report.moot,
-                            report.kept_apart,
-                            report.undecided
-                        );
-                    } else {
-                        println!(
-                            "would merge {} · refused {} · moot {} · kept apart {} · undecided {} · dry run; pass --yes",
-                            report.merged,
-                            report.refused,
-                            report.moot,
-                            report.kept_apart,
-                            report.undecided
+                            "{:.3}  {} [{}] \u{21c4} {} [{}]  {}:{}",
+                            candidate.score,
+                            candidate.holder_name,
+                            candidate.holder_id,
+                            candidate.counterpart_name,
+                            candidate.counterpart_id,
+                            candidate.scheme,
+                            candidate.external_id
                         );
                     }
                 }
@@ -1048,83 +1006,31 @@ async fn main() -> anyhow::Result<()> {
                         args.b
                     );
                 }
-                ProximityCommand::List(args) => {
-                    let filter = match (args.open, args.status.as_deref()) {
-                        (true, Some(_)) => {
-                            anyhow::bail!("--open and --status are mutually exclusive")
-                        }
-                        (true, None) => Some(stats::proximities::Status::Open),
-                        (false, Some(value)) => Some(
-                            stats::proximities::Status::parse(value).ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "unknown status {value:?}; expected open, merge_pending, merged or kept_apart"
-                                )
-                            })?,
-                        ),
-                        (false, None) => None,
-                    };
-                    let rows = stats::proximities::proximity_list(&db, args.limit, filter).await?;
-                    if args.json {
-                        let values: Vec<serde_json::Value> =
-                            rows.iter().map(|row| row.to_json()).collect();
-                        println!("{}", serde_json::to_string_pretty(&values)?);
-                    } else {
-                        println!(
-                            "{:>5}  {:<13}  {:<14}  {:>5}  {:<15}  pair",
-                            "row", "status", "status_why", "score", "candidate_why"
-                        );
-                        for row in rows {
-                            let score = row.score.map_or("-".to_string(), |s| format!("{s:.2}"));
-                            let status = row.status.filter_name();
-                            let status_why = match (row.status, row.status_why) {
-                                (stats::proximities::Status::Merged, Some(why)) => why.as_str(),
-                                (stats::proximities::Status::Merged, None) => "?",
-                                (_, Some(why)) => why.as_str(),
-                                (_, None) => "",
-                            };
-                            println!(
-                                "{:>5}  {:<13}  {:<14}  {score:>5}  {:<15}  #{:<6} {}  \
-                                 \u{21c4}  #{:<6} {}  [{}]",
-                                row.id,
-                                status,
-                                status_why,
-                                row.candidate_why,
-                                row.holder_id,
-                                row.holder,
-                                row.counterpart_id,
-                                row.counterpart,
-                                row.identity
-                            );
-                        }
-                    }
-                }
             }
         }
         Command::Reset(args) => {
             if !args.yes {
                 let preview = knowledge2::snapshot::preview(&db).await?;
                 println!(
-                    "would snapshot entities {} · identities {} · proximities {} · \
-                     members {} · pass --yes to reset",
-                    preview.entities, preview.identities, preview.proximities, preview.members
+                    "would snapshot entities {} · identities {} · members {} · pass --yes to reset",
+                    preview.entities, preview.identities, preview.members
                 );
                 return Ok(());
             }
             let report = knowledge2::snapshot::reset(&db).await?;
             match &report.snapshot {
                 Some(snapshot) => println!(
-                    "snapshot {} · entities {} · identities {} · proximities {} · members {}",
+                    "snapshot {} · entities {} · identities {} · members {}",
                     snapshot.suffix,
                     report.snapshot_entities,
                     report.snapshot_identities,
-                    report.snapshot_proximities,
                     report.snapshot_members
                 ),
                 None => println!("nothing to snapshot"),
             }
             println!(
-                "unlinked {} observations · deleted {} proximities · deleted {} entities",
-                report.unlinked, report.proximities, report.entities
+                "unlinked {} observations · deleted {} entities",
+                report.unlinked, report.entities
             );
             if report.pruned_snapshots > 0 {
                 println!("pruned {} old snapshot tables", report.pruned_snapshots);
@@ -1320,12 +1226,6 @@ async fn main() -> anyhow::Result<()> {
             println!("  provisional       {:>7}", stats.provisional);
             println!("  identified        {:>7}", stats.identified);
             println!("duplicate rate      {:>7.3}", stats.duplicate_rate());
-            println!("proximities");
-            println!("  {:<18}{:>7}", "candidates", stats.proximities);
-            println!(
-                "  {:<18}{:>7}",
-                "entities in pairs", stats.entities_in_proximity
-            );
             println!("platform links");
             println!(
                 "  {:<14} {:>12} {:>10} {:>8} {:>8} {:>9}",

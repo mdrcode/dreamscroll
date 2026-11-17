@@ -98,7 +98,7 @@ impl VerdictStore {
     /// Whether a `distinct` verdict names this unordered pair of origins.
     ///
     /// The register's one definition of "these two are apart": `distinct` asks it to stay
-    /// idempotent, `merge` to refuse a fold a person forbade, and the proximity listing to label a
+    /// idempotent, `merge` to refuse a fold a person forbade, and a proximity scan to label a
     /// candidate. Compared by origin, like every verdict.
     pub(crate) async fn kept_apart<C: ConnectionTrait>(
         &self,

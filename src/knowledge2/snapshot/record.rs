@@ -14,7 +14,6 @@ use chrono::Utc;
 
 pub(super) const CORE_TABLE: &str = "knowledge_entities";
 pub(super) const IDENTITIES_TABLE: &str = "knowledge_identities";
-pub(super) const PROXIMITIES_TABLE: &str = "knowledge_proximities";
 
 /// A frozen copy of one run, named by the moment it was taken so two runs sort chronologically.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,10 +34,6 @@ impl Snapshot {
 
     pub fn identities(&self) -> String {
         format!("{IDENTITIES_TABLE}__{}", self.suffix)
-    }
-
-    pub fn proximities(&self) -> String {
-        format!("{PROXIMITIES_TABLE}__{}", self.suffix)
     }
 
     /// Which observations belonged to which entity — the only record of that is

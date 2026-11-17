@@ -9,7 +9,6 @@ pub mod knowledge_blocking_index;
 pub mod knowledge_entity;
 pub mod knowledge_generations;
 pub mod knowledge_identity;
-pub mod knowledge_proximities;
 pub mod knowledge_verdicts;
 pub mod media;
 pub mod search_index;

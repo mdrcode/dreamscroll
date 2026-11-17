@@ -32,8 +32,7 @@ use super::replay::ReplayReport;
 /// build [`KnowledgeGraph::new`]. Linking additionally needs a decider and a blocker, both injected by
 /// [`KnowledgeGraph::with_linking`].
 ///
-/// The store holds no policy: a [`Linker`] is a procedure over the heuristic it was built with, and a
-/// pass that measures — [`proximity`](crate::knowledge::proximity) — is handed the policy as an argument.
+/// The store holds no policy: a [`Linker`] is a procedure over the heuristic it was built with.
 ///
 /// The blocker is built once and kept for the run's links. It queries `knowledge_blocking_index`,
 /// so every writer is visible to it and nothing has to be told about a projection.

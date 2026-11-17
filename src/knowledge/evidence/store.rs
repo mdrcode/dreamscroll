@@ -144,32 +144,6 @@ impl Evidence {
         Ok(entities)
     }
 
-    /// Keys held by two or more live entities: the proximity scan's only source.
-    pub(crate) async fn shared_identity_keys(&self) -> anyhow::Result<Vec<IdentityKey>> {
-        let rows = self
-            .conn
-            .query_all_raw(Statement::from_string(
-                DatabaseBackend::Postgres,
-                "SELECT i.scheme, i.external_id \
-                   FROM knowledge_identities i \
-                   JOIN knowledge_entities e ON e.id = i.knowledge_entity_id \
-                  WHERE e.merged_into_id IS NULL \
-                  GROUP BY i.scheme, i.external_id \
-                 HAVING count(DISTINCT i.knowledge_entity_id) > 1 \
-                  ORDER BY i.scheme, i.external_id",
-            ))
-            .await?;
-        rows.into_iter()
-            .map(|row| {
-                Ok(IdentityKey {
-                    scheme: row.try_get_by_index(0)?,
-                    external_id: row.try_get_by_index(1)?,
-                })
-            })
-            .collect::<Result<Vec<_>, sea_orm::DbErr>>()
-            .map_err(Into::into)
-    }
-
     /// Delete every provider's annotation of `key` for this entity.
     pub(crate) async fn delete_identity(
         &self,
