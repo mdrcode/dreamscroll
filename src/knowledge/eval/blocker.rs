@@ -152,11 +152,11 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
 
     // The same two key generations the blocker matches on.
     let keys = |name: &str, handle: Option<&str>| -> HashSet<String> {
-        let folded = index::fold([Some(name), handle].into_iter().flatten());
-        folded
+        let derived = index::keys_for_surfaces([Some(name), handle].into_iter().flatten());
+        derived
             .surfaces
             .into_iter()
-            .chain(folded.word_keys)
+            .chain(derived.word_keys)
             .collect()
     };
 

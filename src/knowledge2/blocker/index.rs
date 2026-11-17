@@ -16,18 +16,20 @@ use crate::knowledge2::text;
 use crate::model;
 
 /// The two generations the index stores, in the entity's surface order.
-pub(crate) struct Keys {
+pub(crate) struct IndexKeys {
     /// Folded forms: an exact match on one of these.
     pub surfaces: Vec<String>,
     /// Word-order-insensitive forms: `Train Dreams` matches `Dreams Train`.
     pub word_keys: Vec<String>,
 }
 
-/// Fold a surface list into the two key generations the index stores.
+/// Derive the two key generations the index stores from a surface list.
 ///
-/// The one definition: `keys` applies it to an entity, and `eval blocker` applies it to a probe's
-/// name and handle. Two spellings of this fold disagreed once already.
-pub(crate) fn fold<'a>(surfaces: impl IntoIterator<Item = &'a str>) -> Keys {
+/// The one definition: `keys_for_entity` applies it to an entity, and `eval blocker` applies it to
+/// a probe's name and handle. Two spellings of this derivation disagreed once already.
+pub(crate) fn keys_for_surfaces<'a>(
+    surfaces: impl IntoIterator<Item = &'a str>,
+) -> IndexKeys {
     let mut seen = std::collections::BTreeSet::new();
     let surfaces: Vec<String> = surfaces
         .into_iter()
@@ -35,7 +37,7 @@ pub(crate) fn fold<'a>(surfaces: impl IntoIterator<Item = &'a str>) -> Keys {
         .filter(|key| !key.is_empty())
         .filter(|key| seen.insert(key.clone()))
         .collect();
-    Keys {
+    IndexKeys {
         // A surface with no words (`...` folds to `..`) has no word generation. Storing the empty
         // string would make `&&` match it against every other empty one.
         word_keys: surfaces
@@ -51,8 +53,8 @@ pub(crate) fn fold<'a>(surfaces: impl IntoIterator<Item = &'a str>) -> Keys {
 ///
 /// `alt_names` already carries the member names, the platform handle and the display name, so this
 /// covers what the blocker can be asked about without a second pass over the members.
-pub(super) fn keys(entity: &model::knowledge_entity::Model) -> Keys {
-    fold(entity.surfaces())
+pub(super) fn keys_for_entity(entity: &model::knowledge_entity::Model) -> IndexKeys {
+    keys_for_surfaces(entity.surfaces())
 }
 
 /// Upsert one entity's row. `project` calls this, so it and [`rebuild`] are the only writers.
@@ -66,10 +68,10 @@ pub(crate) async fn write<C: ConnectionTrait>(
     if entity.merged_into_id.is_some() {
         return forget(conn, entity.id).await;
     }
-    let Keys {
+    let IndexKeys {
         surfaces,
         word_keys,
-    } = keys(entity);
+    } = keys_for_entity(entity);
     let text = surfaces.join(" ");
 
     let mut conflict =
@@ -149,7 +151,7 @@ pub async fn rebuild(db: &DbHandle) -> anyhow::Result<usize> {
     Ok(entities.len())
 }
 
-/// How many rows disagree with the current fold, and how many entities have no row.
+/// How many rows disagree with the current key rule, and how many entities have no row.
 pub async fn check(db: &DbHandle) -> anyhow::Result<Report> {
     use model::{knowledge_blocking_index as index, knowledge_entity as entity};
 
@@ -219,9 +221,10 @@ mod tests {
         assert!(report.refused.is_none(), "{:?}", report.refused);
     }
 
-    /// `project` writes the row, and what it writes is the fold of the entity's surfaces.
+    /// `project` writes the row, and what it writes is the derived index keys of the entity's
+    /// surfaces.
     #[tokio::test]
-    async fn projecting_an_entity_writes_its_keys() {
+    async fn projecting_an_entity_writes_its_index_keys() {
         db_or_skip!(db);
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         // The fixture inserts the row directly; `project` is the writer under test.
@@ -240,8 +243,8 @@ mod tests {
             .await
             .unwrap()
             .expect("project must write the index row");
-        assert_eq!(row.surfaces, keys(&entity).surfaces);
-        assert_eq!(row.word_keys, keys(&entity).word_keys);
+        assert_eq!(row.surfaces, keys_for_entity(&entity).surfaces);
+        assert_eq!(row.word_keys, keys_for_entity(&entity).word_keys);
         assert_eq!(row.built_with, text::norm_fingerprint());
         assert!(row.surfaces.contains(&"train dreams".to_string()));
         assert!(row.word_keys.contains(&"dreams train".to_string()));
@@ -256,9 +259,9 @@ mod tests {
         );
     }
 
-    /// A row built by an older fold is stale, and `rebuild` is what fixes it.
+    /// A row built by an older key rule is stale, and `rebuild` is what fixes it.
     #[tokio::test]
-    async fn a_row_from_another_fold_is_counted_and_rebuildable() {
+    async fn a_row_from_another_key_rule_is_counted_and_rebuildable() {
         db_or_skip!(db);
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         crate::knowledge2::KnowledgeGraph2::new(&db)

@@ -171,7 +171,7 @@ impl NormalizedCandidate {
             }
             // A surface with no words (`...` folds to `..`) has no word generation, and storing the
             // empty string would make it match every other wordless surface. Same rule as
-            // `blocker::index::fold`, which is the one definition of the two generations.
+            // `blocker::index::keys_for_surfaces`, which is the one definition of the two generations.
             let token_key = word_key(&key);
             if !token_key.is_empty() {
                 alt_name_token_keys.push(token_key);
