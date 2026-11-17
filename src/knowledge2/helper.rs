@@ -39,7 +39,6 @@ pub struct LinkAllReport {
 /// The external executor: planner and graph.
 #[derive(Clone)]
 pub struct LinkHelper {
-    db: DbHandle,
     graph: KnowledgeGraph2,
     blocker: SqlBlocker,
     planner: HeuristicPlanner,
@@ -48,7 +47,6 @@ pub struct LinkHelper {
 impl LinkHelper {
     pub fn new(db: &DbHandle) -> Self {
         Self {
-            db: db.clone(),
             graph: KnowledgeGraph2::new(db),
             blocker: SqlBlocker::new(db),
             planner: HeuristicPlanner::new(),
@@ -114,7 +112,7 @@ impl LinkHelper {
     ///
     /// One illumination, one `proc`, one projection pass — the same boundary as v1. The order is by
     /// illumination id, because linking one changes what a later one finds.
-    pub async fn link_all_pending(&self) -> anyhow::Result<LinkAllReport> {
+    pub async fn link_all_pending(&self, db: &DbHandle) -> anyhow::Result<LinkAllReport> {
         let unlinked = Query::select()
             .column(model::user_observed_entity::Column::IlluminationId)
             .from(model::user_observed_entity::Entity)
@@ -124,7 +122,7 @@ impl LinkHelper {
             .filter(Expr::col(model::illumination::Column::Id).in_subquery(unlinked))
             .with(model::user_observed_entity::Entity)
             .order_by_asc(model::illumination::Column::Id)
-            .all(&self.db.conn)
+            .all(&db.conn)
             .await?;
 
         let mut report = LinkAllReport::default();
@@ -151,7 +149,7 @@ pub async fn link_illumination(
 
 /// Link every pending illumination through one helper. The v1-shaped entry point.
 pub async fn link_all_pending(db: &DbHandle) -> anyhow::Result<LinkAllReport> {
-    LinkHelper::new(db).link_all_pending().await
+    LinkHelper::new(db).link_all_pending(db).await
 }
 
 #[cfg(test)]
