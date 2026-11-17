@@ -87,7 +87,7 @@ pub enum GraphMutation {
         cause: Cause,
         why: String,
     },
-    AttestIdentity {
+    Identify {
         subject: EntityOriginId,
         identity: Identity,
     },
@@ -115,7 +115,7 @@ what it says without the call; the caller is not consulted to interpret it, and 
 
 The graph never sees a platform link. The caller decides whether an observation's `platform_*`
 columns are an identity, converts that to an `Identity`, and passes it on the membership mutation or as
-an `AttestIdentity`. The graph upserts exactly what it is handed; it has no `platform_link` call and
+an `Identify`. The graph upserts exactly what it is handed; it has no `platform_link` call and
 no `illuminator` special case.
 
 ## Per-mutation contract
@@ -168,7 +168,7 @@ no `illuminator` special case.
   - Logs: `kind = distinct`, the origin pair, the mutation's `cause`.
   - One-way: knowledge 1 has no inverse; a wrong `distinct` cannot be lifted yet.
 
-- **`AttestIdentity { subject, identity }`**
+- **`Identify { subject, identity }`**
   - Accepts: the subject resolves to a live entity; non-empty provider, scheme and external id;
     `observation_id`, when present, exists.
   - NoChange: the pairing is vetoed — the identity is dropped, not refused, so a resolver call is not
@@ -245,7 +245,7 @@ transport, parsed candidate and answer. It does not rank or write.
 
 The shared identity primitive is `graph.selector().awaiting_identity(...)`: live entities a provider
 has not answered, with the per-provider filter. An agentic provider uses that, the Wikidata core, and
-the graph's `AttestIdentity`/`RetractIdentity` mutations directly.
+the graph's `Identify`/`RetractIdentity` mutations directly.
 
 `knowledge2::heuristic::resolution` is the automated provider. Its engine selects and batches, runs
 the policy through the gateway, replaces the provider's set, and reports. Its policy is `plan`,
@@ -286,7 +286,7 @@ the Link producer — reads `platform_link(observation)`; if its policy admits t
 - Caller-supplied identities are not replayed. Link rebuilds them from the observations on every
   build with the caller's current policy; only decisions — merge, distinct, veto, membership — are in
   the log.
-- `AttestIdentity` is the same write without a membership change.
+- `Identify` is the same write without a membership change.
 
 Why not derive internally: the admission rule is a policy about the data, and it may change. Keeping
 it at the call site makes a change visible where it belongs and lets different callers hold different
@@ -316,7 +316,7 @@ What the code paths build:
 
 - **Link**: a `Linker` plans the pending batch; `CreateEntity` and `AttachObservation` carry the
   `Identity` its policy admits. The graph never sees the platform link.
-- **Resolve**: `AttestIdentity`, `RetractIdentity`, chunked per entity. That is how a provider
+- **Resolve**: `Identify`, `RetractIdentity`, chunked per entity. That is how a provider
   replaces its set without a set-shaped mutation.
 - **Replay**: `CreateEntity`, `AttachObservation`, `DetachObservation`, `MergeEntity`,
   `VetoIdentity`, with the recorded `cause`. It resolves origins to entities through the rebuilt
@@ -336,7 +336,7 @@ What the code paths build:
   2. `CreateEntity`
   3. `AttachObservation`, `DetachObservation`
   4. `MergeEntity` — membership is final before the shared-illumination check
-  5. `AttestIdentity`, `RetractIdentity` — lands on the survivor after a fold
+  5. `Identify`, `RetractIdentity` — lands on the survivor after a fold
   6. `VetoIdentity`, `MarkDistinct` — assert a standing denial last
 - **Contradictory plans are not yet detected.** Canonical order decides the outcome; a call that
   asserts and denies one pairing applies both in order. A validation pass is a follow-up (open
@@ -386,7 +386,7 @@ Every mutation is safe to re-apply after a committed call, because the second pa
 
 ## Open questions
 
-1. `AttestIdentity` for `model`: an ephemeral identity annotation, or a logged decision? The cleaner
+1. `Identify` for `model`: an ephemeral identity annotation, or a logged decision? The cleaner
    split is that an agent's identities are a resolver run (recompute them), and only its decisions
    are durable.
 2. The log columns for `attach` / `detach` hold observation ids in `subject_origin`. Keep the

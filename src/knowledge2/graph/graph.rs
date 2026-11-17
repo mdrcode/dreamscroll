@@ -100,7 +100,7 @@ fn order(mutations: &[GraphMutation]) -> Vec<&GraphMutation> {
         GraphMutation::CreateEntity { .. } => 1,
         GraphMutation::AttachObservation { .. } | GraphMutation::DetachObservation { .. } => 2,
         GraphMutation::MergeEntity { .. } => 3,
-        GraphMutation::AttestIdentity { .. } | GraphMutation::RetractIdentity { .. } => 4,
+        GraphMutation::Identify { .. } | GraphMutation::RetractIdentity { .. } => 4,
         GraphMutation::VetoIdentity { .. } | GraphMutation::MarkDistinct { .. } => 5,
     };
 

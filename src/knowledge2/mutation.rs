@@ -66,7 +66,7 @@ pub enum GraphMutation {
         why: String,
     },
     /// Assert an identity about an entity.
-    AttestIdentity {
+    Identify {
         subject: EntityOriginId,
         identity: Identity,
     },

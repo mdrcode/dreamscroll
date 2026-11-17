@@ -194,7 +194,7 @@ impl ResolveEngine {
                     for mut identity in keep {
                         // The resolver names the authority; make the row carry it.
                         identity.provider = Provider(provider.to_string());
-                        mutations.push(GraphMutation::AttestIdentity { subject, identity });
+                        mutations.push(GraphMutation::Identify { subject, identity });
                     }
 
                     report.identities_written += written;
@@ -327,7 +327,7 @@ async fn existing_keys(
 
 /// A standing veto, keyed by the live entity id the `subject_origin` resolves to.
 ///
-/// `AttestIdentity` enforces the same rule by the live entity's origin; this read exists for the
+/// `Identify` enforces the same rule by the live entity's origin; this read exists for the
 /// preview and the counts, so a dry run cannot disagree with the write.
 async fn vetoes(db: &DbHandle) -> anyhow::Result<HashSet<(i32, String, String)>> {
     let rows = model::knowledge_verdicts::Entity::find()
@@ -443,7 +443,7 @@ mod tests {
             .expect("the fixture entity exists");
         let origin = row.origin_observation_id.expect("the fixture has an origin");
         KnowledgeGraph2::new(db)
-            .proc(&[GraphMutation::AttestIdentity {
+            .proc(&[GraphMutation::Identify {
                 subject: EntityOriginId(ObservationId(origin)),
                 identity: identity(external_id),
             }])

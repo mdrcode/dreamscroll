@@ -36,7 +36,7 @@ pub(super) async fn apply<C: ConnectionTrait>(
         GraphMutation::MarkDistinct { a, b, cause, why } => {
             distinct(conn, *a, *b, *cause, why).await
         }
-        GraphMutation::AttestIdentity { subject, identity } => {
+        GraphMutation::Identify { subject, identity } => {
             attest_to(conn, *subject, identity).await
         }
         GraphMutation::RetractIdentity {
