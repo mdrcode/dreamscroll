@@ -188,7 +188,7 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
 
         let offered: Vec<i32> = blocker
             .candidates(observation)
-            .await
+            .await?
             .into_iter()
             .map(|candidate| candidate.id)
             .filter(|id| exists.contains(id))

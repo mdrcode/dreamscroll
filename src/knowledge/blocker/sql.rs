@@ -53,7 +53,7 @@ impl Blocker for SqlBlocker {
     async fn candidates(
         &self,
         observation: &model::user_observed_entity::Model,
-    ) -> Vec<model::knowledge_entity::Model> {
+    ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
         self.probe([
             observation.name.as_str(),
             observation.platform_handle.as_deref().unwrap_or_default(),
@@ -64,7 +64,10 @@ impl Blocker for SqlBlocker {
 
 impl SqlBlocker {
     /// Candidates for a bare surface, so an inspector can ask without inventing an observation.
-    pub async fn candidates_for_name(&self, name: &str) -> Vec<model::knowledge_entity::Model> {
+    pub async fn candidates_for_name(
+        &self,
+        name: &str,
+    ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
         self.probe([name]).await
     }
 
@@ -72,7 +75,7 @@ impl SqlBlocker {
     async fn probe<'a>(
         &self,
         surfaces: impl IntoIterator<Item = &'a str>,
-    ) -> Vec<model::knowledge_entity::Model> {
+    ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
         let mut keys: Vec<String> = surfaces
             .into_iter()
             .map(text::comparable)
@@ -81,7 +84,7 @@ impl SqlBlocker {
         keys.sort_unstable();
         keys.dedup();
         if keys.is_empty() {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         let words: Vec<String> = keys
             .iter()
@@ -102,15 +105,7 @@ impl SqlBlocker {
                     .or(Expr::cust_with_values(OVERLAP_WORDS, [Value::from(words)])),
             )
             .order_by_asc(model::knowledge_entity::Column::Id);
-        match query.all(&self.db.conn).await {
-            Ok(rows) => rows,
-            Err(error) => {
-                // A blocker has no channel for errors, and an empty set is a decision (create).
-                // Log loudly: silence here looks exactly like "nothing matched".
-                tracing::error!(%error, "sql blocker query failed");
-                Vec::new()
-            }
-        }
+        Ok(query.all(&self.db.conn).await?)
     }
 }
 
@@ -122,7 +117,7 @@ pub(crate) async fn candidate_ids(
 ) -> anyhow::Result<Vec<i32>> {
     Ok(SqlBlocker::new(db)
         .candidates(observation)
-        .await
+        .await?
         .into_iter()
         .map(|row| row.id)
         .collect())
@@ -184,6 +179,7 @@ mod tests {
             blocker
                 .candidates_for_name("Andra Thompson")
                 .await
+                .unwrap()
                 .is_empty(),
             "the name alone does not reach it"
         );
@@ -192,12 +188,13 @@ mod tests {
             blocker
                 .candidates_for_name("Andra T.")
                 .await
+                .unwrap()
                 .iter()
                 .map(|row| row.id)
                 .collect::<Vec<_>>(),
             vec![id]
         );
-        let found = blocker.candidates(&observation).await;
+        let found = blocker.candidates(&observation).await.unwrap();
         assert_eq!(found.iter().map(|row| row.id).collect::<Vec<_>>(), vec![id]);
     }
 

@@ -119,9 +119,9 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
     let found = match &probe {
         Some(observation) => {
             use crate::knowledge::blocker::Blocker;
-            blocker.candidates(observation).await
+            blocker.candidates(observation).await?
         }
-        None => blocker.candidates_for_name(&entity.name).await,
+        None => blocker.candidates_for_name(&entity.name).await?,
     };
 
     let folded = text::comparable(&entity.name);

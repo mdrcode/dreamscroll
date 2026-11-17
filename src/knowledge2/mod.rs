@@ -11,9 +11,11 @@ pub mod graph;
 pub mod helper;
 pub mod identity;
 pub mod ids;
+pub mod linker;
 
 pub use action::{Cause, KnowledgeAction};
 pub use graph::{KnowledgeGraph2, Refusal, Report};
 pub use helper::{LinkAllReport, LinkHelper, LinkReport, link_all_pending, link_illumination};
 pub use identity::{Identity, IdentityKey, Provider};
 pub use ids::{EntityOriginId, ObservationId};
+pub use linker::{Blocker, HeuristicPlanner, IdentityHolder, Linker};

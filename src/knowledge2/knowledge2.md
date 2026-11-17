@@ -1,6 +1,7 @@
 # knowledge2: actions and their parameters
 
-Status: v9, implemented in `graph/` and `helper.rs`. Same four tables. Proximity out of scope.
+Status: v10, implemented in `graph/`, `helper.rs`, and `linker.rs`. Same four tables. Proximity out
+of scope.
 
 Callers emit actions; one call is one transaction. No action contains a generation-scoped entity id,
 so a list is independent of the generation it is applied to.
@@ -199,6 +200,21 @@ no `illuminator` special case.
   - Lifting rule: `Model` cannot lift a `Cause::Repair` row. The action states its own cause; the
     edge is responsible for not letting a model claim `Repair`.
 
+## The planner
+
+A v2 `Linker` is a policy: the pending batch in, one `KnowledgeAction` per observation out.
+
+- `Blocker` is recall: live entities only, ordered by id. An error is not an empty set; empty means
+  "nothing matched, create," and a failed probe stops the link.
+- `IdentityHolder` is the one evidence read: which live entity already carries
+  `(scheme, external_id)`, named by origin.
+- `HeuristicPlanner` is today's policy: a held identity wins; else the best qualifying blocker
+  candidate; else create. The target is an `EntityOriginId`, never an entity id, so a decision made
+  against an older corpus follows tombstones when it is applied.
+
+The caller selects the batch. Already-linked observations are not the planner's problem; the helper
+filters them before planning.
+
 ## Identities are caller-supplied
 
 If an observation's platform columns should become an identity, the caller says so. The caller — today
@@ -244,8 +260,8 @@ does not authenticate the caller.
 
 What the code paths build:
 
-- **Link**: `CreateEntity`, `AttachObservation`, each carrying the `Identity` its policy admits from
-  the observation's platform columns. The graph never sees the platform link.
+- **Link**: a `Linker` plans the pending batch; `CreateEntity` and `AttachObservation` carry the
+  `Identity` its policy admits. The graph never sees the platform link.
 - **Resolve**: `AttestIdentity`, `RetractIdentity`, chunked per entity. That is how a provider
   replaces its set without a set-shaped action.
 - **Replay**: `CreateEntity`, `AttachObservation`, `DetachObservation`, `MergeEntity`,
@@ -338,3 +354,5 @@ Every action is safe to re-apply after a committed call, because the second pass
    `distinct` needs lifting; until then it is a standing decision.
 9. Contradictory plans: reject a call that merges and marks distinct one pair, attests and vetoes one
    pairing, or attaches and detaches one observation, instead of applying in canonical order.
+10. The planner still uses knowledge1's `Heuristic` scoring. Port it into v2 when the corpus
+    comparison is done, or move the scoring into a module both engines share.

@@ -1,0 +1,125 @@
+//! The v2 planner: pending observations in, graph actions out.
+//!
+//! The blocker is recall; the holder is the one evidence read. Everything else is policy, and policy
+//! is the caller's: the planner emits [`KnowledgeAction`]s, so there is no second action vocabulary
+//! and no translation layer between a decision and the graph.
+
+use crate::knowledge::linker::heuristic::Heuristic;
+use crate::model;
+
+use super::action::KnowledgeAction;
+use super::identity::Identity;
+use super::ids::{EntityOriginId, ObservationId};
+
+/// Which entities are worth considering.
+///
+/// Live entities only, ordered by id. An error is not an empty set: empty means "nothing matched,
+/// create", and a failed probe means "ask again".
+#[async_trait::async_trait]
+pub trait Blocker: Send + Sync {
+    async fn candidates(
+        &self,
+        observation: &model::user_observed_entity::Model,
+    ) -> anyhow::Result<Vec<model::knowledge_entity::Model>>;
+}
+
+/// The one evidence read: which live entity already carries `(scheme, external_id)`, by origin?
+#[async_trait::async_trait]
+pub trait IdentityHolder: Send + Sync {
+    async fn holder(
+        &self,
+        scheme: &str,
+        external_id: &str,
+    ) -> anyhow::Result<Option<EntityOriginId>>;
+}
+
+/// A policy: the pending batch in, one action per observation out.
+///
+/// The caller selects the batch — observations already linked are not the planner's problem. The
+/// unit is one illumination, because a reading is decided as one.
+#[async_trait::async_trait]
+pub trait Linker: Send + Sync {
+    async fn plan(
+        &self,
+        blocker: &dyn Blocker,
+        holder: &dyn IdentityHolder,
+        observations: &[model::user_observed_entity::Model],
+    ) -> anyhow::Result<Vec<KnowledgeAction>>;
+}
+
+/// Today's policy: a held identity wins; else the best qualifying candidate; else create.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct HeuristicPlanner {
+    scoring: Heuristic,
+}
+
+impl HeuristicPlanner {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
+#[async_trait::async_trait]
+impl Linker for HeuristicPlanner {
+    async fn plan(
+        &self,
+        blocker: &dyn Blocker,
+        holder: &dyn IdentityHolder,
+        observations: &[model::user_observed_entity::Model],
+    ) -> anyhow::Result<Vec<KnowledgeAction>> {
+        // The order the capture emitted them, which decides who wins a contested entity.
+        let mut observations = observations.to_vec();
+        observations.sort_by_key(|observation| (observation.position, observation.id));
+
+        let mut actions = Vec::with_capacity(observations.len());
+        for observation in observations {
+            let with = Identity::from_observation(&observation);
+
+            // A held identity settles it before any scoring. The capture's handle is the observation's
+            // own evidence; the entity carrying it is the thing.
+            if let Some(identity) = &with
+                && let Some(entity) = holder
+                    .holder(&identity.scheme, &identity.external_id)
+                    .await?
+            {
+                actions.push(KnowledgeAction::AttachObservation {
+                    observation: ObservationId(observation.id),
+                    entity,
+                    with,
+                    why: Some("identity holder".into()),
+                });
+                continue;
+            }
+
+            let candidates = blocker.candidates(&observation).await?;
+            let ranked = self.scoring.link(&observation, &candidates);
+
+            // The best candidate that qualifies. An empty ranking is a decision too: nothing here
+            // is this observation, so it starts a new entity.
+            match ranked.first() {
+                Some((index, _)) => actions.push(KnowledgeAction::AttachObservation {
+                    observation: ObservationId(observation.id),
+                    entity: origin_of(&candidates[*index])?,
+                    with,
+                    why: Some("heuristic".into()),
+                }),
+                None => actions.push(KnowledgeAction::CreateEntity {
+                    from: ObservationId(observation.id),
+                    with,
+                }),
+            }
+        }
+
+        Ok(actions)
+    }
+}
+
+fn origin_of(entity: &model::knowledge_entity::Model) -> anyhow::Result<EntityOriginId> {
+    let origin = entity.origin_observation_id.ok_or_else(|| {
+        anyhow::anyhow!(
+            "blocker returned entity {} with no origin_observation_id",
+            entity.id
+        )
+    })?;
+    Ok(EntityOriginId(ObservationId(origin)))
+}

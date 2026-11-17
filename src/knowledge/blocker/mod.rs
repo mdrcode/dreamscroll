@@ -15,9 +15,12 @@ use crate::model;
 /// whatever state it keeps. `Send + Sync` keeps that honest.
 #[async_trait::async_trait]
 pub trait Blocker: Send + Sync {
-    /// Candidates for one observation. Pure: same corpus, same answer.
+    /// Candidates for one observation: live entities only, ordered by id.
+    ///
+    /// An error is not an empty set. Empty means "nothing matched, create"; a failed probe means
+    /// "ask again", and conflating them silently forks the graph into duplicates.
     async fn candidates(
         &self,
         observation: &model::user_observed_entity::Model,
-    ) -> Vec<model::knowledge_entity::Model>;
+    ) -> anyhow::Result<Vec<model::knowledge_entity::Model>>;
 }

@@ -1,28 +1,21 @@
 //! The first end-to-end use case: link illuminations into the v2 graph.
 //!
-//! The graph has no linker and no blocker. This helper is the external executor: it asks knowledge1's
-//! [`SqlBlocker`] for candidates and its [`HeuristicLinker`] for decisions, turns those decisions into
-//! [`KnowledgeAction`]s, and hands them to [`KnowledgeGraph2::proc`].
-//!
-//! It also does the job the graph refuses to do: after each committed call it runs knowledge1's
-//! projection, which fills the entity's derived columns and its `knowledge_blocking_index` row. That
-//! keeps the next illumination's blocker looking at the same graph v1 would have built.
+//! The graph has no linker and no blocker. This helper is the external executor: it hands the
+//! pending observations to a v2 [`Linker`], applies the actions, then runs knowledge1's projection so
+//! the next illumination's SQL blocker sees the same graph v1 would have built.
 
 use sea_orm::sea_query::{Expr, ExprTrait, Query};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, QueryFilter, QueryOrder, Statement,
-    Value,
+    ColumnTrait, ConnectionTrait, DatabaseBackend, QueryFilter, QueryOrder, Statement, Value,
 };
 
 use crate::database::DbHandle;
 use crate::knowledge::KnowledgeGraph;
-use crate::knowledge::blocker::SqlBlocker;
-use crate::knowledge::linker::heuristic::HeuristicLinker;
-use crate::knowledge::linker::{Action, IdentityHolder, Linker};
+use crate::knowledge::blocker::{Blocker as V1Blocker, SqlBlocker};
 use crate::knowledge2::action::KnowledgeAction;
 use crate::knowledge2::graph::KnowledgeGraph2;
-use crate::knowledge2::identity::Identity;
 use crate::knowledge2::ids::{EntityOriginId, ObservationId};
+use crate::knowledge2::linker::{Blocker, HeuristicPlanner, IdentityHolder, Linker};
 use crate::model;
 
 /// One illumination's link.
@@ -46,14 +39,14 @@ pub struct LinkAllReport {
     pub left_pending: usize,
 }
 
-/// The external executor: blocker, linker, graph, and the shared projection pass.
+/// The external executor: planner, graph, and the shared projection pass.
 #[derive(Clone)]
 pub struct LinkHelper {
     db: DbHandle,
     graph: KnowledgeGraph2,
     projector: KnowledgeGraph,
     blocker: SqlBlocker,
-    linker: HeuristicLinker,
+    linker: HeuristicPlanner,
 }
 
 impl LinkHelper {
@@ -64,11 +57,11 @@ impl LinkHelper {
             // knowledge1, used only as the shared projection/index pass so v1 and v2 are comparable.
             projector: KnowledgeGraph::new(db),
             blocker: SqlBlocker::new(db),
-            linker: HeuristicLinker::new(),
+            linker: HeuristicPlanner::new(),
         }
     }
 
-    /// Link one illumination: decide, convert, apply, project.
+    /// Link one illumination: decide, apply, project.
     pub async fn link_illumination(
         &self,
         illumination: &model::illumination::ModelEx,
@@ -87,40 +80,19 @@ impl LinkHelper {
             .iter()
             .map(|row| row.clone().into())
             .collect();
-        let pending = observations
-            .iter()
+        let considered = observations.len();
+        let pending: Vec<model::user_observed_entity::Model> = observations
+            .into_iter()
             .filter(|row| row.knowledge_entity_id.is_none())
+            .collect();
+        let already_linked = considered - pending.len();
+
+        let actions = self.linker.plan(&self.blocker, self, &pending).await?;
+        let created = actions
+            .iter()
+            .filter(|action| matches!(action, KnowledgeAction::CreateEntity { .. }))
             .count();
-
-        let decisions = self
-            .linker
-            .decide_link(&self.blocker, self, &observations)
-            .await?;
-
-        let mut actions = Vec::with_capacity(decisions.len());
-        let mut created = 0;
-        let mut attached = 0;
-        for decision in &decisions {
-            let with = Identity::from_observation(&decision.observation);
-            match decision.action {
-                Action::Create => {
-                    created += 1;
-                    actions.push(KnowledgeAction::CreateEntity {
-                        from: ObservationId(decision.observation.id),
-                        with,
-                    });
-                }
-                Action::Attach(entity) => {
-                    attached += 1;
-                    actions.push(KnowledgeAction::AttachObservation {
-                        observation: ObservationId(decision.observation.id),
-                        entity: self.origin_of(entity).await?,
-                        with,
-                        why: None,
-                    });
-                }
-            }
-        }
+        let attached = actions.len() - created;
 
         if !actions.is_empty() {
             let report = self.graph.proc(&actions).await?;
@@ -135,11 +107,11 @@ impl LinkHelper {
         }
 
         Ok(LinkReport {
-            considered: observations.len(),
-            already_linked: observations.len() - pending,
+            considered,
+            already_linked,
             created,
             attached,
-            left_pending: pending.saturating_sub(decisions.len()),
+            left_pending: pending.len().saturating_sub(actions.len()),
         })
     }
 
@@ -172,22 +144,21 @@ impl LinkHelper {
         }
         Ok(report)
     }
+}
 
-    /// The linker speaks entity ids; the graph speaks origins.
-    async fn origin_of(&self, entity: i32) -> anyhow::Result<EntityOriginId> {
-        let row = model::knowledge_entity::Entity::find_by_id(entity)
-            .one(&self.db.conn)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("the linker chose entity {entity}, which does not exist"))?;
-        let origin = row
-            .origin_observation_id
-            .ok_or_else(|| anyhow::anyhow!("entity {entity} has no origin_observation_id"))?;
-        Ok(EntityOriginId(ObservationId(origin)))
+/// The v1 SQL blocker is the recall implementation; the v2 planner sees it through v2's trait.
+#[async_trait::async_trait]
+impl Blocker for SqlBlocker {
+    async fn candidates(
+        &self,
+        observation: &model::user_observed_entity::Model,
+    ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
+        V1Blocker::candidates(self, observation).await
     }
 }
 
 const HOLDER: &str = r#"
-SELECT i.knowledge_entity_id
+SELECT e.origin_observation_id
   FROM knowledge_identities i
   JOIN knowledge_entities e ON e.id = i.knowledge_entity_id
  WHERE e.merged_into_id IS NULL
@@ -197,13 +168,17 @@ SELECT i.knowledge_entity_id
  LIMIT 1
 "#;
 
-/// The one read the linker asks, answered from v2's own tables.
+/// The one read the planner asks, answered from v2's own tables.
 ///
 /// The ordering is the resolver's rule — most substantiated first, `NULL` last, then id — so the
 /// decision matches the one knowledge1's `Evidence` would have given.
 #[async_trait::async_trait]
 impl IdentityHolder for LinkHelper {
-    async fn holder(&self, scheme: &str, external_id: &str) -> anyhow::Result<Option<i32>> {
+    async fn holder(
+        &self,
+        scheme: &str,
+        external_id: &str,
+    ) -> anyhow::Result<Option<EntityOriginId>> {
         let row = self
             .db
             .conn
@@ -216,9 +191,11 @@ impl IdentityHolder for LinkHelper {
                 ],
             ))
             .await?;
-        Ok(row
-            .map(|row| row.try_get_by_index::<i32>(0))
-            .transpose()?)
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let origin: Option<i32> = row.try_get_by_index(0)?;
+        Ok(origin.map(|id| EntityOriginId(ObservationId(id))))
     }
 }
 
@@ -237,7 +214,7 @@ pub async fn link_all_pending(db: &DbHandle) -> anyhow::Result<LinkAllReport> {
 
 #[cfg(test)]
 mod tests {
-    use sea_orm::PaginatorTrait;
+    use sea_orm::{EntityTrait, PaginatorTrait};
 
     use super::*;
     use crate::test_support::{db_or_skip, fixtures};

@@ -97,7 +97,7 @@ impl Linker for HeuristicLinker {
                 continue;
             }
 
-            let candidates = blocker.candidates(&observation).await;
+            let candidates = blocker.candidates(&observation).await?;
             let ranked = self.scoring.link(&observation, &candidates);
 
             // The best candidate that qualifies. An empty ranking is a decision too: nothing here
@@ -133,8 +133,8 @@ mod tests {
         async fn candidates(
             &self,
             _observation: &model::user_observed_entity::Model,
-        ) -> Vec<model::knowledge_entity::Model> {
-            self.0.clone()
+        ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
+            Ok(self.0.clone())
         }
     }
 
