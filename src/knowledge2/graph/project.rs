@@ -145,7 +145,7 @@ pub(super) async fn project<C: ConnectionTrait>(
     .await?;
 
     // The index row is a function of these columns and the current fold, so it moves with them.
-    crate::knowledge::blocker::index::write(conn, &updated).await?;
+    crate::knowledge2::blocker::index::write(conn, &updated).await?;
     Ok(updated)
 }
 

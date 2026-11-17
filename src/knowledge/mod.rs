@@ -38,7 +38,7 @@
 //! [Blocker]: blocker::Blocker
 //! [Linker]: linker::Linker
 
-pub mod blocker;
+pub use crate::knowledge2::blocker;
 pub mod eval;
 pub mod evidence;
 pub mod graph;

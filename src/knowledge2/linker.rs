@@ -8,19 +8,9 @@ use crate::knowledge::linker::heuristic::Heuristic;
 use crate::model;
 
 use super::action::KnowledgeAction;
+use super::blocker::Blocker;
 use super::identity::Identity;
 use super::ids::{EntityOriginId, ObservationId};
-
-/// Which entities are worth considering.
-///
-/// Live entities only, ordered by id. An error is not an empty set: empty means "nothing matched"
-#[async_trait::async_trait]
-pub trait Blocker: Send + Sync {
-    async fn candidates(
-        &self,
-        observation: &model::user_observed_entity::Model,
-    ) -> anyhow::Result<Vec<model::knowledge_entity::Model>>;
-}
 
 /// The one evidence read: which live entity already carries `(scheme, external_id)`, by origin?
 #[async_trait::async_trait]

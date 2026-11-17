@@ -160,7 +160,7 @@ measured-out trait version is in git history.
 
 `linker/heuristic/linker.rs` is the **procedure** — a handle the graph already holds settles the
 observation before any scoring, else the best qualifying candidate, else create — and holds the
-policy it applies, but no numbers of its own. `blocker/sql.rs` is recall:
+policy it applies, but no numbers of its own. `knowledge2/blocker/sql.rs` is recall:
 every folded surface and its word-order-insensitive form, probed out of `knowledge_blocking_index` —
 nothing scored. A platform handle is a surface too, so a capture that named an account only by its
 handle still finds the entity another capture named by hand. The
@@ -371,9 +371,9 @@ one.
 | file | what it is |
 |---|---|
 | `text/` | everything about a string short of its meaning: `fold` (the comparable key `comparable`), `key` (the word-order-insensitive `word_key`), `fingerprint` (the behavioural stamp the two are versioned by), `tokens` (words, stems, grams and `jaccard` for a measure) and `surface` (`near_surface`, a spelling tolerance). Shared by the blocker, identity, evidence, linking and projection |
-| `blocker/mod.rs` | the `Blocker` trait: which entities are worth considering, and nothing else |
-| `blocker/sql.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
-| `blocker/index.rs` | `knowledge_blocking_index`: the folded forms a blocker matches on — `rebuild`, `check`, `write`, `forget` |
+| `../knowledge2/blocker/mod.rs` | the `Blocker` trait: which entities are worth considering, and nothing else. Re-exported as `knowledge::blocker` |
+| `../knowledge2/blocker/sql.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
+| `../knowledge2/blocker/index.rs` | `knowledge_blocking_index`: the folded forms a blocker matches on — `rebuild`, `check`, `write`, `forget` |
 | `linker/mod.rs` | the `Linker` trait: one batch of observations in, decisions out. No policy argument is passed — the implementation holds its own. Everything upstream is recall, everything downstream is effect; the caller decides how the batch was assembled |
 | `linker/heuristic/linker.rs` | `HeuristicLinker`: the procedure over the heuristic — best candidate that clears the bar, else create |
 | `linker/heuristic/scoring.rs` | the heuristic: `link`, `merge` and `pair`, the weights, and the merge rule (a name match plus one corroborating signal) |

@@ -196,8 +196,28 @@ pub async fn check(db: &DbHandle) -> anyhow::Result<Report> {
 mod tests {
     use super::*;
 
+    use crate::knowledge2::action::{Cause, KnowledgeAction};
+    use crate::knowledge2::ids::{EntityOriginId, ObservationId};
     use crate::test_support::{db_or_skip, fixtures};
     use sea_orm::{DatabaseBackend, Statement};
+
+    async fn merge(
+        store: &crate::knowledge2::KnowledgeGraph2,
+        db: &DbHandle,
+        loser: i32,
+        winner: i32,
+    ) {
+        let report = store
+            .proc(&[KnowledgeAction::MergeEntity {
+                loser: EntityOriginId(ObservationId(fixtures::origin(db, loser).await)),
+                winner: EntityOriginId(ObservationId(fixtures::origin(db, winner).await)),
+                cause: Cause::Repair,
+                why: "test".into(),
+            }])
+            .await
+            .unwrap();
+        assert!(report.refused.is_none(), "{:?}", report.refused);
+    }
 
     /// `project` writes the row, and what it writes is the fold of the entity's surfaces.
     #[tokio::test]
@@ -205,7 +225,7 @@ mod tests {
         db_or_skip!(db);
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         // The fixture inserts the row directly; `project` is the writer under test.
-        crate::knowledge::KnowledgeGraph::new(&db)
+        crate::knowledge2::KnowledgeGraph2::new(&db)
             .update_projection(id)
             .await
             .unwrap();
@@ -241,7 +261,7 @@ mod tests {
     async fn a_row_from_another_fold_is_counted_and_rebuildable() {
         db_or_skip!(db);
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        crate::knowledge::KnowledgeGraph::new(&db)
+        crate::knowledge2::KnowledgeGraph2::new(&db)
             .update_projection(id)
             .await
             .unwrap();
@@ -270,14 +290,11 @@ mod tests {
         db_or_skip!(db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Elon Musk").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Elon").await;
-        let store = crate::knowledge::KnowledgeGraph::new(&db);
+        let store = crate::knowledge2::KnowledgeGraph2::new(&db);
         store.update_projection(winner).await.unwrap();
         store.update_projection(loser).await.unwrap();
 
-        store
-            .merge(loser, winner, crate::knowledge::verdicts::Cause::Repair)
-            .await
-            .unwrap();
+        merge(&store, &db, loser, winner).await;
 
         assert!(
             model::knowledge_blocking_index::Entity::find_by_id(loser)
@@ -306,15 +323,12 @@ mod tests {
         db_or_skip!(db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        let store = crate::knowledge::KnowledgeGraph::new(&db);
+        let store = crate::knowledge2::KnowledgeGraph2::new(&db);
         store.update_projection(winner).await.unwrap();
         store.update_projection(loser).await.unwrap();
-        store
-            .merge(loser, winner, crate::knowledge::verdicts::Cause::Repair)
-            .await
-            .unwrap();
+        merge(&store, &db, loser, winner).await;
 
-        let offered = crate::knowledge::blocker::sql::candidate_ids(
+        let offered = crate::knowledge2::blocker::sql::candidate_ids(
             &db,
             &fixtures::stub_observation(1, "Train Dreams", "book"),
         )
@@ -328,7 +342,7 @@ mod tests {
     async fn a_live_entity_without_a_row_is_missing() {
         db_or_skip!(db);
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        crate::knowledge::KnowledgeGraph::new(&db)
+        crate::knowledge2::KnowledgeGraph2::new(&db)
             .update_projection(id)
             .await
             .unwrap();
@@ -344,7 +358,7 @@ mod tests {
     async fn a_wordless_surface_gets_no_word_key() {
         db_or_skip!(db);
         let id = fixtures::knowledge_entity_with_member(&db, "...").await;
-        crate::knowledge::KnowledgeGraph::new(&db)
+        crate::knowledge2::KnowledgeGraph2::new(&db)
             .update_projection(id)
             .await
             .unwrap();
@@ -367,17 +381,18 @@ mod tests {
     #[tokio::test]
     async fn projecting_a_tombstone_writes_no_row() {
         db_or_skip!(db);
-        let store = crate::knowledge::KnowledgeGraph::new(&db);
+        let store = crate::knowledge2::KnowledgeGraph2::new(&db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         store.update_projection(winner).await.unwrap();
         store.update_projection(loser).await.unwrap();
-        store
-            .merge(loser, winner, crate::knowledge::verdicts::Cause::Repair)
-            .await
-            .unwrap();
+        merge(&store, &db, loser, winner).await;
 
-        let tombstone = store.get(loser).await.unwrap();
+        let tombstone = model::knowledge_entity::Entity::find_by_id(loser)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .expect("the tombstone");
         assert!(tombstone.merged_into_id.is_some());
         store.update_projection(loser).await.unwrap();
 
@@ -397,13 +412,10 @@ mod tests {
     #[tokio::test]
     async fn an_orphaned_row_is_counted() {
         db_or_skip!(db);
-        let store = crate::knowledge::KnowledgeGraph::new(&db);
+        let store = crate::knowledge2::KnowledgeGraph2::new(&db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        store
-            .merge(loser, winner, crate::knowledge::verdicts::Cause::Repair)
-            .await
-            .unwrap();
+        merge(&store, &db, loser, winner).await;
 
         // The state a writer that predates the guard leaves behind.
         db.conn

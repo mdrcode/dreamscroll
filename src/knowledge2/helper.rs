@@ -11,11 +11,11 @@ use sea_orm::{
 };
 
 use crate::database::DbHandle;
-use crate::knowledge::blocker::{Blocker as V1Blocker, SqlBlocker};
 use crate::knowledge2::action::KnowledgeAction;
+use crate::knowledge2::blocker::SqlBlocker;
 use crate::knowledge2::graph::KnowledgeGraph2;
 use crate::knowledge2::ids::{EntityOriginId, ObservationId};
-use crate::knowledge2::linker::{Blocker, HeuristicPlanner, IdentityHolder, Linker};
+use crate::knowledge2::linker::{HeuristicPlanner, IdentityHolder, Linker};
 use crate::model;
 
 /// One illumination's link.
@@ -137,17 +137,6 @@ impl LinkHelper {
             report.left_pending += part.left_pending;
         }
         Ok(report)
-    }
-}
-
-/// The v1 SQL blocker is the recall implementation; the v2 planner sees it through v2's trait.
-#[async_trait::async_trait]
-impl Blocker for SqlBlocker {
-    async fn candidates(
-        &self,
-        observation: &model::user_observed_entity::Model,
-    ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
-        V1Blocker::candidates(self, observation).await
     }
 }
 
