@@ -2,7 +2,6 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use crate::database::DbHandle;
 use crate::fetch::{self, Allowance, FetchCache, Gateway, Refusal};
 use crate::knowledge2::mutation::GraphMutation;
 use crate::knowledge2::graph::KnowledgeGraph2;
@@ -25,12 +24,12 @@ pub struct HeuristicResolver {
 
 impl HeuristicResolver {
     /// The default resolver over Wikidata.
-    pub fn new(db: &DbHandle, options: Options) -> anyhow::Result<Self> {
-        Self::with_resolvers(db, options, vec![Box::new(Wikidata::new()?)])
+    pub fn new(graph: &KnowledgeGraph2, options: Options) -> anyhow::Result<Self> {
+        Self::with_resolvers(graph, options, vec![Box::new(Wikidata::new()?)])
     }
 
     fn with_resolvers(
-        db: &DbHandle,
+        graph: &KnowledgeGraph2,
         options: Options,
         resolvers: Vec<Box<dyn Resolver>>,
     ) -> anyhow::Result<Self> {
@@ -48,7 +47,7 @@ impl HeuristicResolver {
             );
         }
         Ok(Self {
-            graph: KnowledgeGraph2::new(db),
+            graph: graph.clone(),
             options,
             resolvers,
         })
@@ -317,6 +316,7 @@ mod tests {
     use super::*;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
+    use crate::database::DbHandle;
     use crate::knowledge2::heuristic::resolution::Resolver;
     use crate::knowledge2::identity::IdentityKey;
     use crate::knowledge2::mutation::Cause;
@@ -358,7 +358,7 @@ mod tests {
 
     async fn resolver(db: &DbHandle, dry_run: bool) -> HeuristicResolver {
         HeuristicResolver::with_resolvers(
-            db,
+            &KnowledgeGraph2::new(db),
             Options {
                 include_already_annotated: true,
                 dry_run,

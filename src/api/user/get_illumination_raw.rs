@@ -125,9 +125,11 @@ mod tests {
                 .unwrap(),
         );
         let knowledge = crate::knowledge::KnowledgeGraph::with_heuristic_linking(&db);
-        let identity_engine =
-            crate::knowledge2::heuristic::resolver::HeuristicResolver::new(&db, Default::default())
-                .unwrap();
+        let identity_engine = crate::knowledge2::heuristic::resolver::HeuristicResolver::new(
+            &crate::knowledge2::KnowledgeGraph2::new(&db),
+            Default::default(),
+        )
+        .unwrap();
         let state = std::sync::Arc::new(crate::webhook::WebhookState {
             logic: logic::LogicState {
                 cache: crate::fetch::FetchCache::new(&db.conn),

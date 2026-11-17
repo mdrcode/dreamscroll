@@ -177,8 +177,10 @@ async fn initialize()
         // One graph, two handles: the state writes through it, the resolve engine reads and
         // annotates through the same one, and the engine owns its fetch cache.
         let knowledge = knowledge::KnowledgeGraph::with_heuristic_linking(&db);
-        let identity_engine =
-            knowledge2::heuristic::resolver::HeuristicResolver::new(&db, Default::default())?;
+        let identity_engine = knowledge2::heuristic::resolver::HeuristicResolver::new(
+            &knowledge2::KnowledgeGraph2::new(&db),
+            Default::default(),
+        )?;
 
         let webhook_router = webhook::make_webhook_router(
             webhook::WebhookState {

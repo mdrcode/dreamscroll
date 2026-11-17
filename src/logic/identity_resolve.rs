@@ -124,7 +124,11 @@ mod tests {
     /// The payload names an owner; an illumination row names its user. Acting for someone else is
     /// refused before any transport call.
     fn engine(db: &crate::database::DbHandle) -> HeuristicResolver {
-        HeuristicResolver::new(db, Default::default()).expect("the heuristic resolver")
+        HeuristicResolver::new(
+            &crate::knowledge2::KnowledgeGraph2::new(db),
+            Default::default(),
+        )
+        .expect("the heuristic resolver")
     }
 
     #[tokio::test]

@@ -554,7 +554,10 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
         include_already_annotated: args.entity.is_some(),
         dry_run: args.dry_run,
     };
-    let engine = knowledge2::heuristic::resolver::HeuristicResolver::new(db, options)?;
+    let engine = knowledge2::heuristic::resolver::HeuristicResolver::new(
+        &knowledge2::KnowledgeGraph2::new(db),
+        options,
+    )?;
     let cache = dreamscroll::fetch::FetchCache::new(&db.conn);
     let allowance = (!args.offline).then(|| {
         dreamscroll::fetch::Allowance::new(
