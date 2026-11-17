@@ -83,6 +83,26 @@ impl<'a> GraphSelector<'a> {
         count_identity_rows(self.conn, entity, key).await
     }
 
+    /// The keys this provider currently asserts for the entity.
+    pub async fn identity_keys(
+        &self,
+        entity: i32,
+        provider: &str,
+    ) -> anyhow::Result<Vec<IdentityKey>> {
+        let rows = model::knowledge_identity::Entity::find()
+            .filter(model::knowledge_identity::Column::KnowledgeEntityId.eq(entity))
+            .filter(model::knowledge_identity::Column::Provider.eq(provider))
+            .all(self.conn)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| IdentityKey {
+                scheme: row.scheme,
+                external_id: row.external_id,
+            })
+            .collect())
+    }
+
     /// The verdict sub-view: durable decisions and their replay reads.
     pub fn verdicts(&self) -> super::VerdictSelector<'a> {
         super::VerdictSelector::new(self.conn)

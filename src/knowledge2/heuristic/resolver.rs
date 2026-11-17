@@ -2,15 +2,11 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-
 use crate::database::DbHandle;
 use crate::fetch::{self, Allowance, FetchCache, Gateway, Refusal};
 use crate::knowledge2::mutation::GraphMutation;
 use crate::knowledge2::graph::KnowledgeGraph2;
-use crate::knowledge2::identity::{
-    Identity, IdentityKey, Provider, RESERVED_PROVIDER_IDS,
-};
+use crate::knowledge2::identity::{Identity, Provider, RESERVED_PROVIDER_IDS};
 use crate::knowledge2::ids::{EntityOriginId, ObservationId};
 use crate::model;
 
@@ -22,7 +18,6 @@ pub const DEFAULT_MAX_REQUESTS: usize = 200;
 
 /// The heuristic resolver: Wikidata, the cache gateway and the graph.
 pub struct HeuristicResolver {
-    db: DbHandle,
     graph: KnowledgeGraph2,
     options: Options,
     resolvers: Vec<Box<dyn Resolver>>,
@@ -53,7 +48,6 @@ impl HeuristicResolver {
             );
         }
         Ok(Self {
-            db: db.clone(),
             graph: KnowledgeGraph2::new(db),
             options,
             resolvers,
@@ -190,7 +184,7 @@ impl HeuristicResolver {
                         continue;
                     }
                     let (keep, vetoed) = filter_identities(*entity_id, &identities, &vetoes);
-                    let existing = existing_keys(&self.db, *entity_id, provider).await?;
+                    let existing = selector.identity_keys(*entity_id, provider).await?;
                     let removed = existing.len();
                     for key in existing {
                         mutations.push(GraphMutation::RetractIdentity {
@@ -316,25 +310,6 @@ fn filter_identities(
     (keep, vetoed)
 }
 
-async fn existing_keys(
-    db: &DbHandle,
-    entity_id: i32,
-    provider: &str,
-) -> anyhow::Result<Vec<IdentityKey>> {
-    let rows = model::knowledge_identity::Entity::find()
-        .filter(model::knowledge_identity::Column::KnowledgeEntityId.eq(entity_id))
-        .filter(model::knowledge_identity::Column::Provider.eq(provider))
-        .all(&db.conn)
-        .await?;
-    Ok(rows
-        .into_iter()
-        .map(|row| IdentityKey {
-            scheme: row.scheme,
-            external_id: row.external_id,
-        })
-        .collect())
-}
-
 
 
 #[cfg(test)]
@@ -343,6 +318,7 @@ mod tests {
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
     use crate::knowledge2::heuristic::resolution::Resolver;
+    use crate::knowledge2::identity::IdentityKey;
     use crate::knowledge2::mutation::Cause;
     use crate::test_support::{db_or_skip, fixtures};
 
