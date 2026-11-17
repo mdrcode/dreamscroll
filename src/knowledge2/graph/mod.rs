@@ -9,7 +9,7 @@ mod selection;
 mod sql;
 mod verdicts;
 
-pub use graph::KnowledgeGraph2;
+pub use graph::{KnowledgeGraph2, MergePreview};
 pub(crate) use sql::generation as current_generation;
 pub use project::Scope as ReprojectScope;
 pub use report::{Refusal, Report};

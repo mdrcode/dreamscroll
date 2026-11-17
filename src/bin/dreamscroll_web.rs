@@ -174,9 +174,8 @@ async fn initialize()
         let vector_store = search::gcloud::VertexVectorStore::from_config(&cfg).await?;
         let webhook_oidc = webhook::oidc_from_config(&cfg)?;
 
-        // One graph, two handles: the state writes through it, the resolve engine reads and
-        // annotates through the same one, and the engine owns its fetch cache.
-        let knowledge = knowledge::KnowledgeGraph::with_heuristic_linking(&db);
+        // Link writes through the v2 helper; resolve reads and annotates through a v2 graph.
+        let knowledge = knowledge2::LinkHelper::new(&db);
         let identity_engine = knowledge2::heuristic::resolver::HeuristicResolver::new(
             &knowledge2::KnowledgeGraph2::new(&db),
             Default::default(),

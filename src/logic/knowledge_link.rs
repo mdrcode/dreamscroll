@@ -61,10 +61,10 @@ pub async fn exec(
 
 /// Factored out so it can be exercised without a `LogicState` for test.
 pub(crate) async fn link(
-    graph: &crate::knowledge::KnowledgeGraph,
+    graph: &crate::knowledge2::LinkHelper,
     service_api: &crate::api::ServiceApiClient,
     task: &KnowledgeLinkTask,
-) -> anyhow::Result<crate::knowledge::LinkReport> {
+) -> anyhow::Result<crate::knowledge2::LinkReport> {
     // The read belongs to the service layer, which is the worker's door to the app; the ownership
     // check belongs here, where the payload is. The store is not involved in either.
     let illumination = service_api.illumination(task.illumination_id).await?;
@@ -76,7 +76,7 @@ pub(crate) async fn link(
         task.entity_owner_id
     );
 
-    crate::knowledge::link_illumination(graph, &illumination).await
+    graph.link_illumination(&illumination).await
 }
 
 #[cfg(test)]
@@ -109,7 +109,7 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let stats = link(
-            &crate::knowledge::KnowledgeGraph::with_heuristic_linking(&db),
+            &crate::knowledge2::LinkHelper::new(&db),
             &service_api,
             &task(first, user),
         )
@@ -125,7 +125,7 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let stats = link(
-            &crate::knowledge::KnowledgeGraph::with_heuristic_linking(&db),
+            &crate::knowledge2::LinkHelper::new(&db),
             &service_api,
             &task(second, user),
         )
@@ -161,7 +161,7 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let error = link(
-            &crate::knowledge::KnowledgeGraph::with_heuristic_linking(&db),
+            &crate::knowledge2::LinkHelper::new(&db),
             &service_api,
             &task(illumination, stranger),
         )

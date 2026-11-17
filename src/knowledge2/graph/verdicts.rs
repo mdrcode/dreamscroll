@@ -8,6 +8,7 @@ use std::collections::HashSet;
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 
 use super::selection::resolve_live_entity;
+use crate::knowledge2::ids::EntityOriginId;
 use crate::model;
 
 /// A borrowed read view over `knowledge_verdicts`, created by
@@ -80,5 +81,23 @@ impl<'a> VerdictSelector<'a> {
             out.insert((entity, scheme, external));
         }
         Ok(out)
+    }
+
+    /// Whether a `distinct` verdict names this unordered pair of origins.
+    pub async fn kept_apart(&self, a: EntityOriginId, b: EntityOriginId) -> anyhow::Result<bool> {
+        let (a, b) = (a.0.0, b.0.0);
+        let rows = model::knowledge_verdicts::Entity::find()
+            .filter(model::knowledge_verdicts::Column::Kind.eq("distinct"))
+            .filter(model::knowledge_verdicts::Column::WinnerOrigin.is_in([a, b]))
+            .filter(model::knowledge_verdicts::Column::LoserOrigin.is_in([a, b]))
+            .all(self.conn)
+            .await?;
+        Ok(rows.iter().any(|row| {
+            matches!(
+                (row.winner_origin, row.loser_origin),
+                (Some(winner), Some(loser))
+                    if (winner == a && loser == b) || (winner == b && loser == a)
+            )
+        }))
     }
 }

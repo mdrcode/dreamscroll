@@ -78,6 +78,16 @@ impl<'a> GraphSelector<'a> {
         resolve_live_entity(self.conn, origin.0.0).await
     }
 
+    /// The origin an entity id was created from.
+    pub async fn origin_of(&self, entity: i32) -> anyhow::Result<Option<EntityOriginId>> {
+        let row = model::knowledge_entity::Entity::find_by_id(entity)
+            .one(self.conn)
+            .await?;
+        Ok(row
+            .and_then(|row| row.origin_observation_id)
+            .map(|id| EntityOriginId(ObservationId(id))))
+    }
+
     /// How many provider rows currently assert this key for the entity.
     pub async fn identity_count(&self, entity: i32, key: &IdentityKey) -> anyhow::Result<usize> {
         count_identity_rows(self.conn, entity, key).await

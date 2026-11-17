@@ -348,13 +348,13 @@ taken from a half-built generation (53 rows where the finished graph supports 13
 in the command that reported it; both are two writers.
 
 Nothing else writes the batch. The live pipeline is `illuminate` → `knowledge_link` →
-`identity_resolve`: the link task links and stops, and its webhook chains a resolve of exactly the
-entities that link touched (`logic/identity_resolve.rs`). The resolve is queued, budgeted and
-paced like any other delivery; a capture whose resolve was refused or failed keeps its entities
-`provisional`, and `knowledge identity resolve` is the manual catch-up until the nightly drain
-(`plan/knowledge-batch-job.md`, tabled) exists. Both proximity passes remain operator commands: a
-live capture updates entities immediately and leaves the proximity batch untouched until the next
-`proximity scan` — the table is a snapshot of when it was last asked.
+`identity_resolve`, both running through `knowledge2`: the link task links and stops, and its
+webhook chains a resolve of exactly the entities that link touched (`logic/identity_resolve.rs`).
+The resolve is queued, budgeted and paced like any other delivery; a capture whose resolve was
+refused or failed keeps its entities `provisional`, and `knowledge identity resolve` is the manual
+catch-up until the nightly drain (`plan/knowledge-batch-job.md`, tabled) exists. Both proximity
+passes remain operator commands: a live capture updates entities immediately and leaves the proximity
+batch untouched until the next `proximity scan` — the table is a snapshot of when it was last asked.
 
 `reset` snapshots the projection, then empties it — entities, identities, proximities and the index
 rows, all of it derived. It keeps the newest **ten snapshot suffixes** and drops older

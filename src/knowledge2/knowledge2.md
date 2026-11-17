@@ -252,10 +252,11 @@ batches, runs the policy in `heuristic::resolution` through the gateway, replace
 and reports. The policy is `plan`, `gather`, `measure`, `classes`, `ranking` and `decide`; it
 produces `knowledge2::Identity`.
 
-The v1 `IdentityEngine` and its Wikidata adapter are gone; `knowledge` keeps its graph/link/verdict
-path. Both the heuristic and a future agentic resolver go through `knowledge2::wikidata`; only the
-policy half is replaceable. Removing `knowledge2::heuristic` leaves the core, the producer and the
-graph untouched.
+The v1 `IdentityEngine` and its Wikidata adapter are gone. The live link task and CLI `link` use
+`LinkHelper`; the live resolve path uses `HeuristicResolver`. The v1 graph/helper/evidence path
+remains for proximity, evaluation, and as the parity control until those move. Both the heuristic
+and a future agentic resolver go through `knowledge2::wikidata`; only the policy half is replaceable.
+Removing `knowledge2::heuristic` leaves the core, the producer and the graph untouched.
 
 ## Replay
 

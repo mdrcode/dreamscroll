@@ -102,7 +102,7 @@ mod tests {
 
     use std::time::Duration;
 
-    use crate::knowledge::KnowledgeGraph;
+    use crate::knowledge2::LinkHelper;
     use crate::test_support::{fixtures, service_api, test_db};
 
     #[test]
@@ -175,7 +175,7 @@ mod tests {
         let illumination = fixtures::illumination(&db, user, capture).await;
         fixtures::entity(&db, user, capture, illumination, 0, "Train Dreams").await;
 
-        let graph = KnowledgeGraph::with_heuristic_linking(&db);
+        let graph = LinkHelper::new(&db);
         let api = service_api(&db);
         crate::logic::knowledge_link::link(
             &graph,

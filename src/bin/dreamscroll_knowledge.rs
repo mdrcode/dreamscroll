@@ -1,6 +1,7 @@
 use argh::FromArgs;
+use sea_orm::EntityTrait;
 
-use dreamscroll::{config, database, knowledge, knowledge2, stats, telemetry};
+use dreamscroll::{config, database, knowledge, knowledge2, model, stats, telemetry};
 
 #[derive(FromArgs)]
 #[argh(description = "offline knowledge-graph tooling: observations, knowledge entities, evidence")]
@@ -13,7 +14,6 @@ struct Args {
 #[argh(subcommand)]
 enum Command {
     Link(LinkArgs),
-    Link2(Link2Args),
     Shape(ShapeArgs),
     Stats(StatsArgs),
     Merge(MergeArgs),
@@ -146,11 +146,6 @@ struct ReprojectArgs {
     description = "link every unlinked observation to a knowledge entity, creating one as needed"
 )]
 struct LinkArgs {}
-
-#[derive(FromArgs)]
-#[argh(subcommand, name = "link2")]
-#[argh(description = "link every pending illumination through knowledge2")]
-struct Link2Args {}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "shape")]
@@ -791,18 +786,6 @@ async fn main() -> anyhow::Result<()> {
 
     match args.command {
         Command::Link(_) => {
-            let report = knowledge::link_all_pending(&db).await?;
-            println!(
-                "considered {} · already linked {} · linked {} · created {} · left pending {} · vetoed {}",
-                report.considered,
-                report.already_linked,
-                report.attached,
-                report.created,
-                report.left_pending,
-                report.vetoed
-            );
-        }
-        Command::Link2(_) => {
             let report = knowledge2::link_all_pending(&db).await?;
             println!(
                 "illuminations {} · considered {} · already linked {} · created {} · attached {} · left pending {}",
@@ -818,8 +801,8 @@ async fn main() -> anyhow::Result<()> {
             print!("{}", knowledge2::canonical::read(&db).await?.render());
         }
         Command::Merge(args) => {
-            let store = knowledge::KnowledgeGraph::new(&db);
-            let preview = store.merge_preview(args.loser, args.winner).await?;
+            let graph = knowledge2::KnowledgeGraph2::new(&db);
+            let preview = graph.merge_preview(args.loser, args.winner).await?;
             let mut report = serde_json::json!({
                 "action": "merge",
                 "loser": args.loser,
@@ -875,28 +858,25 @@ async fn main() -> anyhow::Result<()> {
                 }
                 return Ok(());
             }
-            let cause = knowledge::verdicts::Cause::Repair;
-            match store
-                .merge_with_note(args.loser, args.winner, cause, args.note.as_deref())
-                .await?
-            {
-                knowledge::graph::merge::Outcome::Merged => {
-                    report["outcome"] = serde_json::json!("merged");
-                    if args.json {
-                        println!("{}", serde_json::to_string_pretty(&report)?);
-                    } else {
-                        println!("merged; {} is now a tombstone", args.loser);
-                    }
-                }
-                knowledge::graph::merge::Outcome::AlreadyMerged => {
-                    report["outcome"] = serde_json::json!("already_merged");
-                    if args.json {
-                        println!("{}", serde_json::to_string_pretty(&report)?);
-                    } else {
-                        println!("already merged; nothing to do");
-                    }
-                }
-                knowledge::graph::merge::Outcome::RefusedVerdict => {
+
+            let selector = graph.selector();
+            let loser = selector.origin_of(args.loser).await?.ok_or_else(|| {
+                anyhow::anyhow!("knowledge entity {} has no origin", args.loser)
+            })?;
+            let winner = selector.origin_of(args.winner).await?.ok_or_else(|| {
+                anyhow::anyhow!("knowledge entity {} has no origin", args.winner)
+            })?;
+            let outcome = graph
+                .proc(&[knowledge2::GraphMutation::MergeEntity {
+                    loser,
+                    winner,
+                    cause: knowledge2::Cause::Repair,
+                    why: args.note.clone().unwrap_or_default(),
+                }])
+                .await?;
+
+            match &outcome.refused {
+                Some(knowledge2::Refusal::StandingDistinct) => {
                     report["outcome"] = serde_json::json!("refused");
                     report["reason"] = serde_json::json!("standing_verdict");
                     if args.json {
@@ -909,7 +889,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                     exit_with(3);
                 }
-                knowledge::graph::merge::Outcome::RefusedSharedIllumination => {
+                Some(knowledge2::Refusal::SharedIllumination) => {
                     report["outcome"] = serde_json::json!("refused");
                     report["reason"] = serde_json::json!("state_changed");
                     if args.json {
@@ -918,6 +898,24 @@ async fn main() -> anyhow::Result<()> {
                         println!("refused at merge time — the entities changed under us");
                     }
                     exit_with(3);
+                }
+                Some(other) => anyhow::bail!("merge refused: {other:?}"),
+                None => {}
+            }
+
+            if outcome.applied == 0 {
+                report["outcome"] = serde_json::json!("already_merged");
+                if args.json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!("already merged; nothing to do");
+                }
+            } else {
+                report["outcome"] = serde_json::json!("merged");
+                if args.json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!("merged; {} is now a tombstone", args.loser);
                 }
             }
         }
@@ -1019,10 +1017,29 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
                 ProximityCommand::Distinct(args) => {
-                    let recorded = store.distinct(args.a, args.b, args.note.as_deref()).await?;
+                    let graph = knowledge2::KnowledgeGraph2::new(&db);
+                    let selector = graph.selector();
+                    let a = selector.origin_of(args.a).await?.ok_or_else(|| {
+                        anyhow::anyhow!("knowledge entity {} has no origin", args.a)
+                    })?;
+                    let b = selector.origin_of(args.b).await?.ok_or_else(|| {
+                        anyhow::anyhow!("knowledge entity {} has no origin", args.b)
+                    })?;
+                    let recorded = !selector.verdicts().kept_apart(a, b).await?;
+                    let outcome = graph
+                        .proc(&[knowledge2::GraphMutation::MarkDistinct {
+                            a,
+                            b,
+                            cause: knowledge2::Cause::Repair,
+                            why: args.note.unwrap_or_default(),
+                        }])
+                        .await?;
+                    if let Some(refusal) = &outcome.refused {
+                        anyhow::bail!("distinct refused: {refusal:?}");
+                    }
                     println!(
                         "{} · {} \u{21c4} {}",
-                        if recorded {
+                        if recorded && outcome.applied > 0 {
                             "distinct recorded"
                         } else {
                             "distinct already recorded"
@@ -1210,18 +1227,35 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
             IdentityCommand::Veto(args) => {
-                let store = knowledge::KnowledgeGraph::new(&db);
-                let report = store
-                    .veto(
-                        args.entity,
-                        &args.scheme,
-                        &args.identity,
-                        args.note.as_deref(),
-                    )
+                let graph = knowledge2::KnowledgeGraph2::new(&db);
+                let selector = graph.selector();
+                let subject = selector.origin_of(args.entity).await?.ok_or_else(|| {
+                    anyhow::anyhow!("knowledge entity {} has no origin", args.entity)
+                })?;
+                let key = knowledge2::IdentityKey {
+                    scheme: args.scheme.clone(),
+                    external_id: args.identity.clone(),
+                };
+                let recorded = !selector.verdicts().vetoed_keys().await?.contains(&(
+                    args.entity,
+                    args.scheme.clone(),
+                    args.identity.clone(),
+                ));
+                let withdrawn = selector.identity_count(args.entity, &key).await?;
+                let outcome = graph
+                    .proc(&[knowledge2::GraphMutation::VetoIdentity {
+                        subject,
+                        key,
+                        cause: knowledge2::Cause::Repair,
+                        why: args.note.clone().unwrap_or_default(),
+                    }])
                     .await?;
+                if let Some(refusal) = &outcome.refused {
+                    anyhow::bail!("veto refused: {refusal:?}");
+                }
                 println!(
                     "{} · entity {} · {}:{} · withdrew {} · note {:?}",
-                    if report.recorded {
+                    if recorded {
                         "veto_identity recorded"
                     } else {
                         "veto_identity already recorded"
@@ -1229,16 +1263,47 @@ async fn main() -> anyhow::Result<()> {
                     args.entity,
                     args.scheme,
                     args.identity,
-                    report.withdrawn,
+                    withdrawn,
                     args.note.as_deref().unwrap_or(""),
                 );
             }
             IdentityCommand::Unveto(args) => {
-                let store = knowledge::KnowledgeGraph::new(&db);
-                let lifted = store.unveto(args.id).await?;
+                let Some(row) = model::knowledge_verdicts::Entity::find_by_id(args.id)
+                    .one(&db.conn)
+                    .await?
+                else {
+                    println!("no such veto_identity · verdict {}", args.id);
+                    return Ok(());
+                };
+                if row.kind != model::knowledge_verdicts::Kind::VetoIdentity {
+                    println!("no such veto_identity · verdict {}", args.id);
+                    return Ok(());
+                }
+                let (Some(subject), Some(scheme), Some(external)) = (
+                    row.subject_origin,
+                    row.identity_scheme,
+                    row.identity_external_id,
+                ) else {
+                    println!("no such veto_identity · verdict {}", args.id);
+                    return Ok(());
+                };
+                let graph = knowledge2::KnowledgeGraph2::new(&db);
+                let outcome = graph
+                    .proc(&[knowledge2::GraphMutation::UnvetoIdentity {
+                        subject: knowledge2::EntityOriginId(knowledge2::ObservationId(subject)),
+                        key: knowledge2::IdentityKey {
+                            scheme,
+                            external_id: external,
+                        },
+                        cause: knowledge2::Cause::Repair,
+                    }])
+                    .await?;
+                if let Some(refusal) = &outcome.refused {
+                    anyhow::bail!("unveto refused: {refusal:?}");
+                }
                 println!(
                     "{} · verdict {}",
-                    if lifted {
+                    if outcome.applied > 0 {
                         "veto_identity lifted"
                     } else {
                         "no such veto_identity"

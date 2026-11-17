@@ -1,4 +1,4 @@
-use crate::{api, fetch, ignition, knowledge, llms, search, storage};
+use crate::{api, fetch, ignition, llms, search, storage};
 
 /// Dependencies used by background task logic.
 pub struct LogicState {
@@ -6,7 +6,7 @@ pub struct LogicState {
     pub service_api: api::ServiceApiClient,
     pub cache: fetch::FetchCache,
 
-    pub knowledge: knowledge::KnowledgeGraph,
+    pub knowledge: crate::knowledge2::LinkHelper,
     pub identity_engine: crate::knowledge2::heuristic::resolver::HeuristicResolver,
     /// What one attempt may spend at Wikidata: transport calls and the pace between them.\
     pub wikidata_allowance: fetch::AllowanceConfig,
