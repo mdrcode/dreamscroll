@@ -315,8 +315,8 @@ mod tests {
         super::link_all_pending(&right).await.unwrap();
 
         assert_eq!(
-            crate::knowledge2::shape::snapshot(&left).await.unwrap(),
-            crate::knowledge2::shape::snapshot(&right).await.unwrap(),
+            crate::knowledge2::shape::read(&left).await.unwrap(),
+            crate::knowledge2::shape::read(&right).await.unwrap(),
         );
     }
 

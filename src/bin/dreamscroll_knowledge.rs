@@ -817,7 +817,7 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         Command::Shape(_) => {
-            print!("{}", knowledge2::shape::snapshot(&db).await?.render());
+            print!("{}", knowledge2::shape::read(&db).await?.render());
         }
         Command::Merge(args) => {
             let store = knowledge::KnowledgeGraph::new(&db);
