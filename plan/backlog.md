@@ -413,6 +413,7 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 | The title step's own name-relatedness rule            | [wikidata-cleanup-20261112.md](archive/wikidata-cleanup-20261112.md)  | A second provider answers title queries                          |
 | Media transcode and format policy                  | [upload-formats.md](upload-formats.md)                                 | `rejected_format` fires for a real user, uploads stay multi-MB on cellular, or a non-browser ingestion path carries originals |
 | Abandoned task-run status                          | [task-abandoned-status.md](task-abandoned-status.md)                   | Abandonment becomes a production operation                    |
+| knowledge2 projection purity/locking               | [knowledge2-projection.md](knowledge2-projection.md)                   | v1 → v2 cutover complete                                      |
 
 ## Product direction — not yet scoped
 
