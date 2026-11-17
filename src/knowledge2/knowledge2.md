@@ -256,6 +256,13 @@ path. Both the heuristic and a future agentic resolver go through `knowledge2::w
 policy half is replaceable. Removing `knowledge2::heuristic` leaves the core, the producer and the
 graph untouched.
 
+## Replay
+
+`knowledge2::replay::replay` applies only durable repairs: the latest repair merge per unordered
+origin pair, logged as `replayed`, then repair vetoes through `VetoIdentity`. Sides that no longer
+map are reported as gone; a standing `distinct` or shared illumination is a refusal, never a guess.
+`distinct` itself is consultative and needs no write.
+
 ## Corpus check
 
 2026-11-17, local corpus, `link` only on both engines (2,802 observations, 732 illuminations):

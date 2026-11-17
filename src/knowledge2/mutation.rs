@@ -9,12 +9,14 @@ use serde::{Deserialize, Serialize};
 use super::identity::{Identity, IdentityKey, Provider};
 use super::ids::{EntityOriginId, ObservationId};
 
-/// Who decided. Stored on the row; the two classes lifting distinguishes.
+/// Why the mutation was made. Stored on the row; the lifting rule distinguishes the classes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Cause {
     Repair,
     Model,
+    /// An older repair applied to this generation by replay.
+    Replayed,
 }
 
 impl Cause {
@@ -22,6 +24,7 @@ impl Cause {
         match self {
             Self::Repair => "repair",
             Self::Model => "model",
+            Self::Replayed => "replayed",
         }
     }
 }
