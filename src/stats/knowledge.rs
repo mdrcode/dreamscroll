@@ -114,7 +114,7 @@ impl KnowledgeStats {
 /// The provider ids that are *not* identity resolvers, as an SQL list. Reserved ids name our own
 /// pipeline, so an entity holding only those has not been asked by a resolver yet.
 fn reserved_providers_sql() -> String {
-    crate::knowledge::identity::RESERVED_PROVIDER_IDS
+    crate::knowledge2::resolution::RESERVED_PROVIDER_IDS
         .iter()
         .map(|provider| format!("'{provider}'"))
         .collect::<Vec<_>>()

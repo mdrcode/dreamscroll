@@ -12,8 +12,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::knowledge::identity::IdentityEngine;
-use crate::{api, knowledge, task};
+use crate::knowledge2::resolution::ResolveEngine;
+use crate::{api, task};
 
 /// The concrete task for resolving one illumination's entities.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,12 +73,12 @@ pub async fn exec(
 /// The ownership check belongs here, where the payload is: an illumination row names its user, and
 /// the task claims to be acting for one.
 pub(crate) async fn resolve(
-    engine: &IdentityEngine,
+    engine: &ResolveEngine,
     cache: &crate::fetch::FetchCache,
     service_api: &crate::api::ServiceApiClient,
     task: &IdentityResolveTask,
     allowance: crate::fetch::AllowanceConfig,
-) -> anyhow::Result<knowledge::identity::ResolutionReport> {
+) -> anyhow::Result<crate::knowledge2::resolution::ResolutionReport> {
     let illumination = service_api.illumination(task.illumination_id).await?;
     anyhow::ensure!(
         illumination.user_id == task.entity_owner_id,
@@ -126,7 +126,7 @@ mod tests {
     struct Empty;
 
     #[async_trait::async_trait]
-    impl crate::knowledge::identity::IdentityResolver for Empty {
+    impl crate::knowledge2::resolution::Resolver for Empty {
         fn id(&self) -> &'static str {
             "fake"
         }
@@ -135,15 +135,15 @@ mod tests {
             &self,
             _entities: &[crate::model::knowledge_entity::Model],
             _gateway: &crate::fetch::Gateway<'_>,
-        ) -> Vec<(i32, crate::knowledge::evidence::Identity)> {
+        ) -> Vec<(i32, crate::knowledge2::identity::Identity)> {
             Vec::new()
         }
     }
 
-    fn engine(graph: &knowledge::KnowledgeGraph) -> IdentityEngine {
-        IdentityEngine::new(
-            graph.clone(),
-            crate::knowledge::identity::Options::default(),
+    fn engine(db: &crate::database::DbHandle) -> ResolveEngine {
+        ResolveEngine::new(
+            db,
+            crate::knowledge2::resolution::Options::default(),
             vec![Box::new(Empty)],
         )
         .expect("the fake provider is not reserved")
@@ -160,10 +160,9 @@ mod tests {
         let capture = fixtures::capture(&db, user).await;
         let illumination = fixtures::illumination(&db, user, capture).await;
 
-        let graph = KnowledgeGraph::new(&db);
         let cache = crate::fetch::FetchCache::new(&db.conn);
         let error = resolve(
-            &engine(&graph),
+            &engine(&db),
             &cache,
             &service_api(&db),
             &IdentityResolveTask {
@@ -209,7 +208,7 @@ mod tests {
 
         let cache = crate::fetch::FetchCache::new(&db.conn);
         let report = resolve(
-            &engine(&graph),
+            &engine(&db),
             &cache,
             &api,
             &IdentityResolveTask {
@@ -240,10 +239,9 @@ mod tests {
         let illumination = fixtures::illumination(&db, user, capture).await;
         fixtures::entity(&db, user, capture, illumination, 0, "Train Dreams").await;
 
-        let graph = KnowledgeGraph::new(&db);
         let cache = crate::fetch::FetchCache::new(&db.conn);
         let error = resolve(
-            &engine(&graph),
+            &engine(&db),
             &cache,
             &service_api(&db),
             &IdentityResolveTask {

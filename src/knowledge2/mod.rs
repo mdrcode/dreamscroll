@@ -15,6 +15,7 @@ pub mod helper;
 pub mod identity;
 pub mod ids;
 pub mod linker;
+pub mod resolution;
 pub mod shape;
 pub mod text;
 pub mod wikidata;

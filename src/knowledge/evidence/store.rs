@@ -1,7 +1,7 @@
 //! Where an identity annotation becomes a row, and every way it changes.
 //!
-//! A resolver's run replaces its provider's complete set for an entity; a capture appends one
-//! annotation; a veto deletes one key across providers; a merge re-points them. Keeping every change
+//! A capture appends one annotation; the v2 resolve producer replaces a provider's set through graph
+//! actions; a veto deletes one key across providers; a merge re-points them. Keeping the v1 writes
 //! here means the veto rule, the provider scope and the uniqueness rule are one thing to read.
 
 use std::cmp::Ordering;
@@ -10,11 +10,10 @@ use std::collections::HashSet;
 use sea_orm::sea_query::{Expr, ExprTrait, OnConflict, Query};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, QueryFilter,
-    QueryOrder, Set, Statement, TransactionTrait,
+    QueryOrder, Set, Statement,
 };
 
 use super::identity::{Identity, IdentityKey};
-use super::selection::IdentitySelection;
 use crate::model;
 
 /// What one provider replacement did.
@@ -45,59 +44,6 @@ impl Evidence {
 
     pub fn from_handle(db: &crate::database::DbHandle) -> Self {
         Self::from_connection(db.conn.clone())
-    }
-
-    /// Candidate selection over the same pool. Reads only; kept out of the write surface.
-    pub(crate) fn selection(&self) -> IdentitySelection<'_> {
-        IdentitySelection::from_connection(&self.conn)
-    }
-
-    /// Replace this provider's complete annotation set for one entity.
-    ///
-    /// One transaction: delete `(entity, provider)`, then insert what the run returned. An identity
-    /// the run no longer proposes disappears; another provider's annotation of the same key is
-    /// untouched, because the uniqueness is per provider.
-    pub async fn replace_provider_identities(
-        &self,
-        entity_id: i32,
-        provider: &str,
-        identities: &[Identity],
-        vetoes: &HashSet<(i32, String, String)>,
-    ) -> anyhow::Result<IdentityWrite> {
-        let (keep, vetoed) = filter_identities(entity_id, identities, vetoes);
-        let written = keep.len();
-
-        let provider = provider.to_string();
-        let removed = self
-            .conn
-            .transaction::<_, u64, anyhow::Error>(move |txn| {
-                Box::pin(async move {
-                    let removed = model::knowledge_identity::Entity::delete_many()
-                        .filter(model::knowledge_identity::Column::KnowledgeEntityId.eq(entity_id))
-                        .filter(model::knowledge_identity::Column::Provider.eq(&provider))
-                        .exec(txn)
-                        .await?
-                        .rows_affected;
-                    if !keep.is_empty() {
-                        let rows: Vec<model::knowledge_identity::ActiveModel> = keep
-                            .iter()
-                            .map(|identity| active(entity_id, &provider, identity))
-                            .collect();
-                        model::knowledge_identity::Entity::insert_many(rows)
-                            .exec(txn)
-                            .await?;
-                    }
-                    Ok(removed)
-                })
-            })
-            .await
-            .map_err(|error| anyhow::anyhow!("identity replacement failed: {error}"))?;
-
-        Ok(IdentityWrite {
-            removed: removed as usize,
-            written,
-            vetoed,
-        })
     }
 
     /// Append one annotation, insert-if-absent, on the caller's connection.
@@ -293,30 +239,6 @@ fn active(
     }
 }
 
-/// The identities a write would keep: deduped by key and filtered by a standing veto.
-///
-/// Shared by the real replacement and the dry run, so a preview cannot disagree with the write.
-pub(crate) fn filter_identities(
-    entity_id: i32,
-    identities: &[Identity],
-    vetoes: &HashSet<(i32, String, String)>,
-) -> (Vec<Identity>, usize) {
-    let mut seen = HashSet::new();
-    let mut keep = Vec::new();
-    let mut vetoed = 0;
-    for identity in identities {
-        if !seen.insert((identity.scheme.clone(), identity.external_id.clone())) {
-            continue;
-        }
-        if vetoed_key(vetoes, entity_id, identity) {
-            vetoed += 1;
-            continue;
-        }
-        keep.push(identity.clone());
-    }
-    (keep, vetoed)
-}
-
 fn vetoed_key(
     vetoes: &HashSet<(i32, String, String)>,
     entity_id: i32,
@@ -356,71 +278,6 @@ mod tests {
 
     fn vetoes() -> HashSet<(i32, String, String)> {
         HashSet::new()
-    }
-
-    /// A replacement is provider-scoped: the same key from another provider survives, and the
-    /// provider's own old rows do not.
-    #[tokio::test]
-    async fn a_replace_owns_only_its_provider() {
-        db_or_skip!(db);
-        let entity = fixtures::knowledge_entity_with_member(&db, "Tsoding").await;
-        let evidence = Evidence::from_handle(&db);
-
-        evidence
-            .add_identity(
-                &db.conn,
-                entity,
-                "illuminator",
-                &identity("x_twitter", "tsoding"),
-                &vetoes(),
-            )
-            .await
-            .unwrap();
-        evidence
-            .replace_provider_identities(
-                entity,
-                "wikidata",
-                &[identity("x_twitter", "tsoding"), identity("wikidata", "Q1")],
-                &vetoes(),
-            )
-            .await
-            .unwrap();
-
-        let rows = evidence.query_identities(entity, None).await.unwrap();
-        assert_eq!(
-            rows.len(),
-            3,
-            "a capture handle and two corroborating answers"
-        );
-        assert_eq!(
-            rows.iter().filter(|row| row.provider == "wikidata").count(),
-            2
-        );
-
-        let write = evidence
-            .replace_provider_identities(
-                entity,
-                "wikidata",
-                &[identity("wikidata", "Q2")],
-                &vetoes(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(write.removed, 2);
-        assert_eq!(write.written, 1);
-
-        let rows = evidence.query_identities(entity, None).await.unwrap();
-        assert_eq!(rows.len(), 2, "{rows:?}");
-        assert!(
-            rows.iter()
-                .any(|row| row.provider == "illuminator" && row.external_id == "tsoding"),
-            "the capture's handle survives another provider's replacement"
-        );
-        assert!(
-            rows.iter()
-                .any(|row| row.provider == "wikidata" && row.external_id == "Q2"),
-            "the new answer replaced the old one"
-        );
     }
 
     /// The capture path appends: a second capture's handle must not delete the first's, and a
@@ -469,38 +326,4 @@ mod tests {
         assert_eq!(rows.len(), 2, "{rows:?}");
     }
 
-    /// Replacement asks the veto before it inserts, and removes a row the veto now forbids.
-    #[tokio::test]
-    async fn a_replacement_refuses_a_vetoed_key() {
-        db_or_skip!(db);
-        let entity = fixtures::knowledge_entity_with_member(&db, "Q").await;
-        let evidence = Evidence::from_handle(&db);
-        evidence
-            .replace_provider_identities(
-                entity,
-                "wikidata",
-                &[identity("wikidata", "Q1")],
-                &vetoes(),
-            )
-            .await
-            .unwrap();
-
-        let mut vetoed = HashSet::new();
-        vetoed.insert((entity, "wikidata".to_string(), "Q1".to_string()));
-        let write = evidence
-            .replace_provider_identities(entity, "wikidata", &[identity("wikidata", "Q1")], &vetoed)
-            .await
-            .unwrap();
-
-        assert_eq!(write.removed, 1);
-        assert_eq!(write.vetoed, 1);
-        assert_eq!(write.written, 0);
-        assert!(
-            evidence
-                .query_identities(entity, None)
-                .await
-                .unwrap()
-                .is_empty()
-        );
-    }
 }

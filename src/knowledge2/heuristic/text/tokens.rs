@@ -115,8 +115,6 @@ mod tests {
         assert!(content_tokens("in of").is_empty(), "no digit, no word");
     }
 
-    use super::*;
-
     /// The stem exists so `painter` and `painting` meet, and must not damage words that merely end in
     /// the same letters.
     #[test]

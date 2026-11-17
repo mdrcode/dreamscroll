@@ -51,11 +51,11 @@ payload can be an illumination id and nothing else; a tombstone in the join is a
 silent drop.
 
 **The cache lives with the wiring, the engine with the policy.** `FetchCache` owns a pool handle
-(it no longer borrows), so `LogicState` holds exactly one for the process; `IdentityEngine` holds
-the graph, its options and its resolvers, and a run supplies entities, that cache and an allowance. So
-the task passes `&state.cache`, never a connection — and no layer but the cache holds one at runtime.
+(it no longer borrows), so `LogicState` holds exactly one for the process; `ResolveEngine` holds its
+options and resolvers, and a run supplies entities, that cache and an allowance. So the task passes
+`&state.cache`, never a connection — and no layer but the cache holds one at runtime.
 
-The engine replaces one provider's annotation set per entity it answered and skips entities that
+The producer replaces one provider's annotation set per entity it answered and skips entities that
 provider already annotated, so re-delivery is cheap and idempotent. The fetch layer is cache-first,
 paced and budgeted behind `Gateway::answers_for`.
 

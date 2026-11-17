@@ -18,6 +18,7 @@ use std::collections::HashSet;
 
 use crate::fetch::{Gateway, Outcome, Request, Transport};
 use crate::knowledge2::identity::Identity;
+use crate::knowledge2::resolution::Resolver;
 use crate::knowledge2::wikidata::{ID, Wire, WikidataCandidate, WikidataKind};
 use crate::model;
 
@@ -47,6 +48,21 @@ impl Wikidata {
         gateway: &Gateway<'_>,
     ) -> Vec<(i32, Identity)> {
         resolve_batch(&self.wire, entities, gateway).await
+    }
+}
+
+#[async_trait::async_trait]
+impl Resolver for Wikidata {
+    fn id(&self) -> &'static str {
+        ID
+    }
+
+    async fn resolve(
+        &self,
+        entities: &[model::knowledge_entity::Model],
+        gateway: &Gateway<'_>,
+    ) -> Vec<(i32, Identity)> {
+        self.resolve(entities, gateway).await
     }
 }
 

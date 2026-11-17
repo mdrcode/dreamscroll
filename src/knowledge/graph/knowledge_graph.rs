@@ -3,9 +3,9 @@
 //! One type, one owned handle: every write to `knowledge_entities` and every move of an observation
 //! onto one goes through [`KnowledgeGraph`], and the handle itself never leaves this module tree — the
 //! primitives here are private, and the collaborators (`decider`, `blocker`, `evidence`, `verdicts`)
-//! are `pub(super)` because only the passes beside the facade read them. Identity writes are
-//! [`KnowledgeGraph::replace_provider_identities`] and the capture path's append, so `helper` and the
-//! resolver hold a graph, not a store. There is no public connection getter: `db` is `pub(super)`
+//! are `pub(super)` because only the passes beside the facade read them. Identity writes are the
+//! capture path's append; a resolver writes through `knowledge2::resolution` and `KnowledgeGraph2`,
+//! so `helper` holds a graph, not a store. There is no public connection getter: `db` is `pub(super)`
 //! because `link` opens one transaction per call, and the two stores hold their own.
 
 use std::collections::HashSet;
@@ -16,7 +16,7 @@ use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder
 
 use crate::database::DbHandle;
 use crate::knowledge::blocker::{Blocker, SqlBlocker};
-use crate::knowledge::evidence::{Evidence, Identity, IdentityWrite};
+use crate::knowledge::evidence::Evidence;
 use crate::knowledge::linker::heuristic::HeuristicLinker;
 use crate::knowledge::linker::Linker;
 use crate::knowledge::verdicts::{Cause, VerdictStore, VetoReport};
@@ -68,10 +68,6 @@ impl KnowledgeGraph {
         }
     }
 
-    pub(crate) fn evidence(&self) -> &Evidence {
-        &self.evidence
-    }
-
     /// The default wiring: the index blocker and today's heuristic linker.
     ///
     /// A caller that needs a different blocker or policy builds [`KnowledgeGraph::with_linking`]
@@ -89,19 +85,6 @@ impl KnowledgeGraph {
         knowledge_entity_id: i32,
     ) -> anyhow::Result<model::knowledge_entity::Model> {
         get(&self.db.conn, knowledge_entity_id).await
-    }
-
-    /// Replace a provider's complete identity set for one entity, unless a standing veto names a key.
-    pub async fn replace_provider_identities(
-        &self,
-        entity_id: i32,
-        provider: &str,
-        identities: &[Identity],
-        vetoes: &HashSet<(i32, String, String)>,
-    ) -> anyhow::Result<IdentityWrite> {
-        self.evidence
-            .replace_provider_identities(entity_id, provider, identities, vetoes)
-            .await
     }
 
     /// Link a batch of observations: decide, attach, annotate the handles they assert, project.

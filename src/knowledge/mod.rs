@@ -12,9 +12,10 @@
 //! - [`graph`] — what the graph holds and every way it changes: [`KnowledgeGraph`], projection, merge
 //!   and the verdicts.
 //! - [`proximity`] — the derived batch of look-alike pairs, and the passes that produce and answer it.
-//! - [`identity`] — resolution: the `IdentityResolver` trait, the run loop, and today's Wikidata
-//!   resolver.
 //! - [`eval`] — offline diagnostics: blocking recall, and one entity's walk through the resolver.
+//!
+//! Identity resolution moved to `crate::knowledge2::resolution` (the engine) and
+//! `crate::knowledge2::heuristic::resolution` (today's policy).
 //!
 //! [`verdicts`] is not a cluster: it is the store for the modification log and the standing vetoes.
 //! The graph holds one and writes its merge rows through it on the fold's transaction; applying the
@@ -25,10 +26,10 @@
 //! a cluster to reach its own vocabulary has the dependency backwards:
 //!
 //! - [`evidence`] — [`Identity`](evidence::Identity) and the store for `knowledge_identities`.
-//!   `identity` writes through it and `linking` reads it; it depends on `model`, `text` and
-//!   `illumination::v2` and on nothing else here.
+//!   `linking` and the v1 write path read it; it depends on `model`, `text` and `illumination::v2`
+//!   and on nothing else here.
 //! - [`text`] — the core surface fold and the keys derived from it; the measures live with the
-//!   heuristic. Blocking, identity, evidence and projection use the core.
+//!   heuristic. Blocking, evidence and projection use the core.
 //! - [`snapshot`] — copy the projection, empty it, diff two copies: an operation over the whole
 //!   graph, not a way of changing it.
 //! - [`helper`] — the illumination composition: which observations are linked together, and the
@@ -43,7 +44,6 @@ pub mod eval;
 pub mod evidence;
 pub mod graph;
 pub mod helper;
-pub mod identity;
 pub mod linker;
 pub mod proximity;
 pub mod snapshot;
@@ -54,5 +54,5 @@ pub mod text {
 pub mod verdicts;
 
 pub use graph::{KnowledgeGraph, LinkReport, ReplayReport};
-pub use helper::{LinkAllReport, link_all_pending, link_illumination, resolve_all_pending};
+pub use helper::{LinkAllReport, link_all_pending, link_illumination};
 pub use proximity::AutoMergeReport;

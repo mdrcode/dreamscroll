@@ -1,25 +1,23 @@
 //! The illumination composition: what to link and annotate, and the corpus-wide resolve.
 //!
-//! [`KnowledgeGraph::link`] knows only about a batch of observations, and [`IdentityEngine::resolve`]
-//! knows only about a collection of entities. Everything that knows they arrive one illumination at
-//! a time lives here: the batch is one illumination's observations, and a capture's identities are
-//! written with them. The per-illumination resolve is not here: the read that turns an illumination
-//! into its entity batch is the service API's join, and the task that owns that read hands the batch
-//! straight to the engine.
+//! [`KnowledgeGraph::link`] knows only about a batch of observations, and
+//! [`ResolveEngine::resolve`](crate::knowledge2::resolution::ResolveEngine::resolve) knows only about
+//! a collection of entities. Everything that knows they arrive one illumination at a time lives
+//! here: the batch is one illumination's observations, and a capture's identities are written with
+//! them. The per-illumination resolve is not here: the read that turns an illumination into its
+//! entity batch is the service API's join, and the task that owns that read hands the batch straight
+//! to the engine.
 //!
-//! [`link_all_pending`] and [`resolve_all_pending`] are the same compositions over the whole
-//! outstanding set — the rebuild steps, and the only places that decide what a corpus run touches.
-
-use std::collections::BTreeMap;
+//! [`link_all_pending`] and
+//! [`resolve_all_pending`](crate::knowledge2::resolution::resolve_all_pending) are the same
+//! compositions over the whole outstanding set — the rebuild steps, and the only places that decide
+//! what a corpus run touches.
 
 use sea_orm::sea_query::{Expr, ExprTrait, Query};
 use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
-use crate::fetch::FetchCache;
-use crate::knowledge::evidence::IdentitySelection;
 use crate::knowledge::graph::{KnowledgeGraph, LinkReport};
-use crate::knowledge::identity::{IdentityEngine, ResolutionReport};
 use crate::model;
 
 /// Link one illumination: its observations become entities, then their handles become identities.
@@ -104,48 +102,4 @@ pub async fn link_all_pending(db: &DbHandle) -> anyhow::Result<LinkAllReport> {
     Ok(report)
 }
 
-/// Resolve every entity still pending for any configured provider.
-///
-/// The engine receives the whole pending set in one call, so the wavefront still fills its batches.
-/// This is the rebuild/drain path; a live capture resolves through the service API's
-/// illumination read, which also reports whether linking finished.
-pub async fn resolve_all_pending(
-    db: &DbHandle,
-    engine: &IdentityEngine,
-    cache: &FetchCache,
-    allowance: Option<&crate::fetch::Allowance>,
-    limit: Option<usize>,
-    newest_first: bool,
-) -> anyhow::Result<ResolutionReport> {
-    let selection = IdentitySelection::from_handle(db);
-    // One provider's pending set, then the union: an entity Wikidata answered is still pending for
-    // IMDb. The limit is global, so a second resolver does not silently double the run.
-    let mut pending: BTreeMap<i32, model::knowledge_entity::Model> = BTreeMap::new();
-    for provider in engine.providers() {
-        for entity in selection
-            .awaiting_resolver(&[provider], None, newest_first)
-            .await?
-        {
-            pending.entry(entity.id).or_insert(entity);
-        }
-    }
-    let mut entities: Vec<model::knowledge_entity::Model> = if newest_first {
-        pending.into_values().rev().collect()
-    } else {
-        pending.into_values().collect()
-    };
-    if let Some(limit) = limit {
-        entities.truncate(limit);
-    }
 
-    // An online corpus pass is the maintenance moment: drop answers that aged out long ago. A
-    // per-illumination resolve does not do this — it must stay quick.
-    if allowance.is_some() {
-        let pruned = cache.prune().await?;
-        if pruned > 0 {
-            tracing::info!(pruned, "Pruned expired fetch cache rows");
-        }
-    }
-
-    engine.resolve(&entities, cache, allowance).await
-}

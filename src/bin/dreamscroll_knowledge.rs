@@ -548,16 +548,16 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
     let max_requests = match (args.offline, args.max_requests) {
         (true, _) => 0,
         (false, Some(n)) => n,
-        (false, None) => knowledge::identity::DEFAULT_MAX_REQUESTS,
+        (false, None) => knowledge2::resolution::DEFAULT_MAX_REQUESTS,
     };
-    let options = knowledge::identity::Options {
+    let options = knowledge2::resolution::Options {
         include_already_annotated: args.entity.is_some(),
         dry_run: args.dry_run,
     };
-    let engine = knowledge::identity::IdentityEngine::new(
-        knowledge::KnowledgeGraph::new(db),
+    let engine = knowledge2::resolution::ResolveEngine::new(
+        db,
         options,
-        vec![Box::new(knowledge::identity::wikidata::Wikidata::new()?)],
+        vec![Box::new(knowledge2::heuristic::resolution::Wikidata::new()?)],
     )?;
     let cache = dreamscroll::fetch::FetchCache::new(&db.conn);
     let allowance = (!args.offline).then(|| {
@@ -628,7 +628,7 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
             report
         }
         None => {
-            knowledge::resolve_all_pending(
+            knowledge2::resolution::resolve_all_pending(
                 db,
                 &engine,
                 &cache,

@@ -1,7 +1,7 @@
 //! Which entities a provider should be asked about.
 //!
-//! Selection is a read over annotations, not a write to them. Keeping it beside the store that
-//! writes evidence made `Evidence` look like it owned policy; this type owns only the questions.
+//! Selection is a read over annotations, not a write to them. The resolver filter is per provider:
+//! an entity Wikidata answered is still pending for another authority.
 
 use sea_orm::sea_query::{Expr, ExprTrait, Query};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
@@ -9,28 +9,18 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use crate::database::DbHandle;
 use crate::model;
 
-/// The candidate questions a provider still owes.
-pub struct IdentitySelection<'a> {
+pub(crate) struct IdentitySelection<'a> {
     conn: &'a sea_orm::DatabaseConnection,
 }
 
 impl<'a> IdentitySelection<'a> {
-    pub fn from_connection(conn: &'a sea_orm::DatabaseConnection) -> Self {
-        Self { conn }
+    pub(crate) fn from_handle(db: &'a DbHandle) -> Self {
+        Self { conn: &db.conn }
     }
 
-    pub fn from_handle(db: &'a DbHandle) -> Self {
-        Self::from_connection(&db.conn)
-    }
-
-    /// Entities no configured identity resolver has annotated yet, in the order a run should ask them.
-    ///
-    /// The filter is *identity resolver*, not *any evidence* — an entity identified only by a platform
-    /// handle is still a candidate, because a QID is what corroboration needs.
-    ///
-    /// Ordering and limit are the caller's policy, passed in: ascending is a rebuild, descending is
-    /// "what just arrived", and a finite budget has to reach one of them deterministically.
-    pub async fn awaiting_resolver(
+    /// Entities no configured identity resolver has annotated yet, in the order a run should ask
+    /// them. The filter is *identity resolver*, not *any evidence*.
+    pub(crate) async fn awaiting_resolver(
         &self,
         sources: &[&str],
         limit: Option<usize>,
@@ -38,8 +28,6 @@ impl<'a> IdentitySelection<'a> {
     ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
         use model::knowledge_entity as entity;
 
-        // Asked already: holds an annotation a configured identity resolver made, rather than only the
-        // observation's handle.
         let annotated = Query::select()
             .distinct()
             .column((
@@ -79,10 +67,7 @@ impl<'a> IdentitySelection<'a> {
     }
 
     /// The entities in `entity_ids` this provider already annotated.
-    ///
-    /// A resolver may still be asked about an entity another identity resolver answered; only its own prior
-    /// annotation removes it.
-    pub async fn annotated_by(
+    pub(crate) async fn annotated_by(
         &self,
         provider: &str,
         entity_ids: &[i32],
