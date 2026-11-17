@@ -78,7 +78,7 @@ impl SqlBlocker {
     ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
         let mut keys: Vec<String> = surfaces
             .into_iter()
-            .map(text::key::comparable)
+            .map(text::comparable)
             .filter(|key| !key.is_empty())
             .collect();
         keys.sort_unstable();
@@ -88,7 +88,7 @@ impl SqlBlocker {
         }
         let words: Vec<String> = keys
             .iter()
-            .map(|key| text::key::word_key(key))
+            .map(|key| text::word_key(key))
             // An empty key would be `ARRAY['']`, which overlaps every row that stored one.
             .filter(|key| !key.is_empty())
             .collect();

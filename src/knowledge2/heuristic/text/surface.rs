@@ -6,7 +6,7 @@
 
 use strsim::levenshtein;
 
-/// Whether two surfaces folded by [`comparable`](crate::knowledge2::text::key::comparable) are the same name spelled
+/// Whether two surfaces folded by [`comparable`](crate::knowledge2::text::comparable) are the same name spelled
 /// differently: `dostoyevsky`/`dostoevsky`, `jrr tolkien`/`jrrtolkien`. Measured on the two cases
 /// that motivated it — a one-letter transliteration and an initials/spacing difference.
 ///
@@ -43,7 +43,7 @@ pub(crate) fn word_prefix(short: &str, long: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::knowledge2::text::key::comparable;
+    use crate::knowledge2::text::comparable;
 
     /// The fold is shared with the graph, so the near-surface test inherits its diacritic and spacing
     /// work. The old bespoke key kept the accent, so `Pokémon` and `Pokemon` never met.

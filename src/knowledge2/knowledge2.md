@@ -223,7 +223,7 @@ touching the graph.
 
 `text` is split by who needs it.
 
-- **`text::key` is the graph's contract.** The blocking index stores the folded surface and the
+- **`text` is the graph's contract.** The blocking index stores the folded surface and the
   word-order-insensitive key; the SQL blocker probes with the same two; `norm_fingerprint` stamps
   which rule produced a row. Projection also uses the fold to dedupe a member's surfaces.
   - `comparable` — the folded surface.
@@ -233,7 +233,7 @@ touching the graph.
   word-prefix are how the heuristic planner and the identity resolvers decide whether two texts mean
   the same thing. The graph's integrity does not depend on them.
 
-If Link and Resolve are replaced by LLM-driven flows that do their own text, the core keeps `key`;
+If Link and Resolve are replaced by LLM-driven flows that do their own text, the core keeps `text`;
 `heuristic::text` goes with those components. Identity-key folding (`Identity::from_observation`, v1's
 `IdentityKey::try_from`) is producer-side: the caller supplies canonical `(scheme, external_id)`
 strings, and the graph stores them as given.

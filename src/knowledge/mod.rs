@@ -53,7 +53,7 @@ pub mod text {
     pub(crate) use crate::knowledge2::heuristic::text::{
         content_tokens, grams, near_surface, word_prefix,
     };
-    pub(crate) use crate::knowledge2::text::key::{comparable, word_key};
+    pub(crate) use crate::knowledge2::text::{comparable, word_key};
 }
 pub mod verdicts;
 

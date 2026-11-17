@@ -21,7 +21,7 @@
 
 use crate::model;
 
-use crate::knowledge2::text::key::{comparable, word_key};
+use crate::knowledge2::text::{comparable, word_key};
 use super::text::{content_tokens, jaccard};
 
 /// The graph's own side of a comparison.
