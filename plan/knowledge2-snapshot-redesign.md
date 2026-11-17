@@ -1,12 +1,13 @@
 # knowledge2 snapshot: migrate first, tighten the catalog later
 
-Status: Active — Phase 1 not started; Phase 2 deferred.
+Status: Active — Phase 1 implemented; Phase 2 deferred.
 
 ## Purpose
 
 The snapshot code is the time-travel half of the graph tooling: it preserves a projection
 before `reset` empties it, and `compare` answers what a linker change did to the partition.
-It lives under `src/knowledge/snapshot/` (v1) but operates on tables both graphs share.
+It lived under `src/knowledge/snapshot/` (v1) but operates on tables both graphs share; Phase 1
+moved it to `src/knowledge2/snapshot/`.
 
 The goal is to move the working implementation into `knowledge2` without changing behavior,
 then decide how much of its catalog machinery to replace. The storage strategy has earned its
@@ -93,8 +94,8 @@ the first upgrade rather than a rewrite.
    `knowledge2/mod.rs`.
 2. Replace v1 `pub mod snapshot` with `pub use crate::knowledge2::snapshot;` so
    `knowledge::snapshot::reset` continues to work for v1 tests/callers.
-3. Add a `current_generation` read under `knowledge2::graph` (same `MAX(id)` / fallback 1 rule) and
-   use it from `snapshot/reset.rs`; remove the v1 `knowledge::graph` dependency.
+3. Expose the existing v2 generation query as `knowledge2::graph::current_generation` and use it
+   from `snapshot/reset.rs`; remove the v1 `knowledge::graph` dependency.
 4. Update CLI `reset`/`compare` to `knowledge2::snapshot`.
 5. Update `knowledge2/canonical` doc reference.
 6. Adapt snapshot tests:

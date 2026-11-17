@@ -10,6 +10,7 @@ mod sql;
 mod verdicts;
 
 pub use graph::KnowledgeGraph2;
+pub(crate) use sql::generation as current_generation;
 pub use project::Scope as ReprojectScope;
 pub use report::{Refusal, Report};
 pub use selection::GraphSelector;

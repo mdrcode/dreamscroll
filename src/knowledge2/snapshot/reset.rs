@@ -176,7 +176,7 @@ async fn supersede_generation<C: ConnectionTrait>(
     proximities: u64,
     members: u64,
 ) -> anyhow::Result<()> {
-    let current = crate::knowledge::graph::current_generation(conn).await?;
+    let current = crate::knowledge2::graph::current_generation(conn).await?;
     // Verdicts are never deleted, so the register records how many merges the generation held, not
     // how many reset removed — which is none.
     let merges = verdicts::Entity::find()
@@ -588,7 +588,7 @@ mod tests {
             .merge(loser, winner, crate::knowledge::verdicts::Cause::Repair)
             .await
             .unwrap();
-        let generation = crate::knowledge::graph::current_generation(&db.conn)
+        let generation = crate::knowledge2::graph::current_generation(&db.conn)
             .await
             .unwrap();
 

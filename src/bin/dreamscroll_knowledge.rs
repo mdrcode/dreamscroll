@@ -1085,7 +1085,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Reset(args) => {
             if !args.yes {
-                let preview = knowledge::snapshot::preview(&db).await?;
+                let preview = knowledge2::snapshot::preview(&db).await?;
                 println!(
                     "would snapshot entities {} · identities {} · proximities {} · \
                      members {} · pass --yes to reset",
@@ -1093,7 +1093,7 @@ async fn main() -> anyhow::Result<()> {
                 );
                 return Ok(());
             }
-            let report = knowledge::snapshot::reset(&db).await?;
+            let report = knowledge2::snapshot::reset(&db).await?;
             match &report.snapshot {
                 Some(snapshot) => println!(
                     "snapshot {} · entities {} · identities {} · proximities {} · members {}",
@@ -1114,13 +1114,13 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Command::Compare(args) => {
-            let before = knowledge::snapshot::Snapshot {
+            let before = knowledge2::snapshot::Snapshot {
                 suffix: args.before.clone(),
             };
-            let after = knowledge::snapshot::Snapshot {
+            let after = knowledge2::snapshot::Snapshot {
                 suffix: args.after.clone(),
             };
-            let report = knowledge::snapshot::compare(&db, &before, &after).await?;
+            let report = knowledge2::snapshot::compare(&db, &before, &after).await?;
 
             println!("before {} · after {}", args.before, args.after);
             println!(
@@ -1140,11 +1140,11 @@ async fn main() -> anyhow::Result<()> {
             );
             for example in &report.examples {
                 match example.kind {
-                    knowledge::snapshot::Kind::Split => println!(
+                    knowledge2::snapshot::Kind::Split => println!(
                         "  split  \"{}\" · {} members → {} groups",
                         example.label, example.members, example.into
                     ),
-                    knowledge::snapshot::Kind::Merged => println!(
+                    knowledge2::snapshot::Kind::Merged => println!(
                         "  merge  \"{}\" · {} groups → {} members",
                         example.label, example.into, example.members
                     ),

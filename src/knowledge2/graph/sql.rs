@@ -169,7 +169,7 @@ async fn origin_of<C: ConnectionTrait>(conn: &C, entity: i32) -> anyhow::Result<
     })
 }
 
-async fn generation<C: ConnectionTrait>(conn: &C) -> anyhow::Result<i32> {
+pub(crate) async fn generation<C: ConnectionTrait>(conn: &C) -> anyhow::Result<i32> {
     let row = one(
         conn,
         "SELECT COALESCE(MAX(id), 1) FROM knowledge_generations",

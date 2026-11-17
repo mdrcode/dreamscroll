@@ -11,6 +11,7 @@ pub mod mutation;
 pub mod blocker;
 pub mod graph;
 pub mod replay;
+pub mod snapshot;
 pub mod heuristic;
 pub mod helper;
 pub mod identity;

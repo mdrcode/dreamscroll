@@ -46,7 +46,7 @@ pub mod graph;
 pub mod helper;
 pub mod linker;
 pub mod proximity;
-pub mod snapshot;
+pub use crate::knowledge2::snapshot;
 /// v1 adapter: the core fold and keys; the measures live with the heuristic.
 pub mod text {
     pub(crate) use crate::knowledge2::text::{comparable, word_key};
