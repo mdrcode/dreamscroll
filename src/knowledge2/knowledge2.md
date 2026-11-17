@@ -243,9 +243,9 @@ strings, and the graph stores them as given.
 `knowledge2::wikidata` is the common authority layer: provider id, language, request kinds, SPARQL,
 transport, parsed candidate and answer. It does not rank or write.
 
-The shared identity primitive is `KnowledgeGraph2::awaiting_identities`: live entities a provider has
-not answered, with the per-provider filter. An agentic provider uses that, the Wikidata core, and the
-graph's `AttestIdentity`/`RetractIdentity` mutations directly.
+The shared identity primitive is `graph.selector().awaiting_identity(...)`: live entities a provider
+has not answered, with the per-provider filter. An agentic provider uses that, the Wikidata core, and
+the graph's `AttestIdentity`/`RetractIdentity` mutations directly.
 
 `knowledge2::heuristic::resolution` is the automated provider. Its engine selects and batches, runs
 the policy through the gateway, replaces the provider's set, and reports. Its policy is `plan`,

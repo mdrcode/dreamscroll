@@ -71,6 +71,7 @@ impl ResolveEngine {
             .collect();
 
         let gateway = Gateway::new(Some(cache), allowance, true);
+        let selector = self.graph.selector();
         let vetoes = vetoes(&self.db).await?;
         let entity_ids: Vec<i32> = entities.iter().map(|entity| entity.id).collect();
 
@@ -94,7 +95,7 @@ impl ResolveEngine {
             let already_annotated = if self.options.include_already_annotated {
                 HashSet::new()
             } else {
-                self.graph.annotated_by(resolver.id(), &entity_ids).await?
+                selector.annotated_by(resolver.id(), &entity_ids).await?
             };
             let batch: Vec<model::knowledge_entity::Model> = entities
                 .iter()
@@ -235,12 +236,13 @@ pub async fn resolve_all_pending(
     newest_first: bool,
 ) -> anyhow::Result<ResolutionReport> {
     let graph = KnowledgeGraph2::new(db);
+    let selector = graph.selector();
     // One provider's pending set, then the union: an entity Wikidata answered is still pending for
     // another authority. The limit is global, so a second resolver does not silently double the run.
     let mut pending: BTreeMap<i32, model::knowledge_entity::Model> = BTreeMap::new();
     for provider in engine.providers() {
-        for entity in graph
-            .awaiting_identities(&[provider], None, newest_first)
+        for entity in selector
+            .awaiting_identity(&[provider], None, newest_first)
             .await?
         {
             pending.entry(entity.id).or_insert(entity);

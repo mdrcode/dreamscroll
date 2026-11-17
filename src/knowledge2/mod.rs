@@ -21,7 +21,7 @@ pub mod wikidata;
 
 pub use mutation::{Cause, GraphMutation};
 pub use blocker::Blocker;
-pub use graph::{KnowledgeGraph2, Refusal, ReprojectScope, Report};
+pub use graph::{GraphSelector, KnowledgeGraph2, Refusal, ReprojectScope, Report};
 pub use helper::{LinkAllReport, LinkHelper, LinkReport, link_all_pending, link_illumination};
 pub use identity::{Identity, IdentityKey, Provider};
 pub use ids::{EntityOriginId, ObservationId};
