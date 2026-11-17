@@ -64,15 +64,18 @@ impl KnowledgeGraph2 {
         Ok(report)
     }
 
-    /// Recompute one entity's projection. Maintenance; `proc` already does this for what it touches.
-    pub async fn update_projection(
+    /// Single-entity maintenance. `proc` already projects every entity it touches; this exists for
+    /// tests that insert fixture rows directly.
+    #[cfg(test)]
+    pub(crate) async fn update_projection(
         &self,
         entity: i32,
     ) -> anyhow::Result<crate::model::knowledge_entity::Model> {
         project::project(&self.conn, entity).await
     }
 
-    /// Recompute projections for a scope. Maintenance, not a mutation.
+    /// Batch maintenance for out-of-band changes and projection migrations. Normal writes project
+    /// through `proc`; this is the only path that recomputes entities no mutation touched.
     pub async fn reproject(&self, scope: super::ReprojectScope) -> anyhow::Result<usize> {
         project::reproject(&self.conn, scope).await
     }
