@@ -8,14 +8,13 @@ use crate::database::DbHandle;
 use crate::fetch::{self, Allowance, FetchCache, Gateway, Refusal};
 use crate::knowledge2::action::KnowledgeAction;
 use crate::knowledge2::graph::KnowledgeGraph2;
-use crate::knowledge2::identity::{Identity, IdentityKey, Provider};
+use crate::knowledge2::identity::{
+    Identity, IdentityKey, Provider, RESERVED_PROVIDER_IDS,
+};
 use crate::knowledge2::ids::{EntityOriginId, ObservationId};
 use crate::model;
 
-use super::{
-    DryRunIdentity, IdentitySelection, Options, ProviderReport, RESERVED_PROVIDER_IDS,
-    ResolutionReport, Resolver,
-};
+use super::{DryRunIdentity, Options, ProviderReport, ResolutionReport, Resolver};
 
 /// The harness: it holds the resolvers, invokes them, and applies their output.
 pub struct ResolveEngine {
@@ -72,7 +71,6 @@ impl ResolveEngine {
             .collect();
 
         let gateway = Gateway::new(Some(cache), allowance, true);
-        let selection = IdentitySelection::from_handle(&self.db);
         let vetoes = vetoes(&self.db).await?;
         let entity_ids: Vec<i32> = entities.iter().map(|entity| entity.id).collect();
 
@@ -96,7 +94,7 @@ impl ResolveEngine {
             let already_annotated = if self.options.include_already_annotated {
                 HashSet::new()
             } else {
-                selection.annotated_by(resolver.id(), &entity_ids).await?
+                self.graph.annotated_by(resolver.id(), &entity_ids).await?
             };
             let batch: Vec<model::knowledge_entity::Model> = entities
                 .iter()
@@ -236,13 +234,13 @@ pub async fn resolve_all_pending(
     limit: Option<usize>,
     newest_first: bool,
 ) -> anyhow::Result<ResolutionReport> {
-    let selection = IdentitySelection::from_handle(db);
+    let graph = KnowledgeGraph2::new(db);
     // One provider's pending set, then the union: an entity Wikidata answered is still pending for
     // another authority. The limit is global, so a second resolver does not silently double the run.
     let mut pending: BTreeMap<i32, model::knowledge_entity::Model> = BTreeMap::new();
     for provider in engine.providers() {
-        for entity in selection
-            .awaiting_resolver(&[provider], None, newest_first)
+        for entity in graph
+            .awaiting_identities(&[provider], None, newest_first)
             .await?
         {
             pending.entry(entity.id).or_insert(entity);

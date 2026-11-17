@@ -125,7 +125,7 @@ mod tests {
                 .unwrap(),
         );
         let knowledge = crate::knowledge::KnowledgeGraph::with_heuristic_linking(&db);
-        let identity_engine = crate::knowledge2::resolution::ResolveEngine::new(
+        let identity_engine = crate::knowledge2::heuristic::resolution::ResolveEngine::new(
             &db,
             Default::default(),
             vec![Box::new(

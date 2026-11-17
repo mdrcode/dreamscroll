@@ -18,7 +18,7 @@ use std::collections::HashSet;
 
 use crate::fetch::{Gateway, Outcome, Request, Transport};
 use crate::knowledge2::identity::Identity;
-use crate::knowledge2::resolution::Resolver;
+use super::Resolver;
 use crate::knowledge2::wikidata::{ID, Wire, WikidataCandidate, WikidataKind};
 use crate::model;
 

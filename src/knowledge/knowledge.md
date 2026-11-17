@@ -173,7 +173,7 @@ comparison cannot see the corpus.
 Resolving is the opposite kind of work: network, cached, and only ever through one door.
 
 ```rust
-trait Resolver {                              // knowledge2::resolution
+trait Resolver {                              // knowledge2::heuristic::resolution
     fn id(&self) -> &'static str;
     async fn resolve(&self, entities: &[Model], gateway: &fetch::Gateway<'_>)
         -> Vec<(i32, Identity)>;              // knowledge2::Identity
@@ -379,16 +379,15 @@ one.
 | `linker/heuristic/scoring.rs` | the heuristic: `link`, `merge` and `pair`, the weights, and the merge rule (a name match plus one corroborating signal) |
 | `graph/link.rs` | `link`: a batch of observations in, and one transaction applying everything the decisions imply — creates and attaches, the identities the handles assert, and a projection of each entity touched. Returns `LinkReport` |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
-| `evidence/` | the v1 vocabulary — `PlatformLink`, `IdentityKey`, `Identity` — and the capture write path in `store.rs`: `add_identity` appends a capture's handle on the caller's connection (so it commits with the link that created the entity), `query_identities` and `query_entities_for_identity` answer the reads. `store.rs` also owns `move_identities` on a fold and `delete_identity` on a veto. Resolver replacement is now the v2 `knowledge2::resolution` producer |
-| `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors (`new`, `with_linking`, `with_heuristic_linking`) and the operations that own a write path — link, merge, replay, reproject, the veto commands. It holds the connection, the blocker, the decider, the evidence and the verdict register — no policy of its own |
+| `evidence/` | the v1 vocabulary — `PlatformLink`, `IdentityKey`, `Identity` — and the capture write path in `store.rs`: `add_identity` appends a capture's handle on the caller's connection (so it commits with the link that created the entity), `query_identities` and `query_entities_for_identity` answer the reads. `store.rs` also owns `move_identities` on a fold and `delete_identity` on a veto. Resolver replacement is now the v2 `knowledge2::heuristic::resolution` engine |
+| `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors (`new`, `with_linking`, `with_heuristic_linking`) and the operations that own a write path — link, merge, replay, reproject, the veto commands. `KnowledgeGraph2::awaiting_identities`/`annotated_by` are the shared identity read an agentic provider uses. It holds the connection, the blocker, the decider, the evidence and the verdict register — no policy of its own |
 | `graph/replay.rs` | the verdict effects: `replay` (merges, then withdrawals) and the withdrawal the veto command shares |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is the best identity's score. `reproject` repairs a scope of entities, with `Stale` the "live, no identity annotation" rule |
 | `graph/merge.rs` | fold one entity into another |
 | `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `CandidateWhy` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `auto_merge.rs` folds what it can on its own and leaves the rest. Both take the connection and the `Heuristic` as arguments |
 | `verdicts/` | the register: the modification log and the standing vetoes, held by `KnowledgeGraph`. `store.rs` is the type, its connection, `record` (the one write that takes the caller's transaction, so a merge's row commits with the fold) and the reads the replay and `stats` share; `veto.rs` holds `veto`/`unveto`/`vetoed`; `origin.rs` turns an origin into the entity it names now. Applying the log is the graph's command (`graph/replay.rs`), exposed as `KnowledgeGraph::replay_verdicts`; `pair_key` is shared with `stats` |
-| `../knowledge2/resolution/` | the producer: `Resolver` trait, entity selection, per-provider batch, cache gateway, `AttestIdentity`/`RetractIdentity`, report |
 | `../knowledge2/wikidata/` | the common authority core: `kind` (request kinds and cache shapes), `candidate` (the parsed item), `transport` (the wire), `sparql`, `property_query`, `answer`. No ranking or writes |
-| `../knowledge2/heuristic/resolution/` | today's policy: `plan`, `gather`, `measure`, `classes` (the `P31` families), `ranking`, `decide`, `resolver`. It produces `knowledge2::Identity` |
+| `../knowledge2/heuristic/resolution/` | the automated provider: the engine (`Resolver` seam, per-provider batch, `AttestIdentity`/`RetractIdentity`, reports) and the policy (`plan`, `gather`, `measure`, `classes`, `ranking`, `decide`, `resolver`) |
 |`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, with a TTL per outcome: found 180 days, empty 30, degraded 23 hours, failed 10 minutes) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
 | `eval/` | offline diagnostics, both read-only: `eval blocker` measures recall; `identity inspect` walks one entity through blocking, ranking and the plan |
 

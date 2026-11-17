@@ -5,6 +5,7 @@
 mod graph;
 mod project;
 mod report;
+mod selection;
 mod sql;
 
 pub use graph::KnowledgeGraph2;

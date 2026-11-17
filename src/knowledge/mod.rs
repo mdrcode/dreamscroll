@@ -14,8 +14,8 @@
 //! - [`proximity`] — the derived batch of look-alike pairs, and the passes that produce and answer it.
 //! - [`eval`] — offline diagnostics: blocking recall, and one entity's walk through the resolver.
 //!
-//! Identity resolution moved to `crate::knowledge2::resolution` (the engine) and
-//! `crate::knowledge2::heuristic::resolution` (today's policy).
+//! Identity resolution's shared primitive is `KnowledgeGraph2::awaiting_identities`; the automated
+//! engine and policy live in `crate::knowledge2::heuristic::resolution`.
 //!
 //! [`verdicts`] is not a cluster: it is the store for the modification log and the standing vetoes.
 //! The graph holds one and writes its merge rows through it on the fold's transaction; applying the

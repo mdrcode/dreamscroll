@@ -76,6 +76,26 @@ impl KnowledgeGraph2 {
     pub async fn reproject(&self, scope: super::ReprojectScope) -> anyhow::Result<usize> {
         project::reproject(&self.conn, scope).await
     }
+
+    /// The identity primitive shared by the heuristic and an agentic provider: live entities this
+    /// provider has not answered, oldest or newest first.
+    pub async fn awaiting_identities(
+        &self,
+        providers: &[&str],
+        limit: Option<usize>,
+        newest_first: bool,
+    ) -> anyhow::Result<Vec<crate::model::knowledge_entity::Model>> {
+        super::selection::awaiting_identities(&self.conn, providers, limit, newest_first).await
+    }
+
+    /// Which of `entity_ids` this provider already annotated.
+    pub async fn annotated_by(
+        &self,
+        provider: &str,
+        entity_ids: &[i32],
+    ) -> anyhow::Result<std::collections::HashSet<i32>> {
+        super::selection::annotated_by(&self.conn, provider, entity_ids).await
+    }
 }
 
 /// Dependency order, not preference:

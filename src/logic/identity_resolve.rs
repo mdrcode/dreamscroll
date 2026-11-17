@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::knowledge2::resolution::ResolveEngine;
+use crate::knowledge2::heuristic::resolution::ResolveEngine;
 use crate::{api, task};
 
 /// The concrete task for resolving one illumination's entities.
@@ -78,7 +78,7 @@ pub(crate) async fn resolve(
     service_api: &crate::api::ServiceApiClient,
     task: &IdentityResolveTask,
     allowance: crate::fetch::AllowanceConfig,
-) -> anyhow::Result<crate::knowledge2::resolution::ResolutionReport> {
+) -> anyhow::Result<crate::knowledge2::heuristic::resolution::ResolutionReport> {
     let illumination = service_api.illumination(task.illumination_id).await?;
     anyhow::ensure!(
         illumination.user_id == task.entity_owner_id,
@@ -126,7 +126,7 @@ mod tests {
     struct Empty;
 
     #[async_trait::async_trait]
-    impl crate::knowledge2::resolution::Resolver for Empty {
+    impl crate::knowledge2::heuristic::resolution::Resolver for Empty {
         fn id(&self) -> &'static str {
             "fake"
         }
@@ -143,7 +143,7 @@ mod tests {
     fn engine(db: &crate::database::DbHandle) -> ResolveEngine {
         ResolveEngine::new(
             db,
-            crate::knowledge2::resolution::Options::default(),
+            crate::knowledge2::heuristic::resolution::Options::default(),
             vec![Box::new(Empty)],
         )
         .expect("the fake provider is not reserved")

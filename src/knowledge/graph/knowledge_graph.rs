@@ -4,8 +4,9 @@
 //! onto one goes through [`KnowledgeGraph`], and the handle itself never leaves this module tree — the
 //! primitives here are private, and the collaborators (`decider`, `blocker`, `evidence`, `verdicts`)
 //! are `pub(super)` because only the passes beside the facade read them. Identity writes are the
-//! capture path's append; a resolver writes through `knowledge2::resolution` and `KnowledgeGraph2`,
-//! so `helper` holds a graph, not a store. There is no public connection getter: `db` is `pub(super)`
+//! capture path's append; a resolver writes through `knowledge2::heuristic::resolution` and
+//! `KnowledgeGraph2`, so `helper` holds a graph, not a store. There is no public connection getter:
+//! `db` is `pub(super)`
 //! because `link` opens one transaction per call, and the two stores hold their own.
 
 use std::collections::HashSet;
