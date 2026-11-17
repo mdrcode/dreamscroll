@@ -6,8 +6,6 @@
 
 use std::collections::BTreeMap;
 
-use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
-
 use crate::database::DbHandle;
 use crate::knowledge2::graph::{KnowledgeGraph2, Refusal};
 use crate::knowledge2::identity::IdentityKey;
@@ -35,7 +33,8 @@ pub struct ReplayReport {
 /// Apply the recorded verdicts to the current graph.
 pub async fn replay(db: &DbHandle) -> anyhow::Result<ReplayReport> {
     let graph = KnowledgeGraph2::new(db);
-    let verdicts = graph.selector().verdicts();
+    let selector = graph.selector();
+    let verdicts = selector.verdicts();
     let mut report = ReplayReport::default();
 
     // Latest by id wins for a pair, and chains still apply oldest first.
@@ -86,7 +85,10 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<ReplayReport> {
             report.settled += 1;
             continue;
         };
-        let Some(entity) = live_entity(db, subject).await? else {
+        let Some(entity) = selector
+            .live_entity(EntityOriginId(ObservationId(subject)))
+            .await?
+        else {
             report.gone += 1;
             continue;
         };
@@ -94,7 +96,7 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<ReplayReport> {
             scheme,
             external_id: external,
         };
-        let withdrawn = count_identities(db, entity, &key).await?;
+        let withdrawn = selector.identity_count(entity, &key).await?;
 
         let outcome = graph
             .proc(&[GraphMutation::VetoIdentity {
@@ -124,45 +126,6 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<ReplayReport> {
 
 fn pair_key(a: i32, b: i32) -> (i32, i32) {
     if a <= b { (a, b) } else { (b, a) }
-}
-
-/// Follow the tombstone chain from an origin to the live entity id.
-async fn live_entity(db: &DbHandle, origin: i32) -> anyhow::Result<Option<i32>> {
-    let Some(row) = model::knowledge_entity::Entity::find()
-        .filter(model::knowledge_entity::Column::OriginObservationId.eq(origin))
-        .one(&db.conn)
-        .await?
-    else {
-        return Ok(None);
-    };
-
-    let mut current = row.id;
-    for _ in 0..8 {
-        let Some(row) = model::knowledge_entity::Entity::find_by_id(current)
-            .one(&db.conn)
-            .await?
-        else {
-            return Ok(None);
-        };
-        match row.merged_into_id {
-            Some(next) => current = next,
-            None => return Ok(Some(current)),
-        }
-    }
-    anyhow::bail!("merged_into_id chain from knowledge entity {} exceeds 8 hops", row.id)
-}
-
-async fn count_identities(
-    db: &DbHandle,
-    entity: i32,
-    key: &IdentityKey,
-) -> anyhow::Result<usize> {
-    Ok(model::knowledge_identity::Entity::find()
-        .filter(model::knowledge_identity::Column::KnowledgeEntityId.eq(entity))
-        .filter(model::knowledge_identity::Column::Scheme.eq(&key.scheme))
-        .filter(model::knowledge_identity::Column::ExternalId.eq(&key.external_id))
-        .count(&db.conn)
-        .await? as usize)
 }
 
 #[cfg(test)]

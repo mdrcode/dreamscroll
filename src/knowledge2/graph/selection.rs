@@ -1,4 +1,4 @@
-//! The graph's read view: which live entities still need work, and the sub-views beneath it.
+//! The graph's read view: identity selection, origin resolution, and the sub-views beneath it.
 //!
 //! Selection is a read over annotations, not a write to them. The provider filter is per authority:
 //! an entity Wikidata answered is still pending for another resolver.
@@ -7,14 +7,19 @@
 //! selector owns the selects, so the facade does not grow a query method per question.
 
 use sea_orm::sea_query::{Expr, ExprTrait, Query};
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 
+use crate::knowledge2::identity::IdentityKey;
+use crate::knowledge2::ids::EntityOriginId;
 use crate::model;
 
 /// A borrowed read view over the graph, created by [`KnowledgeGraph2::selector`].
 ///
-/// Cheap to copy; it carries only the connection. Identity selection is here; verdict reads are a
-/// sub-view ([`GraphSelector::verdicts`]) so the aggregate's queries stay together.
+/// Cheap to copy; it carries only the connection. Entity/identity reads are here; verdict reads are
+/// a sub-view ([`GraphSelector::verdicts`]) so the aggregate's queries stay together.
 #[derive(Clone, Copy)]
 pub struct GraphSelector<'a> {
     conn: &'a DatabaseConnection,
@@ -44,10 +49,62 @@ impl<'a> GraphSelector<'a> {
         identified_by(self.conn, provider, entity_ids).await
     }
 
+    /// Follow an origin through tombstones to the live entity id.
+    pub async fn live_entity(&self, origin: EntityOriginId) -> anyhow::Result<Option<i32>> {
+        resolve_live_entity(self.conn, origin.0.0).await
+    }
+
+    /// How many provider rows currently assert this key for the entity.
+    pub async fn identity_count(&self, entity: i32, key: &IdentityKey) -> anyhow::Result<usize> {
+        count_identity_rows(self.conn, entity, key).await
+    }
+
     /// The verdict sub-view: durable decisions and their replay reads.
     pub fn verdicts(&self) -> super::VerdictSelector<'a> {
         super::VerdictSelector::new(self.conn)
     }
+}
+
+/// Follow the tombstone chain from an origin to the live entity id.
+async fn resolve_live_entity(
+    conn: &DatabaseConnection,
+    origin: i32,
+) -> anyhow::Result<Option<i32>> {
+    let Some(row) = model::knowledge_entity::Entity::find()
+        .filter(model::knowledge_entity::Column::OriginObservationId.eq(origin))
+        .one(conn)
+        .await?
+    else {
+        return Ok(None);
+    };
+
+    let mut current = row.id;
+    for _ in 0..8 {
+        let Some(row) = model::knowledge_entity::Entity::find_by_id(current)
+            .one(conn)
+            .await?
+        else {
+            return Ok(None);
+        };
+        match row.merged_into_id {
+            Some(next) => current = next,
+            None => return Ok(Some(current)),
+        }
+    }
+    anyhow::bail!("merged_into_id chain from knowledge entity {} exceeds 8 hops", row.id)
+}
+
+async fn count_identity_rows(
+    conn: &DatabaseConnection,
+    entity: i32,
+    key: &IdentityKey,
+) -> anyhow::Result<usize> {
+    Ok(model::knowledge_identity::Entity::find()
+        .filter(model::knowledge_identity::Column::KnowledgeEntityId.eq(entity))
+        .filter(model::knowledge_identity::Column::Scheme.eq(&key.scheme))
+        .filter(model::knowledge_identity::Column::ExternalId.eq(&key.external_id))
+        .count(conn)
+        .await? as usize)
 }
 
 /// Entities no configured provider has annotated yet, in the order a run should ask them.
