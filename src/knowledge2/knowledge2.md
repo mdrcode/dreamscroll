@@ -215,6 +215,25 @@ A v2 `Linker` is a policy: the pending batch in, one `KnowledgeAction` per obser
 The caller selects the batch. Already-linked observations are not the planner's problem; the helper
 filters them before planning.
 
+## Text
+
+`text` is split by who needs it.
+
+- **`text::key` is the graph's contract.** The blocking index stores the folded surface and the
+  word-order-insensitive key; the SQL blocker probes with the same two; `norm_fingerprint` stamps
+  which rule produced a row. Projection also uses the fold to dedupe a member's surfaces.
+  - `comparable` — the folded surface.
+  - `word_key` — the same words, order-insensitive.
+  - `norm_fingerprint` — the index's currency stamp.
+- **`text::measure` is for pluggable components.** Tokens, grams, Jaccard, near-surface and
+  word-prefix are how the heuristic planner and the identity resolvers decide whether two texts mean
+  the same thing. The graph's integrity does not depend on them.
+
+If Link and Resolve are replaced by LLM-driven flows that do their own text, the core keeps `key`;
+`measure` goes with those components. Identity-key folding (`Identity::from_observation`, v1's
+`IdentityKey::try_from`) is producer-side: the caller supplies canonical `(scheme, external_id)`
+strings, and the graph stores them as given.
+
 ## Corpus check
 
 2026-11-17, local corpus, `link` only on both engines (2,802 observations, 732 illuminations):

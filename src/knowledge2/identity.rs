@@ -52,8 +52,8 @@ impl Identity {
         let handle = observation.platform_handle.as_deref()?;
         Some(Self {
             provider: Provider("illuminator".into()),
-            scheme: crate::knowledge2::text::comparable(platform),
-            external_id: crate::knowledge2::text::comparable(handle),
+            scheme: crate::knowledge2::text::key::comparable(platform),
+            external_id: crate::knowledge2::text::key::comparable(handle),
             method: Some("observation".into()),
             confidence: None,
             label: None,
