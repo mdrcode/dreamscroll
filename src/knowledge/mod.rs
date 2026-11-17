@@ -47,7 +47,14 @@ pub mod identity;
 pub mod linker;
 pub mod proximity;
 pub mod snapshot;
-pub use crate::knowledge2::text;
+/// v1 adapter: the core key from `knowledge2`, the measures from the heuristic.
+pub mod text {
+    pub use crate::knowledge2::heuristic::text::jaccard;
+    pub(crate) use crate::knowledge2::heuristic::text::{
+        content_tokens, grams, near_surface, word_prefix,
+    };
+    pub(crate) use crate::knowledge2::text::key::{comparable, word_key};
+}
 pub mod verdicts;
 
 pub use graph::{KnowledgeGraph, LinkReport, ReplayReport};

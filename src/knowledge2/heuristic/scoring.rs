@@ -1,4 +1,4 @@
-//! The heuristic: every number the graph guesses, in one file.
+//! The heuristic: every number the heuristic guesses, in one file.
 //!
 //! Three questions, answered concretely for the pairs the graph asks about:
 //!
@@ -21,7 +21,8 @@
 
 use crate::model;
 
-use crate::knowledge::text;
+use crate::knowledge2::text::key::{comparable, word_key};
+use super::text::{content_tokens, jaccard};
 
 /// The graph's own side of a comparison.
 type Entity = model::knowledge_entity::Model;
@@ -128,8 +129,8 @@ struct NormalizedObservation {
 
 impl NormalizedObservation {
     fn new(name: &str, description: Option<&str>, entity_type: &str) -> Self {
-        let name_key = text::comparable(name);
-        let token_key = text::word_key(&name_key);
+        let name_key = comparable(name);
+        let token_key = word_key(&name_key);
         Self {
             token_key,
             name_key,
@@ -164,14 +165,14 @@ impl NormalizedCandidate {
         let mut alt_name_keys = Vec::with_capacity(alt_names.len() + 1);
         let mut alt_name_token_keys = Vec::with_capacity(alt_names.len() + 1);
         for surface in std::iter::once(name).chain(alt_names.iter().map(String::as_str)) {
-            let key = text::comparable(surface);
+            let key = comparable(surface);
             if key.is_empty() {
                 continue;
             }
             // A surface with no words (`...` folds to `..`) has no word generation, and storing the
             // empty string would make it match every other wordless surface. Same rule as
             // `blocker::index::fold`, which is the one definition of the two generations.
-            let token_key = text::word_key(&key);
+            let token_key = word_key(&key);
             if !token_key.is_empty() {
                 alt_name_token_keys.push(token_key);
             }
@@ -249,7 +250,7 @@ fn features_of_entities(a: &Entity, b: &Entity) -> Features {
             right
                 .description_tokens
                 .iter()
-                .map(move |ours| text::jaccard(ours, theirs))
+                .map(move |ours| jaccard(ours, theirs))
         })
         .fold(0.0f32, f32::max);
 
@@ -282,7 +283,7 @@ fn score(observation: &NormalizedObservation, candidate: &NormalizedCandidate) -
     let description = candidate
         .description_tokens
         .iter()
-        .map(|tokens| text::jaccard(&observation.description_tokens, tokens))
+        .map(|tokens| jaccard(&observation.description_tokens, tokens))
         .fold(0.0f32, f32::max);
     // Any agreement counts. An entity whose members were called both `brand` and `organization` must
     // accept either, or half its own members could not have joined it.
@@ -326,24 +327,24 @@ fn type_similarity(a: &str, b: &str) -> f32 {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The string plumbing the scoring and the blocker share. `text::comparable` is the core's;
-// these are the guess's, and nothing outside `heuristic_scoring` asks for them.
+// The string plumbing the scoring and the blocker share. `comparable` is the core's;
+// these are the guess's, and nothing outside `heuristic::scoring` asks for them.
 // ---------------------------------------------------------------------------------------------
 
-/// The words of a surface, in order, folded the same way `text::comparable` folds it.
+/// The words of a surface, in order, folded the same way `comparable` folds it.
 fn tokens(surface: &str) -> Vec<String> {
-    tokens_of(&text::comparable(surface))
+    tokens_of(&comparable(surface))
 }
 
 /// The words of a surface already in its comparable form, so a caller that has one does not
 /// fold it twice.
 ///
-/// The same definition the resolver measures with (`text::content_tokens`): one notion of "the same
+/// The same definition the resolver measures with (`content_tokens`): one notion of "the same
 /// words" across the blocker and the fit, so a name that blocks `The Big Short` against `Big Short`
 /// also stems `painting` to `paint`. Two tokenizers meant a pair could be related by one and
 /// unrelated by the other.
 fn tokens_of(comparable: &str) -> Vec<String> {
-    text::content_tokens(comparable)
+    content_tokens(comparable)
 }
 
 #[cfg(test)]

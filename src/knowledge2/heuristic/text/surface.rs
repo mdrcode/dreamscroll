@@ -6,7 +6,7 @@
 
 use strsim::levenshtein;
 
-/// Whether two surfaces folded by [`comparable`](super::comparable) are the same name spelled
+/// Whether two surfaces folded by [`comparable`](crate::knowledge2::text::key::comparable) are the same name spelled
 /// differently: `dostoyevsky`/`dostoevsky`, `jrr tolkien`/`jrrtolkien`. Measured on the two cases
 /// that motivated it — a one-letter transliteration and an initials/spacing difference.
 ///

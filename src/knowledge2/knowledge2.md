@@ -208,12 +208,16 @@ A v2 `Linker` is a policy: the pending batch in, one `KnowledgeAction` per obser
   "nothing matched, create," and a failed probe stops the link.
 - `IdentityHolder` is the one evidence read: which live entity already carries
   `(scheme, external_id)`, named by origin.
-- `HeuristicPlanner` is today's policy: a held identity wins; else the best qualifying blocker
-  candidate; else create. The target is an `EntityOriginId`, never an entity id, so a decision made
-  against an older corpus follows tombstones when it is applied.
+- `heuristic::HeuristicPlanner` is today's policy: a held identity wins; else the best qualifying
+  blocker candidate; else create. The target is an `EntityOriginId`, never an entity id, so a
+  decision made against an older corpus follows tombstones when it is applied.
 
 The caller selects the batch. Already-linked observations are not the planner's problem; the helper
 filters them before planning.
+
+The heuristic lives in `knowledge2::heuristic` with the measures it ranks with. It is the default
+policy, not the interface: another `Linker` — including an agentic one — can replace it without
+touching the graph.
 
 ## Text
 
@@ -225,12 +229,12 @@ filters them before planning.
   - `comparable` — the folded surface.
   - `word_key` — the same words, order-insensitive.
   - `norm_fingerprint` — the index's currency stamp.
-- **`text::measure` is for pluggable components.** Tokens, grams, Jaccard, near-surface and
+- **`heuristic::text` is for pluggable components.** Tokens, grams, Jaccard, near-surface and
   word-prefix are how the heuristic planner and the identity resolvers decide whether two texts mean
   the same thing. The graph's integrity does not depend on them.
 
 If Link and Resolve are replaced by LLM-driven flows that do their own text, the core keeps `key`;
-`measure` goes with those components. Identity-key folding (`Identity::from_observation`, v1's
+`heuristic::text` goes with those components. Identity-key folding (`Identity::from_observation`, v1's
 `IdentityKey::try_from`) is producer-side: the caller supplies canonical `(scheme, external_id)`
 strings, and the graph stores them as given.
 

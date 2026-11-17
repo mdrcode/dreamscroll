@@ -15,7 +15,7 @@ use crate::knowledge2::action::KnowledgeAction;
 use crate::knowledge2::blocker::SqlBlocker;
 use crate::knowledge2::graph::KnowledgeGraph2;
 use crate::knowledge2::ids::{EntityOriginId, ObservationId};
-use crate::knowledge2::linker::{HeuristicPlanner, IdentityHolder, Linker};
+use crate::knowledge2::{HeuristicPlanner, IdentityHolder, Linker};
 use crate::model;
 
 /// One illumination's link.
