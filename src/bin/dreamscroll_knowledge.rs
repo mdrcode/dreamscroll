@@ -543,13 +543,13 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
     let max_requests = match (args.offline, args.max_requests) {
         (true, _) => 0,
         (false, Some(n)) => n,
-        (false, None) => knowledge2::heuristic::resolver::DEFAULT_MAX_REQUESTS,
+        (false, None) => knowledge2::heuristic::identifier::DEFAULT_MAX_REQUESTS,
     };
-    let options = knowledge2::heuristic::resolver::Options {
+    let options = knowledge2::heuristic::identifier::Options {
         include_already_annotated: args.entity.is_some(),
         dry_run: args.dry_run,
     };
-    let engine = knowledge2::heuristic::resolver::HeuristicResolver::new(
+    let engine = knowledge2::heuristic::identifier::HeuristicIdentifier::new(
         &knowledge2::KnowledgeGraph2::new(db),
         options,
     )?;

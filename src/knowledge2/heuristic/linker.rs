@@ -1,4 +1,4 @@
-//! Today's policy: a held identity wins; else the best qualifying candidate; else create.
+//! Today's link policy: a held identity wins; else the best qualifying candidate; else create.
 
 use crate::model;
 
@@ -9,13 +9,13 @@ use crate::knowledge2::identity::Identity;
 use crate::knowledge2::ids::{EntityOriginId, ObservationId};
 use super::Heuristic;
 
-/// Today's policy: a held identity wins; else the best qualifying candidate; else create.
+/// Today's link policy: a held identity wins; else the best qualifying candidate; else create.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct HeuristicPlanner {
+pub struct HeuristicLinker {
     scoring: Heuristic,
 }
 
-impl HeuristicPlanner {
+impl HeuristicLinker {
     pub fn new() -> Self {
         Self::default()
     }

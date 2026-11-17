@@ -1,7 +1,7 @@
 //! The illumination composition: what to link and annotate, and the corpus-wide resolve.
 //!
 //! [`KnowledgeGraph::link`] knows only about a batch of observations, and
-//! [`HeuristicResolver::resolve`](crate::knowledge2::heuristic::resolver::HeuristicResolver::resolve) knows only about
+//! [`HeuristicIdentifier::resolve`](crate::knowledge2::heuristic::identifier::HeuristicIdentifier::resolve) knows only about
 //! a collection of entities. Everything that knows they arrive one illumination at a time lives
 //! here: the batch is one illumination's observations, and a capture's identities are written with
 //! them. The per-illumination resolve is not here: the read that turns an illumination into its
@@ -9,7 +9,7 @@
 //! to the engine.
 //!
 //! [`link_all_pending`] and
-//! [`HeuristicResolver::resolve_all_pending`](crate::knowledge2::heuristic::resolver::HeuristicResolver::resolve_all_pending) are the same
+//! [`HeuristicIdentifier::resolve_all_pending`](crate::knowledge2::heuristic::identifier::HeuristicIdentifier::resolve_all_pending) are the same
 //! compositions over the whole outstanding set — the rebuild steps, and the only places that decide
 //! what a corpus run touches.
 

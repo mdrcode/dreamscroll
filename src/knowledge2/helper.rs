@@ -12,7 +12,7 @@ use crate::database::DbHandle;
 use crate::knowledge2::mutation::GraphMutation;
 use crate::knowledge2::blocker::SqlBlocker;
 use crate::knowledge2::graph::KnowledgeGraph2;
-use crate::knowledge2::heuristic::HeuristicPlanner;
+use crate::knowledge2::heuristic::HeuristicLinker;
 use crate::model;
 
 /// One illumination's link.
@@ -36,12 +36,12 @@ pub struct LinkAllReport {
     pub left_pending: usize,
 }
 
-/// The external executor: planner and graph.
+/// The external executor: linker and graph.
 #[derive(Clone)]
 pub struct LinkHelper {
     graph: KnowledgeGraph2,
     blocker: SqlBlocker,
-    planner: HeuristicPlanner,
+    linker: HeuristicLinker,
 }
 
 impl LinkHelper {
@@ -49,7 +49,7 @@ impl LinkHelper {
         Self {
             graph: KnowledgeGraph2::new(db),
             blocker: SqlBlocker::new(db),
-            planner: HeuristicPlanner::new(),
+            linker: HeuristicLinker::new(),
         }
     }
 
@@ -81,7 +81,7 @@ impl LinkHelper {
 
         let selector = self.graph.selector();
         let mutations = self
-            .planner
+            .linker
             .plan(&self.blocker, &selector, &pending)
             .await?;
         let created = mutations

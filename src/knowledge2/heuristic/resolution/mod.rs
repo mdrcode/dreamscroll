@@ -1,6 +1,6 @@
 //! Heuristic identity resolution: today's Wikidata policy.
 //!
-//! The entry point is [`super::resolver::HeuristicResolver`]; this module holds the policy it runs
+//! The entry point is [`super::identifier::HeuristicIdentifier`]; this module holds the policy it runs
 //! and the internal provider seam the tests substitute.
 
 mod classes;

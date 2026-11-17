@@ -208,7 +208,7 @@ The v2 planner is a policy: the pending batch in, one `GraphMutation` per observ
   "nothing matched, create," and a failed probe stops the link.
 - `GraphSelector::holder` is the one evidence read: which live entity already carries
   `(scheme, external_id)`, named by origin.
-- `heuristic::HeuristicPlanner` is today's policy: a held identity wins; else the best qualifying
+- `heuristic::HeuristicLinker` is today's policy: a held identity wins; else the best qualifying
   blocker candidate; else create. The target is an `EntityOriginId`, never an entity id, so a
   decision made against an older corpus follows tombstones when it is applied.
 
@@ -247,13 +247,13 @@ The shared identity primitive is `graph.selector().awaiting_identity(...)`: live
 has not answered, with the per-provider filter. An agentic provider uses that, the Wikidata core, and
 the graph's `Identify`/`RetractIdentity` mutations directly.
 
-`knowledge2::heuristic::resolver::HeuristicResolver` is the automated provider. It selects and
+`knowledge2::heuristic::identifier::HeuristicIdentifier` is the automated provider. It selects and
 batches, runs the policy in `heuristic::resolution` through the gateway, replaces the provider's set,
 and reports. The policy is `plan`, `gather`, `measure`, `classes`, `ranking` and `decide`; it
 produces `knowledge2::Identity`.
 
 The v1 `IdentityEngine` and its Wikidata adapter are gone. The live link task and CLI `link` use
-`LinkHelper`; the live resolve path uses `HeuristicResolver`. The v1 graph/helper/evidence path
+`LinkHelper`; the live resolve path uses `HeuristicIdentifier`. The v1 graph/helper/evidence path
 remains for proximity, evaluation, and as the parity control until those move. Both the heuristic
 and a future agentic resolver go through `knowledge2::wikidata`; only the policy half is replaceable.
 Removing `knowledge2::heuristic` leaves the core, the producer and the graph untouched.
@@ -325,7 +325,7 @@ does not authenticate the caller.
 
 What the code paths build:
 
-- **Link**: `HeuristicPlanner` plans the pending batch; `CreateEntity` and `AttachObservation` carry the
+- **Link**: `HeuristicLinker` plans the pending batch; `CreateEntity` and `AttachObservation` carry the
   `Identity` its policy admits. The graph never sees the platform link.
 - **Resolve**: `Identify`, `RetractIdentity`, chunked per entity. That is how a provider
   replaces its set without a set-shaped mutation.

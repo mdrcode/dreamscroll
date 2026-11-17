@@ -176,7 +176,7 @@ async fn initialize()
 
         // Link writes through the v2 helper; resolve reads and annotates through a v2 graph.
         let knowledge = knowledge2::LinkHelper::new(&db);
-        let identity_engine = knowledge2::heuristic::resolver::HeuristicResolver::new(
+        let identity_engine = knowledge2::heuristic::identifier::HeuristicIdentifier::new(
             &knowledge2::KnowledgeGraph2::new(&db),
             Default::default(),
         )?;

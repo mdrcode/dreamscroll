@@ -15,15 +15,15 @@ use super::resolution::{Resolver, Wikidata};
 /// Transport calls a plain resolve is allowed to make when the caller does not choose a budget.
 pub const DEFAULT_MAX_REQUESTS: usize = 200;
 
-/// The heuristic resolver: Wikidata, the cache gateway and the graph.
-pub struct HeuristicResolver {
+/// The heuristic identifier: Wikidata, the cache gateway and the graph.
+pub struct HeuristicIdentifier {
     graph: KnowledgeGraph2,
     options: Options,
     resolvers: Vec<Box<dyn Resolver>>,
 }
 
-impl HeuristicResolver {
-    /// The default resolver over Wikidata.
+impl HeuristicIdentifier {
+    /// The default identifier over Wikidata.
     pub fn new(graph: &KnowledgeGraph2, options: Options) -> anyhow::Result<Self> {
         Self::with_resolvers(graph, options, vec![Box::new(Wikidata::new()?)])
     }
@@ -224,7 +224,7 @@ impl HeuristicResolver {
     }
 }
 
-impl HeuristicResolver {
+impl HeuristicIdentifier {
     /// Resolve every entity still pending for any configured provider.
     ///
     /// The engine receives the whole pending set in one call, so the wavefront still fills its
@@ -356,8 +356,8 @@ mod tests {
         }
     }
 
-    async fn resolver(db: &DbHandle, dry_run: bool) -> HeuristicResolver {
-        HeuristicResolver::with_resolvers(
+    async fn resolver(db: &DbHandle, dry_run: bool) -> HeuristicIdentifier {
+        HeuristicIdentifier::with_resolvers(
             &KnowledgeGraph2::new(db),
             Options {
                 include_already_annotated: true,

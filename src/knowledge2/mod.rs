@@ -28,4 +28,4 @@ pub use graph::{
 pub use helper::{LinkAllReport, LinkHelper, LinkReport, link_all_pending, link_illumination};
 pub use identity::{Identity, IdentityKey, Provider};
 pub use ids::{EntityOriginId, ObservationId};
-pub use heuristic::{HeuristicPlanner, HeuristicResolver};
+pub use heuristic::{HeuristicLinker, HeuristicIdentifier};

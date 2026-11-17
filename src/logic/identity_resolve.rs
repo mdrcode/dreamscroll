@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::knowledge2::heuristic::resolver::HeuristicResolver;
+use crate::knowledge2::heuristic::identifier::HeuristicIdentifier;
 use crate::{api, task};
 
 /// The concrete task for resolving one illumination's entities.
@@ -73,12 +73,12 @@ pub async fn exec(
 /// The ownership check belongs here, where the payload is: an illumination row names its user, and
 /// the task claims to be acting for one.
 pub(crate) async fn resolve(
-    engine: &HeuristicResolver,
+    engine: &HeuristicIdentifier,
     cache: &crate::fetch::FetchCache,
     service_api: &crate::api::ServiceApiClient,
     task: &IdentityResolveTask,
     allowance: crate::fetch::AllowanceConfig,
-) -> anyhow::Result<crate::knowledge2::heuristic::resolver::ResolutionReport> {
+) -> anyhow::Result<crate::knowledge2::heuristic::identifier::ResolutionReport> {
     let illumination = service_api.illumination(task.illumination_id).await?;
     anyhow::ensure!(
         illumination.user_id == task.entity_owner_id,
@@ -123,8 +123,8 @@ mod tests {
 
     /// The payload names an owner; an illumination row names its user. Acting for someone else is
     /// refused before any transport call.
-    fn engine(db: &crate::database::DbHandle) -> HeuristicResolver {
-        HeuristicResolver::new(
+    fn engine(db: &crate::database::DbHandle) -> HeuristicIdentifier {
+        HeuristicIdentifier::new(
             &crate::knowledge2::KnowledgeGraph2::new(db),
             Default::default(),
         )

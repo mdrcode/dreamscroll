@@ -7,7 +7,7 @@ pub struct LogicState {
     pub cache: fetch::FetchCache,
 
     pub knowledge: crate::knowledge2::LinkHelper,
-    pub identity_engine: crate::knowledge2::heuristic::resolver::HeuristicResolver,
+    pub identity_engine: crate::knowledge2::heuristic::identifier::HeuristicIdentifier,
     /// What one attempt may spend at Wikidata: transport calls and the pace between them.\
     pub wikidata_allowance: fetch::AllowanceConfig,
 
