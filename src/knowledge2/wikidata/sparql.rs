@@ -14,7 +14,7 @@ pub(super) fn for_labels(requests: &[Request<WikidataKind>]) -> String {
         .collect::<Vec<_>>()
         .join(" ");
     format!(
-        // `P31` is asked for on every label answer because `classes::compatible` reads it as
+        // `P31` is asked for on every label answer because the ranking's class check reads it as
         // evidence that the right name belongs to the wrong kind of thing (`Dogma` the film against
         // the concept). `OPTIONAL` because an item with no class is still a label match, and a missing
         // class must not drop the candidate. Measured 2026-11-07: the join costs nothing (1.9 s

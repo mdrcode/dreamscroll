@@ -4,6 +4,7 @@
 //! agentic flow uses. This module is the policy: the query plan, the candidate set, the measure, the
 //! ranking and the decision. It produces `knowledge2::Identity`; the graph does not depend on it.
 
+mod classes;
 pub(crate) mod decide;
 pub(crate) mod gather;
 mod measure;

@@ -6,7 +6,6 @@
 
 pub(crate) mod answer;
 mod candidate;
-pub(crate) mod classes;
 mod kind;
 pub(crate) mod property_query;
 mod sparql;

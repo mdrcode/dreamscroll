@@ -241,14 +241,15 @@ strings, and the graph stores them as given.
 ## Identity resolution
 
 `knowledge2::wikidata` is the common authority layer: provider id, language, request kinds, SPARQL,
-transport, parsed candidate and class table. It does not rank or write.
+transport, parsed candidate and answer. It does not rank or write.
 
 `knowledge2::resolution` is the producer: it selects entities, applies the per-provider batch filter,
 runs the policy through the cache-backed gateway, and emits `AttestIdentity`/`RetractIdentity`
 against `KnowledgeGraph2`. It reports the same counts the v1 engine did.
 
-`knowledge2::heuristic::resolution` is today's policy: `plan` asks, `gather` parses the candidate
-set, `measure` and `ranking` score, and `decide` chooses. It produces `knowledge2::Identity`.
+`knowledge2::heuristic::resolution` is today's policy: `plan` asks, `gather` builds the candidate
+set, `measure` and `classes` price the evidence, `ranking` orders it, and `decide` chooses. It
+produces `knowledge2::Identity`.
 
 The v1 `IdentityEngine` and its Wikidata adapter are gone; `knowledge` keeps its graph/link/verdict
 path. Both the heuristic and a future agentic resolver go through `knowledge2::wikidata`; only the
