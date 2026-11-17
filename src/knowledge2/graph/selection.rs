@@ -1,9 +1,9 @@
-//! The identity primitive every provider shares: which live entities still need work.
+//! The graph's read view: which live entities still need work, and the sub-views beneath it.
 //!
 //! Selection is a read over annotations, not a write to them. The provider filter is per authority:
 //! an entity Wikidata answered is still pending for another resolver.
 //!
-//! [`GraphSelector`] is the public read view. `KnowledgeGraph2` owns writes and projection; the
+//! [`GraphSelector`] is the public entry point. `KnowledgeGraph2` owns writes and projection; the
 //! selector owns the selects, so the facade does not grow a query method per question.
 
 use sea_orm::sea_query::{Expr, ExprTrait, Query};
@@ -13,8 +13,8 @@ use crate::model;
 
 /// A borrowed read view over the graph, created by [`KnowledgeGraph2::selector`].
 ///
-/// Cheap to copy; it carries only the connection. Queries remain methods until callers need to
-/// compose filters, at which point a builder can grow here without changing the graph facade.
+/// Cheap to copy; it carries only the connection. Identity selection is here; verdict reads are a
+/// sub-view ([`GraphSelector::verdicts`]) so the aggregate's queries stay together.
 #[derive(Clone, Copy)]
 pub struct GraphSelector<'a> {
     conn: &'a DatabaseConnection,
@@ -42,6 +42,11 @@ impl<'a> GraphSelector<'a> {
         entity_ids: &[i32],
     ) -> anyhow::Result<std::collections::HashSet<i32>> {
         identified_by(self.conn, provider, entity_ids).await
+    }
+
+    /// The verdict sub-view: durable decisions and their replay reads.
+    pub fn verdicts(&self) -> super::VerdictSelector<'a> {
+        super::VerdictSelector::new(self.conn)
     }
 }
 

@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder};
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 
 use crate::database::DbHandle;
 use crate::knowledge2::graph::{KnowledgeGraph2, Refusal};
@@ -35,11 +35,12 @@ pub struct ReplayReport {
 /// Apply the recorded verdicts to the current graph.
 pub async fn replay(db: &DbHandle) -> anyhow::Result<ReplayReport> {
     let graph = KnowledgeGraph2::new(db);
+    let verdicts = graph.selector().verdicts();
     let mut report = ReplayReport::default();
 
     // Latest by id wins for a pair, and chains still apply oldest first.
     let mut latest: BTreeMap<(i32, i32), model::knowledge_verdicts::Model> = BTreeMap::new();
-    for verdict in merges(db).await? {
+    for verdict in verdicts.merges().await? {
         let (Some(winner), Some(loser)) = (verdict.winner_origin, verdict.loser_origin) else {
             continue;
         };
@@ -76,7 +77,7 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<ReplayReport> {
     }
 
     // Vetoes last: a merge decides which entity a veto is about, so it lands on the survivor.
-    for verdict in vetoes(db).await? {
+    for verdict in verdicts.vetoes().await? {
         let (Some(subject), Some(scheme), Some(external)) = (
             verdict.subject_origin,
             verdict.identity_scheme,
@@ -119,36 +120,6 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<ReplayReport> {
     }
 
     Ok(report)
-}
-
-async fn merges(db: &DbHandle) -> anyhow::Result<Vec<model::knowledge_verdicts::Model>> {
-    Ok(model::knowledge_verdicts::Entity::find()
-        .filter(
-            model::knowledge_verdicts::Column::Cause
-                .eq(model::knowledge_verdicts::Cause::Repair.as_str()),
-        )
-        .filter(
-            model::knowledge_verdicts::Column::Kind
-                .eq(model::knowledge_verdicts::Kind::Merge.as_str()),
-        )
-        .order_by_asc(model::knowledge_verdicts::Column::Id)
-        .all(&db.conn)
-        .await?)
-}
-
-async fn vetoes(db: &DbHandle) -> anyhow::Result<Vec<model::knowledge_verdicts::Model>> {
-    Ok(model::knowledge_verdicts::Entity::find()
-        .filter(
-            model::knowledge_verdicts::Column::Cause
-                .eq(model::knowledge_verdicts::Cause::Repair.as_str()),
-        )
-        .filter(
-            model::knowledge_verdicts::Column::Kind
-                .eq(model::knowledge_verdicts::Kind::VetoIdentity.as_str()),
-        )
-        .order_by_asc(model::knowledge_verdicts::Column::Id)
-        .all(&db.conn)
-        .await?)
 }
 
 fn pair_key(a: i32, b: i32) -> (i32, i32) {

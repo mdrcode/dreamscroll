@@ -7,8 +7,10 @@ mod project;
 mod report;
 mod selection;
 mod sql;
+mod verdicts;
 
 pub use graph::KnowledgeGraph2;
 pub use project::Scope as ReprojectScope;
 pub use report::{Refusal, Report};
 pub use selection::GraphSelector;
+pub use verdicts::VerdictSelector;

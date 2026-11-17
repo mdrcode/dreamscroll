@@ -259,9 +259,10 @@ graph untouched.
 ## Replay
 
 `knowledge2::replay::replay` applies only durable repairs: the latest repair merge per unordered
-origin pair, logged as `replayed`, then repair vetoes through `VetoIdentity`. Sides that no longer
-map are reported as gone; a standing `distinct` or shared illumination is a refusal, never a guess.
-`distinct` itself is consultative and needs no write.
+origin pair, logged as `replayed`, then repair vetoes through `VetoIdentity`. It reads them through
+`graph.selector().verdicts()` — `merges()` and `vetoes()` are repair-only, oldest first. Sides that
+no longer map are reported as gone; a standing `distinct` or shared illumination is a refusal, never
+a guess. `distinct` itself is consultative and needs no write.
 
 ## Corpus check
 
