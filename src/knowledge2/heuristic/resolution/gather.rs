@@ -1,7 +1,7 @@
 //! The candidate set: what every answer offered, deduplicated, with who offered it.
 //!
-//! Admission without ranking. A strategy's answer contributes the items `answer::referents` accepts
-//! — a menu is not a referent — and the same QID found twice is one entry with two sources, not two
+//! Admission without ranking. A strategy's answer contributes the items `disambiguation::referents`
+//! accepts — a disambiguation page is not a referent — and the same QID found twice is one entry with two sources, not two
 //! candidates. The handle is the one exception: a property match *is* the identity, so it claims
 //! before the set is built.
 
@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 
 use crate::fetch::{Answers, Outcome, Request};
 use crate::knowledge2::identity::Identity;
-use crate::knowledge2::wikidata::{WikidataCandidate, WikidataKind, answer};
+use crate::knowledge2::wikidata::{WikidataCandidate, WikidataKind, disambiguation};
 
 use super::plan;
 
@@ -35,7 +35,7 @@ pub(crate) type CandidateSet = Vec<Aggregate>;
 
 /// One entity's candidate set from every answer of one outcome, deduplicated by QID.
 ///
-/// `answer::referents` still gates what is not a referent at all — a menu — but no strategy's name
+/// `disambiguation::referents` still gates what is not a referent at all — a disambiguation page — but no strategy's name
 /// rule applies: which candidate is ours is the ranking's question.
 pub(crate) fn gather(
     asks: &[(plan::Strategy, Request<WikidataKind>)],
@@ -54,7 +54,7 @@ pub(crate) fn gather(
         if raw.outcome != outcome {
             continue;
         }
-        let Ok(candidates) = answer::referents(raw) else {
+        let Ok(candidates) = disambiguation::referents(raw) else {
             continue;
         };
         let title_only = *strategy == plan::Strategy::Title && candidates.len() == 1;
@@ -89,7 +89,7 @@ pub(crate) fn by_handle(
                 return None;
             }
             let property = request.kind.property()?;
-            let candidate = answer::referents(raw).ok()?.into_iter().next()?;
+            let candidate = disambiguation::referents(raw).ok()?.into_iter().next()?;
             Some(candidate.identity(property.as_str(), HANDLE_CONFIDENCE))
         })
 }

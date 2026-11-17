@@ -1,10 +1,10 @@
-//! Wikidata: the wire, the query language, the candidate and the class table.
+//! Wikidata: the wire, the query language, the candidate and answer admission.
 //!
 //! Common to every policy that asks Wikidata. The cache door is `crate::fetch`; this module owns
-//! the provider id, the language, the request kinds, the SPARQL, the transport and the parsed
-//! candidate. It does not rank, score or decide.
+//! the provider id, the language, the request kinds, the SPARQL, the transport, the parsed
+//! candidate and the disambiguation filter. It does not rank, score or decide.
 
-pub(crate) mod answer;
+pub(crate) mod disambiguation;
 mod candidate;
 mod kind;
 pub(crate) mod property_query;
