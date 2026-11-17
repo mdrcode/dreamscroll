@@ -101,7 +101,7 @@ SELECT e.origin_observation_id
 "#;
 
 /// Follow the tombstone chain from an origin to the live entity id.
-async fn resolve_live_entity(
+pub(super) async fn resolve_live_entity(
     conn: &DatabaseConnection,
     origin: i32,
 ) -> anyhow::Result<Option<i32>> {

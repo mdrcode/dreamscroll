@@ -3,8 +3,11 @@
 //! A sub-view of [`GraphSelector`](super::GraphSelector). Verdicts are a different aggregate from
 //! entities and identities, so their queries live here instead of on the main selector.
 
+use std::collections::HashSet;
+
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder};
 
+use super::selection::resolve_live_entity;
 use crate::model;
 
 /// A borrowed read view over `knowledge_verdicts`, created by
@@ -49,5 +52,33 @@ impl<'a> VerdictSelector<'a> {
             .order_by_asc(model::knowledge_verdicts::Column::Id)
             .all(self.conn)
             .await?)
+    }
+
+    /// Every live veto as `(live entity id, scheme, external_id)`, for admission and dry runs.
+    pub async fn vetoed_keys(&self) -> anyhow::Result<HashSet<(i32, String, String)>> {
+        let rows = model::knowledge_verdicts::Entity::find()
+            .filter(
+                model::knowledge_verdicts::Column::Kind
+                    .eq(model::knowledge_verdicts::Kind::VetoIdentity.as_str()),
+            )
+            .order_by_asc(model::knowledge_verdicts::Column::Id)
+            .all(self.conn)
+            .await?;
+
+        let mut out = HashSet::new();
+        for row in rows {
+            let (Some(origin), Some(scheme), Some(external)) = (
+                row.subject_origin,
+                row.identity_scheme,
+                row.identity_external_id,
+            ) else {
+                continue;
+            };
+            let Some(entity) = resolve_live_entity(self.conn, origin).await? else {
+                continue;
+            };
+            out.insert((entity, scheme, external));
+        }
+        Ok(out)
     }
 }

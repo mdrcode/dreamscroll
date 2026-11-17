@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
 use crate::database::DbHandle;
 use crate::fetch::{self, Allowance, FetchCache, Gateway, Refusal};
@@ -81,7 +81,7 @@ impl HeuristicResolver {
 
         let gateway = Gateway::new(Some(cache), allowance, true);
         let selector = self.graph.selector();
-        let vetoes = vetoes(&self.db).await?;
+        let vetoes = selector.verdicts().vetoed_keys().await?;
         let entity_ids: Vec<i32> = entities.iter().map(|entity| entity.id).collect();
 
         let mut report = ResolutionReport {
@@ -333,60 +333,6 @@ async fn existing_keys(
             external_id: row.external_id,
         })
         .collect())
-}
-
-/// A standing veto, keyed by the live entity id the `subject_origin` resolves to.
-///
-/// `Identify` enforces the same rule by the live entity's origin; this read exists for the
-/// preview and the counts, so a dry run cannot disagree with the write.
-async fn vetoes(db: &DbHandle) -> anyhow::Result<HashSet<(i32, String, String)>> {
-    let rows = model::knowledge_verdicts::Entity::find()
-        .filter(
-            model::knowledge_verdicts::Column::Kind
-                .eq(model::knowledge_verdicts::Kind::VetoIdentity.as_str()),
-        )
-        .order_by_asc(model::knowledge_verdicts::Column::Id)
-        .all(&db.conn)
-        .await?;
-
-    let mut out = HashSet::new();
-    for row in rows {
-        let (Some(origin), Some(scheme), Some(external)) = (
-            row.subject_origin,
-            row.identity_scheme,
-            row.identity_external_id,
-        ) else {
-            continue;
-        };
-        let Some(entity) = model::knowledge_entity::Entity::find()
-            .filter(model::knowledge_entity::Column::OriginObservationId.eq(origin))
-            .one(&db.conn)
-            .await?
-        else {
-            continue;
-        };
-        let mut current = entity.id;
-        let mut live = None;
-        for _ in 0..8 {
-            let Some(row) = model::knowledge_entity::Entity::find_by_id(current)
-                .one(&db.conn)
-                .await?
-            else {
-                break;
-            };
-            match row.merged_into_id {
-                Some(next) => current = next,
-                None => {
-                    live = Some(current);
-                    break;
-                }
-            }
-        }
-        if let Some(id) = live {
-            out.insert((id, scheme, external));
-        }
-    }
-    Ok(out)
 }
 
 

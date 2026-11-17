@@ -261,7 +261,8 @@ graph untouched.
 
 `knowledge2::replay::replay` applies only durable repairs: the latest repair merge per unordered
 origin pair, logged as `replayed`, then repair vetoes through `VetoIdentity`. It reads them through
-`graph.selector().verdicts()` — `merges()` and `vetoes()` are repair-only, oldest first. Sides that
+`graph.selector().verdicts()` — `merges()` and `vetoes()` are repair-only, oldest first;
+`vetoed_keys()` is every live veto keyed by the live entity, for admission and dry runs. Sides that
 no longer map are reported as gone; a standing `distinct` or shared illumination is a refusal, never
 a guess. `distinct` itself is consultative and needs no write.
 
