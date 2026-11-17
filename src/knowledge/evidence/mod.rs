@@ -10,7 +10,7 @@
 //!   identity resolver answered with, and the observation that carried it when a capture showed it.
 //!
 //! The store is [`Evidence`] for the capture/link path: a capture appends one, and a veto deletes
-//! one. A resolver's replacement is the v2 `knowledge2::heuristic::resolution` engine, which emits
+//! one. An identifier's replacement is the v2 `knowledge2::heuristic::identification` engine, which emits
 //! graph actions. Nothing brokers the relation.
 //!
 //! A key is a canonical document, not a unique name: one Wikidata item can name an album and cover

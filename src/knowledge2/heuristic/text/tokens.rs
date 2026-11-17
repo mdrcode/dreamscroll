@@ -13,7 +13,7 @@ const NOISE: &[&str] = &[
 
 /// The words of a text that could carry signal: alphanumeric runs, lowercased, at least three
 /// characters, noise dropped, stemmed.
-/// Whether a word carries no disambiguation — the linker and the resolver must agree on this, or the
+/// Whether a word carries no disambiguation — the linker and the identifier must agree on this, or the
 /// same two names can block one way and fit another.
 fn is_noise(token: &str) -> bool {
     NOISE.contains(&token)

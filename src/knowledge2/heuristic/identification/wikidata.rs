@@ -36,12 +36,12 @@ impl Wikidata {
 
 impl Wikidata {
     /// The complete set of identities this authority asserts for each entity it answers about.
-    pub async fn resolve(
+    pub async fn identify(
         &self,
         entities: &[model::knowledge_entity::Model],
         gateway: &Gateway<'_>,
     ) -> Vec<(i32, Identity)> {
-        resolve_batch(&self.wire, entities, gateway).await
+        identify_batch(&self.wire, entities, gateway).await
     }
 }
 
@@ -54,7 +54,7 @@ type Planned = (i32, Vec<(plan::Strategy, Request<WikidataKind>)>);
 /// hands the answers to `gather` → `ranking` → `decide`. Offline rebuilds are unaffected —
 /// `answers_for` serves the cache — and the cost ordering is deliberately gone for now: every
 /// strategy is applied, and a budget question can only be answered after the quality question is.
-async fn resolve_batch<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataCandidate>>>(
+async fn identify_batch<T: Transport<Kind = WikidataKind, Payload = Vec<WikidataCandidate>>>(
     transport: &T,
     entities: &[model::knowledge_entity::Model],
     gateway: &Gateway<'_>,
@@ -128,7 +128,7 @@ mod tests {
     }
 
     /// A wire that answers from a table and records what it was asked: no client, no database.
-    /// The batch resolver is generic over the wire precisely so an ordering can be proven with this.
+    /// The batch identifier is generic over the wire precisely so an ordering can be proven with this.
     #[derive(Default)]
     struct Canned {
         answers: std::collections::HashMap<(WikidataKind, String), Answer<Vec<WikidataCandidate>>>,
@@ -231,7 +231,7 @@ mod tests {
 
         let allowance = Allowance::new(16, std::time::Duration::ZERO);
         let gateway = Gateway::new(None, Some(&allowance), true);
-        let identities = resolve_batch(&fake, &entities, &gateway).await;
+        let identities = identify_batch(&fake, &entities, &gateway).await;
 
         let ids: Vec<(i32, &str)> = identities
             .iter()
@@ -308,7 +308,7 @@ mod tests {
 
         let allowance = Allowance::new(16, std::time::Duration::ZERO);
         let gateway = Gateway::new(None, Some(&allowance), true);
-        let identities = resolve_batch(&fake, &entities, &gateway).await;
+        let identities = identify_batch(&fake, &entities, &gateway).await;
 
         let ids: Vec<(i32, &str)> = identities
             .iter()

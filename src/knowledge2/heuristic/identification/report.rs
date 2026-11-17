@@ -1,4 +1,4 @@
-//! What one resolve run asked, wrote, refused, or would write.
+//! What one identification run asked, wrote, refused, or would write.
 
 use crate::fetch;
 
@@ -21,9 +21,9 @@ pub struct DryRunIdentity {
     pub method: Option<String>,
 }
 
-/// One resolution run.
+/// One identification run.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub struct ResolutionReport {
+pub struct IdentificationReport {
     pub offline: bool,
     /// No identities were written or projected; the counts are what the run would do. Provider
     /// answers may still populate `fetch_cache`.
@@ -32,7 +32,7 @@ pub struct ResolutionReport {
     pub considered: usize,
     pub fetch_traffic: fetch::Stats,
 
-    pub entities_resolved: usize,
+    pub entities_identified: usize,
     pub identities_written: usize,
     pub identities_vetoed: usize,
     pub identities_replaced: usize,

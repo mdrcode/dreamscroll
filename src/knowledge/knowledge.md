@@ -168,9 +168,9 @@ resolver keeps its own measure and its own calibration, because its candidate ty
 its fit is corpus-aware (terms are weighed by rarity among the answers it got back) — a pair
 comparison cannot see the corpus.
 
-## Resolving: what can Wikidata tell us?
+## Identifying: what can Wikidata tell us?
 
-Resolving is the opposite kind of work: network, cached, and only ever through one door. Wikidata is
+Identifying is the opposite kind of work: network, cached, and only ever through one door. Wikidata is
 the only authority today, held directly by `HeuristicIdentifier`; there is no provider trait to
 implement.
 
@@ -269,7 +269,7 @@ The answers follow, and the distinction is the point:
 
 A proximity is a judgement about our own rows and a merge is a mutation of them. `enrichment` and
 `rejection` stay reserved vocabulary, not tables: the identity row's `label`, `description` and
-`classes` are filled by whichever resolution step wrote it, and nothing fetches them by identity
+`classes` are filled by whichever identification step wrote it, and nothing fetches them by identity
 alone — a held QID is not yet a reason to ask about its item.
 
 Sharing an identity is a **candidate**, not a verdict. `proximity` asks the question: for each key
@@ -328,7 +328,7 @@ The order is not a preference:
   sides' surfaces, instead of twice and then shuffled by a merge.
 - **`scan` after `identity resolve`**, because a shared identity is its only candidacy: measured on the local
   corpus, 0 of 345 platform identities have more than one holder, while 13 Wikidata keys account for
-  all 26 multi-holder annotations. A scan before resolution raises nothing.
+  all 26 multi-holder annotations. A scan before identification raises nothing.
 - **`auto-merge` after `scan`**, because it answers the batch the scan wrote.
 
 `identity resolve` reprojects every entity it gives an identity to, before returning: a later
@@ -372,7 +372,7 @@ one.
 | `linker/heuristic/scoring.rs` | the heuristic: `link`, `merge` and `pair`, the weights, and the merge rule (a name match plus one corroborating signal) |
 | `graph/link.rs` | `link`: a batch of observations in, and one transaction applying everything the decisions imply — creates and attaches, the identities the handles assert, and a projection of each entity touched. Returns `LinkReport` |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
-| `evidence/` | the v1 vocabulary — `PlatformLink`, `IdentityKey`, `Identity` — and the capture write path in `store.rs`: `add_identity` appends a capture's handle on the caller's connection (so it commits with the link that created the entity), `query_identities` and `query_entities_for_identity` answer the reads. `store.rs` also owns `move_identities` on a fold and `delete_identity` on a veto. Identity resolution is now `knowledge2::heuristic::identifier::HeuristicIdentifier` |
+| `evidence/` | the v1 vocabulary — `PlatformLink`, `IdentityKey`, `Identity` — and the capture write path in `store.rs`: `add_identity` appends a capture's handle on the caller's connection (so it commits with the link that created the entity), `query_identities` and `query_entities_for_identity` answer the reads. `store.rs` also owns `move_identities` on a fold and `delete_identity` on a veto. Identity identification is now `knowledge2::heuristic::identifier::HeuristicIdentifier` |
 | `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors (`new`, `with_linking`, `with_heuristic_linking`) and the operations that own a write path — link, merge, replay, reproject, the veto commands. `KnowledgeGraph2::selector()` exposes `GraphSelector::awaiting_identity`/`identified_by`, `live_entity`/`identity_count`, and `verdicts()` → `VerdictSelector` (`merges`/`vetoes`/`vetoed_keys`), the shared graph read surface. It holds the connection, the blocker, the decider, the evidence and the verdict register — no policy of its own |
 | `graph/replay.rs` | the verdict effects: `replay` (merges, then withdrawals) and the withdrawal the veto command shares |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is the best identity's score. `reproject` repairs a scope of entities, with `Stale` the "live, no identity annotation" rule |
@@ -381,7 +381,7 @@ one.
 | `verdicts/` | the register: the modification log and the standing vetoes, held by `KnowledgeGraph`. `store.rs` is the type, its connection, `record` (the one write that takes the caller's transaction, so a merge's row commits with the fold) and the reads the replay and `stats` share; `veto.rs` holds `veto`/`unveto`/`vetoed`; `origin.rs` turns an origin into the entity it names now. Applying the log is the graph's command (`graph/replay.rs`), exposed as `KnowledgeGraph::replay_verdicts`; `pair_key` is shared with `stats` |
 | `../knowledge2/wikidata/` | the common authority core: `kind` (request kinds and cache shapes), `candidate` (the parsed item), `transport` (the wire), `sparql`, `property_query`, `disambiguation`. No ranking or writes |
 | `../knowledge2/heuristic/identifier.rs` | the automated provider: `HeuristicIdentifier` — select, batch, call, replace, report |
-| `../knowledge2/heuristic/resolution/` | the policy it runs: `plan`, `gather`, `measure`, `classes`, `ranking`, `decide`, and the Wikidata `resolver` |
+| `../knowledge2/heuristic/identification/` | the policy it runs: `plan`, `gather`, `measure`, `classes`, `ranking`, `decide`, and Wikidata |
 | `../knowledge2/replay.rs` | replay: latest repair merge per unordered origin pair (logged `replayed`), then repair vetoes through `VetoIdentity`; `distinct` is consultative and skipped |
 |`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, with a TTL per outcome: found 180 days, empty 30, degraded 23 hours, failed 10 minutes) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
 | `eval/` | offline diagnostics, both read-only: `eval blocker` measures recall; `identity inspect` walks one entity through blocking, ranking and the plan |

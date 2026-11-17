@@ -86,7 +86,7 @@ fn account_only(entity: &model::knowledge_entity::Model) -> bool {
 mod tests {
     use super::*;
     use super::super::plan;
-    use crate::knowledge2::heuristic::resolution::gather::Aggregate;
+    use crate::knowledge2::heuristic::identification::gather::Aggregate;
     use crate::knowledge2::wikidata::WikidataCandidate;
 
     fn candidate(id: &str, label: &str, description: &str) -> Aggregate {

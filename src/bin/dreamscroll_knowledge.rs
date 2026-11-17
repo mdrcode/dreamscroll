@@ -91,7 +91,7 @@ enum IdentityCommand {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "inspect")]
-#[argh(description = "walk one entity through blocking, ranking and the resolver's plan")]
+#[argh(description = "walk one entity through blocking, ranking and the identifier's plan")]
 struct IdentityInspectArgs {
     #[argh(
         positional,
@@ -105,7 +105,7 @@ struct IdentityInspectArgs {
 #[derive(FromArgs)]
 #[argh(subcommand, name = "veto")]
 #[argh(
-    description = "delete an annotation that is not evidence for this entity (a resolver false \
+    description = "delete an annotation that is not evidence for this entity (an identifier false \
                    positive); not for different referents sharing a canonical document"
 )]
 struct VetoArgs {
@@ -125,7 +125,7 @@ struct VetoArgs {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "unveto")]
-#[argh(description = "lift a veto; the next resolve may assert the identity again")]
+#[argh(description = "lift a veto; the next identification may assert the identity again")]
 struct UnvetoArgs {
     #[argh(positional, description = "verdict id (verdicts list)")]
     id: i32,
@@ -570,7 +570,7 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
                 "knowledge entity {id} is a tombstone; resolve the live entity"
             );
             let report = engine
-                .resolve(
+                .identify(
                     std::slice::from_ref(&before.entity),
                     &cache,
                     allowance.as_ref(),
@@ -623,7 +623,7 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
         }
         None => {
             engine
-                .resolve_all_pending(
+                .identify_all_pending(
                     &cache,
                     allowance.as_ref(),
                     args.limit,
@@ -651,7 +651,7 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
             report.fetch_traffic.fetched,
             report.fetch_traffic.failed,
             report.identities_written,
-            report.entities_resolved,
+            report.entities_identified,
             report.identities_vetoed
         );
         for provider in &report.by_provider {
@@ -672,7 +672,7 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
             report.fetch_traffic.fetched,
             report.fetch_traffic.failed,
             report.identities_written,
-            report.entities_resolved,
+            report.entities_identified,
             report.identities_vetoed,
             report.identities_replaced
         );
@@ -1354,7 +1354,7 @@ async fn main() -> anyhow::Result<()> {
                 stats.identity_counts.three_plus
             );
             println!(
-                "  awaiting a resolver {} (the backlog `identity resolve` reads)",
+                "  awaiting identification {} (the backlog `identity resolve` reads)",
                 stats.awaiting_resolver
             );
             let number = |value: Option<f64>| {
@@ -1370,7 +1370,7 @@ async fn main() -> anyhow::Result<()> {
                 number(stats.confidence.max),
                 stats.confidence.unknown
             );
-            println!("resolution");
+            println!("identification");
             println!("  with identity annotation {:>5}", stats.with_identity);
             println!("  identities by provider / scheme");
             println!(

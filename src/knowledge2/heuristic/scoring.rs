@@ -16,7 +16,7 @@
 //! One implementation, so this is a type and not a trait bundle. A second policy would reintroduce
 //! the seam; git history has the version that was measured out.
 //!
-//! Not here: the confidence scale for resolver answers, which is the identity resolver's own
+//! Not here: the confidence scale for identifier answers, which is the identifier's own
 //! calibration.
 
 use crate::model;
@@ -339,7 +339,7 @@ fn tokens(surface: &str) -> Vec<String> {
 /// The words of a surface already in its comparable form, so a caller that has one does not
 /// fold it twice.
 ///
-/// The same definition the resolver measures with (`content_tokens`): one notion of "the same
+/// The same definition the identifier measures with (`content_tokens`): one notion of "the same
 /// words" across the blocker and the fit, so a name that blocks `The Big Short` against `Big Short`
 /// also stems `painting` to `paint`. Two tokenizers meant a pair could be related by one and
 /// unrelated by the other.

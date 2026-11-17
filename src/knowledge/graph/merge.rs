@@ -22,7 +22,7 @@ use crate::model::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
     Merged,
-    /// Nothing to do: the same pair has already been folded. The resolution loop can reach one
+    /// Nothing to do: the same pair has already been folded. The identification loop can reach one
     /// conflict twice — the loser stays in the run's entity list after it has been merged — so a
     /// repeat must not move anything again or record a second merge event.
     AlreadyMerged,
@@ -321,7 +321,7 @@ mod tests {
         id
     }
 
-    /// The resolution loop can reach one conflict twice, because the loser is still in the run's
+    /// The identification loop can reach one conflict twice, because the loser is still in the run's
     /// entity list after it has been folded. A repeat must be a no-op, not a second merge event.
     #[tokio::test]
     async fn merging_the_same_pair_twice_records_one_event() {

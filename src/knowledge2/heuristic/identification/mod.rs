@@ -1,4 +1,4 @@
-//! Heuristic identity resolution: today's Wikidata policy.
+//! Heuristic identification: today's Wikidata policy.
 //!
 //! The entry point is [`super::identifier::HeuristicIdentifier`]; this module holds the policy it
 //! runs and the Wikidata provider.
@@ -10,7 +10,7 @@ mod measure;
 pub(crate) mod plan;
 pub(crate) mod ranking;
 mod report;
-mod resolver;
+mod wikidata;
 
-pub use report::{DryRunIdentity, Options, ProviderReport, ResolutionReport};
-pub(crate) use resolver::Wikidata;
+pub use report::{DryRunIdentity, IdentificationReport, Options, ProviderReport};
+pub(crate) use wikidata::Wikidata;

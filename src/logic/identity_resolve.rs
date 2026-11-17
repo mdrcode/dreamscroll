@@ -1,4 +1,4 @@
-//! Resolve the identities of the entities one illumination touched.
+//! Identify the entities one illumination touched.
 //!
 //! Chained after the link: the link created or attached the entities, and this asks Wikidata about
 //! exactly those. The payload is the illumination, not its entity ids, because entity
@@ -45,7 +45,7 @@ pub async fn exec(
     task_run: &task::TaskRun<IdentityResolveTask>,
     _attempt: i32,
 ) -> Result<(), api::ApiError> {
-    let report = resolve(
+    let report = identify(
         &state.identity_engine,
         &state.cache,
         &state.service_api,
@@ -58,27 +58,27 @@ pub async fn exec(
     tracing::info!(
         illumination_id = task_run.task.illumination_id,
         considered = report.considered,
-        resolved = report.entities_resolved,
+        identified = report.entities_identified,
         written = report.identities_written,
         replaced = report.identities_replaced,
         vetoed = report.identities_vetoed,
         refused = report.refusal.is_some(),
-        "KnowledgeGraph identity resolve completed"
+        "KnowledgeGraph identity identification completed"
     );
     Ok(())
 }
 
-/// The work itself: the graph and the resolver, so it can be exercised without a queue.
+/// The work itself: the graph and the identifier, so it can be exercised without a queue.
 ///
 /// The ownership check belongs here, where the payload is: an illumination row names its user, and
 /// the task claims to be acting for one.
-pub(crate) async fn resolve(
+pub(crate) async fn identify(
     engine: &HeuristicIdentifier,
     cache: &crate::fetch::FetchCache,
     service_api: &crate::api::ServiceApiClient,
     task: &IdentityResolveTask,
     allowance: crate::fetch::AllowanceConfig,
-) -> anyhow::Result<crate::knowledge2::heuristic::identifier::ResolutionReport> {
+) -> anyhow::Result<crate::knowledge2::heuristic::identifier::IdentificationReport> {
     let illumination = service_api.illumination(task.illumination_id).await?;
     anyhow::ensure!(
         illumination.user_id == task.entity_owner_id,
@@ -89,11 +89,11 @@ pub(crate) async fn resolve(
     );
 
     // The read refuses an illumination whose link has not finished, so the batch is always the
-    // linked set; resolving a partial one would silently drop the unlinked observations.
+    // linked set; identifying a partial one would silently drop the unlinked observations.
     let entities = service_api.illumination_entities(task.illumination_id).await?;
 
     let allowance = crate::fetch::Allowance::configured(allowance);
-    engine.resolve(&entities, cache, Some(&allowance)).await
+    engine.identify(&entities, cache, Some(&allowance)).await
 }
 
 #[cfg(test)]
@@ -128,11 +128,11 @@ mod tests {
             &crate::knowledge2::KnowledgeGraph2::new(db),
             Default::default(),
         )
-        .expect("the heuristic resolver")
+        .expect("the heuristic identifier")
     }
 
     #[tokio::test]
-    async fn a_resolve_for_another_users_illumination_is_refused() {
+    async fn identify_for_another_users_illumination_is_refused() {
         let Some(test_db) = test_db::test_db().await else {
             return;
         };
@@ -143,7 +143,7 @@ mod tests {
         let illumination = fixtures::illumination(&db, user, capture).await;
 
         let cache = crate::fetch::FetchCache::new(&db.conn);
-        let error = resolve(
+        let error = identify(
             &engine(&db),
             &cache,
             &service_api(&db),
@@ -162,10 +162,10 @@ mod tests {
         assert!(error.to_string().contains("belongs to user"), "{error}");
     }
 
-    /// The whole path, with no transport calls: link creates the entity, the resolve considers it,
+    /// The whole path, with no transport calls: link creates the entity, identification considers it,
     /// and a zero budget means the provider is never asked (so nothing is annotated).
     #[tokio::test]
-    async fn a_zero_budget_resolve_considers_the_entities_and_asks_nothing() {
+    async fn a_zero_budget_identification_considers_the_entities_and_asks_nothing() {
         let Some(test_db) = test_db::test_db().await else {
             return;
         };
@@ -189,7 +189,7 @@ mod tests {
         .expect("link");
 
         let cache = crate::fetch::FetchCache::new(&db.conn);
-        let report = resolve(
+        let report = identify(
             &engine(&db),
             &cache,
             &api,
@@ -203,15 +203,15 @@ mod tests {
             },
         )
         .await
-        .expect("resolve");
+        .expect("identify");
 
         assert_eq!(report.considered, 1, "{report:?}");
-        assert_eq!(report.entities_resolved, 0, "{report:?}");
+        assert_eq!(report.entities_identified, 0, "{report:?}");
         assert_eq!(report.identities_written, 0, "{report:?}");
     }
 
     #[tokio::test]
-    async fn a_resolve_refuses_an_illumination_whose_link_has_not_run() {
+    async fn identify_refuses_an_illumination_whose_link_has_not_run() {
         let Some(test_db) = test_db::test_db().await else {
             return;
         };
@@ -222,7 +222,7 @@ mod tests {
         fixtures::entity(&db, user, capture, illumination, 0, "Train Dreams").await;
 
         let cache = crate::fetch::FetchCache::new(&db.conn);
-        let error = resolve(
+        let error = identify(
             &engine(&db),
             &cache,
             &service_api(&db),

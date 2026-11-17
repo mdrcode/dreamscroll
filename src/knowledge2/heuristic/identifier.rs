@@ -10,10 +10,10 @@ use crate::knowledge2::ids::{EntityOriginId, ObservationId};
 use crate::knowledge2::wikidata::ID;
 use crate::model;
 
-pub use super::resolution::{DryRunIdentity, Options, ProviderReport, ResolutionReport};
-use super::resolution::Wikidata;
+pub use super::identification::{DryRunIdentity, IdentificationReport, Options, ProviderReport};
+use super::identification::Wikidata;
 
-/// Transport calls a plain resolve is allowed to make when the caller does not choose a budget.
+/// Transport calls a plain identification is allowed to make when the caller does not choose a budget.
 pub const DEFAULT_MAX_REQUESTS: usize = 200;
 
 /// The heuristic identifier: Wikidata, the cache gateway and the graph.
@@ -48,13 +48,13 @@ impl HeuristicIdentifier {
         Ok(identifier)
     }
 
-    /// Resolve exactly the entities in scope; selection is the caller's job.
-    pub async fn resolve(
+    /// Identify exactly the entities in scope; selection is the caller's job.
+    pub async fn identify(
         &self,
         entities: &[model::knowledge_entity::Model],
         cache: &FetchCache,
         allowance: Option<&Allowance>,
-    ) -> anyhow::Result<ResolutionReport> {
+    ) -> anyhow::Result<IdentificationReport> {
         // The caller may hand in a tombstone or a duplicate; neither is a question to ask.
         let mut seen = HashSet::new();
         let entities: Vec<model::knowledge_entity::Model> = entities
@@ -67,7 +67,7 @@ impl HeuristicIdentifier {
         let selector = self.graph.selector();
         let vetoes = selector.verdicts().vetoed_keys().await?;
 
-        let mut report = ResolutionReport {
+        let mut report = IdentificationReport {
             considered: entities.len(),
             offline: gateway.offline(),
             dry_run: self.options.dry_run,
@@ -78,7 +78,7 @@ impl HeuristicIdentifier {
             ..Default::default()
         };
         let mut proposed: BTreeMap<i32, Vec<Identity>> = BTreeMap::new();
-        let mut resolved = HashSet::new();
+        let mut identified = HashSet::new();
 
         if gateway.refusal_for(ID).is_none() {
             let entity_ids: Vec<i32> = entities.iter().map(|entity| entity.id).collect();
@@ -126,7 +126,7 @@ impl HeuristicIdentifier {
                     provider_report.identities_written += written;
                     provider_report.identities_vetoed += vetoed;
                     if written > 0 {
-                        resolved.insert(*entity_id);
+                        identified.insert(*entity_id);
                     }
                     report.preview.extend(keep.into_iter().map(|identity| DryRunIdentity {
                         entity_id: *entity_id,
@@ -170,7 +170,7 @@ impl HeuristicIdentifier {
                     provider_report.identities_vetoed += vetoed;
                     provider_report.identities_replaced += removed;
                     if written > 0 {
-                        resolved.insert(*entity_id);
+                        identified.insert(*entity_id);
                     }
                 }
                 if !mutations.is_empty() {
@@ -179,7 +179,7 @@ impl HeuristicIdentifier {
             }
         }
 
-        report.entities_resolved = resolved.len();
+        report.entities_identified = identified.len();
         report.by_provider = vec![provider_report];
         report.fetch_traffic = gateway.stats();
         report.refusal = gateway.refusal();
@@ -196,23 +196,23 @@ impl HeuristicIdentifier {
         if let Some(identity) = &self.test_identity {
             return batch.iter().map(|entity| (entity.id, identity.clone())).collect();
         }
-        self.wikidata.resolve(batch, gateway).await
+        self.wikidata.identify(batch, gateway).await
     }
 }
 
 impl HeuristicIdentifier {
-    /// Resolve every entity still pending for Wikidata.
+    /// Identify every entity still pending for Wikidata.
     ///
     /// The engine receives the whole pending set in one call, so the wavefront still fills its
-    /// batches. This is the rebuild/drain path; a live capture resolves through the service API's
+    /// batches. This is the rebuild/drain path; a live capture identifies through the service API's
     /// illumination read, which also reports whether linking finished.
-    pub async fn resolve_all_pending(
+    pub async fn identify_all_pending(
         &self,
         cache: &FetchCache,
         allowance: Option<&Allowance>,
         limit: Option<usize>,
         newest_first: bool,
-    ) -> anyhow::Result<ResolutionReport> {
+    ) -> anyhow::Result<IdentificationReport> {
         let mut entities = self
             .graph
             .selector()
@@ -223,7 +223,7 @@ impl HeuristicIdentifier {
         }
 
         // An online corpus pass is the maintenance moment: drop answers that aged out long ago. A
-        // per-illumination resolve does not do this — it must stay quick.
+        // per-illumination identification does not do this — it must stay quick.
         if allowance.is_some() {
             let pruned = cache.prune().await?;
             if pruned > 0 {
@@ -231,7 +231,7 @@ impl HeuristicIdentifier {
             }
         }
 
-        self.resolve(&entities, cache, allowance).await
+        self.identify(&entities, cache, allowance).await
     }
 }
 
@@ -287,7 +287,7 @@ mod tests {
         }
     }
 
-    async fn resolver(db: &DbHandle, dry_run: bool) -> HeuristicIdentifier {
+    async fn identifier(db: &DbHandle, dry_run: bool) -> HeuristicIdentifier {
         HeuristicIdentifier::with_test_identity(
             &KnowledgeGraph2::new(db),
             Options {
@@ -333,9 +333,9 @@ mod tests {
         attest(&db, entity, "Q1").await;
 
         let cache = FetchCache::new(&db.conn);
-        let report = resolver(&db, false)
+        let report = identifier(&db, false)
             .await
-            .resolve(
+            .identify(
                 &[model::knowledge_entity::Entity::find_by_id(entity)
                     .one(&db.conn)
                     .await
@@ -349,7 +349,7 @@ mod tests {
 
         assert_eq!(report.identities_written, 1, "{report:?}");
         assert_eq!(report.identities_replaced, 1, "{report:?}");
-        assert_eq!(report.entities_resolved, 1, "{report:?}");
+        assert_eq!(report.entities_identified, 1, "{report:?}");
         assert_eq!(keys(&db, entity).await, ["Q2"]);
     }
 
@@ -360,9 +360,9 @@ mod tests {
         attest(&db, entity, "Q1").await;
 
         let cache = FetchCache::new(&db.conn);
-        let report = resolver(&db, true)
+        let report = identifier(&db, true)
             .await
-            .resolve(
+            .identify(
                 &[model::knowledge_entity::Entity::find_by_id(entity)
                     .one(&db.conn)
                     .await
@@ -407,9 +407,9 @@ mod tests {
             .unwrap();
 
         let cache = FetchCache::new(&db.conn);
-        let report = resolver(&db, false)
+        let report = identifier(&db, false)
             .await
-            .resolve(
+            .identify(
                 &[model::knowledge_entity::Entity::find_by_id(entity)
                     .one(&db.conn)
                     .await

@@ -162,7 +162,7 @@ impl TaskMaster {
             .await
     }
 
-    /// Enqueue the identity resolution of one linked illumination. Called by the worker that
+    /// Enqueue the identification of one linked illumination. Called by the worker that
     /// finished linking it, as a follow-up task of its own.
     pub(crate) async fn submit_identity_resolve_from_worker(
         &self,

@@ -1,6 +1,6 @@
 //! What to ask: the plan's requests, as data.
 //!
-//! Pure and stateless — no client, no `self`. `resolver` decides *when* to ask and what an answer
+//! Pure and stateless — no client, no `self`. `identifier` decides *when* to ask and what an answer
 //! means; this decides only *what*.
 
 use crate::fetch::Request;
@@ -22,12 +22,12 @@ fn request(kind: WikidataKind, query: &str) -> Request<WikidataKind> {
 
 /// One strategy of the plan, and which decision applies to its answer.
 ///
-/// The strategies are ways of asking, not bundled passes: the resolver applies every strategy to
+/// The strategies are ways of asking, not bundled passes: the identifier applies every strategy to
 /// every entity in one batch, and decides once over all the answers. A strategy that finds nothing
 /// costs its answer and nothing else, so the plan stays complete even when a strategy is redundant.
 ///
-/// One definition, used by the resolver and by `inspect`: a strategy that exists in one and not the
-/// other is what lets a diagnostic report identities the resolver would not make.
+/// One definition, used by the identifier and by `inspect`: a strategy that exists in one and not the
+/// other is what lets a diagnostic report identities the identifier would not make.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum Strategy {
     /// A platform link's handle, through the property that holds it (`P2002`, …).
@@ -43,7 +43,7 @@ pub(crate) enum Strategy {
 }
 
 impl Strategy {
-    /// Every strategy, in the order of its authority. The resolver applies all of them — this
+    /// Every strategy, in the order of its authority. The identifier applies all of them — this
     /// array is enumeration, not a sequence — and the order documents what each way of asking can
     /// prove: a platform property and an article title name the item, a label is a name, and search
     /// is a guess.
@@ -60,7 +60,7 @@ impl Strategy {
 /// map: one strategy can yield several requests (a platform link asks a query per value it may
 /// hold).
 ///
-/// The resolver asks every strategy for every entity in one batch; this per-entity view is what
+/// The identifier asks every strategy for every entity in one batch; this per-entity view is what
 /// `inspect` prints.
 pub(crate) fn all_requests(
     entity: &model::knowledge_entity::Model,
@@ -92,7 +92,7 @@ pub(crate) fn requests(
 /// The entity's projected platform link, one request per value the link's property expects.
 ///
 /// `project` copies one member observation's `PlatformLink` onto the entity, so this reads a single
-/// presence: the resolver never sees a second member's link, and one presence names one referent.
+/// presence: the identifier never sees a second member's link, and one presence names one referent.
 fn handle(entity: &model::knowledge_entity::Model) -> Vec<Request<WikidataKind>> {
     let Some(link) = PlatformLink::from_columns(
         entity.platform.clone(),

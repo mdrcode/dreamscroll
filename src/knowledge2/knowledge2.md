@@ -232,12 +232,12 @@ touching the graph.
 - **`heuristic::text` is for pluggable components.** Tokens, grams, Jaccard, near-surface and
   word-prefix are how the heuristic linker and Wikidata decide whether two texts mean the same thing. The graph's integrity does not depend on them.
 
-If Link and Resolve are replaced by LLM-driven flows that do their own text, the core keeps `text`;
+If Link and Identify are replaced by LLM-driven flows that do their own text, the core keeps `text`;
 `heuristic::text` goes with those components. Identity-key folding (`Identity::from_observation`, v1's
 `IdentityKey::try_from`) is producer-side: the caller supplies canonical `(scheme, external_id)`
 strings, and the graph stores them as given.
 
-## Identity resolution
+## Identification
 
 `knowledge2::wikidata` is the common authority layer: provider id, language, request kinds, SPARQL,
 transport, parsed candidate and answer. It does not rank or write.
@@ -247,14 +247,14 @@ has not answered, with the per-provider filter. An agentic provider uses that, t
 the graph's `Identify`/`RetractIdentity` mutations directly.
 
 `knowledge2::heuristic::identifier::HeuristicIdentifier` is the automated provider. It selects and
-batches, runs the policy in `heuristic::resolution` through the gateway, replaces the provider's set,
+batches, runs the policy in `heuristic::identification` through the gateway, replaces the provider's set,
 and reports. The policy is `plan`, `gather`, `measure`, `classes`, `ranking` and `decide`; it
 produces `knowledge2::Identity`.
 
 The v1 `IdentityEngine` and its Wikidata adapter are gone. The live link task and CLI `link` use
-`LinkHelper`; the live resolve path uses `HeuristicIdentifier`. The v1 graph/helper/evidence path
+`LinkHelper`; the live identification path uses `HeuristicIdentifier`. The v1 graph/helper/evidence path
 remains for proximity, evaluation, and as the parity control until those move. Both the heuristic
-and a future agentic resolver go through `knowledge2::wikidata`; only the policy half is replaceable.
+and a future agentic flow go through `knowledge2::wikidata`; only the policy half is replaceable.
 Removing `knowledge2::heuristic` leaves the core, the producer and the graph untouched.
 
 ## Replay
@@ -326,7 +326,7 @@ What the code paths build:
 
 - **Link**: `HeuristicLinker` plans the pending batch; `CreateEntity` and `AttachObservation` carry the
   `Identity` its policy admits. The graph never sees the platform link.
-- **Resolve**: `Identify`, `RetractIdentity`, chunked per entity. That is how a provider
+- **Identify**: `Identify`, `RetractIdentity`, chunked per entity. That is how a provider
   replaces its set without a set-shaped mutation.
 - **Replay**: `CreateEntity`, `AttachObservation`, `DetachObservation`, `MergeEntity`,
   `VetoIdentity`, with the recorded `cause`. It resolves origins to entities through the rebuilt
@@ -397,7 +397,7 @@ Every mutation is safe to re-apply after a committed call, because the second pa
 ## Open questions
 
 1. `Identify` for `model`: an ephemeral identity annotation, or a logged decision? The cleaner
-   split is that an agent's identities are a resolver run (recompute them), and only its decisions
+   split is that an agent's identities are an identification run (recompute them), and only its decisions
    are durable.
 2. The log columns for `attach` / `detach` hold observation ids in `subject_origin`. Keep the
    overload, or add `subject_observation`?
@@ -408,7 +408,7 @@ Every mutation is safe to re-apply after a committed call, because the second pa
    root-plus-attaches encoding; later members log their own `attach` rows.
 5. The entity's `platform_*` columns are still projected from the members' platform fields, so the
    graph still reads them even though identities are caller-supplied. Zero coupling means deciding
-   whether those columns stay as a presence hint, or the resolver reads identity rows instead.
+   whether those columns stay as a presence hint, or the identifier reads identity rows instead.
 6. Is `Provider` a newtype over `String`, or the existing reserved-id constant set?
 7. `DetachObservation`, and any move that empties its source: refuse `LastMember`, define a ghost
    state projection can write, or delete the entity. Related: an origin is a durable key, so

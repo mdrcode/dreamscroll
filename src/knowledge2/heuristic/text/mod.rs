@@ -1,4 +1,4 @@
-//! Non-core text: the measures a planner or resolver ranks with.
+//! Non-core text: the measures a linker or identifier ranks with.
 //!
 //! None of this is needed by the graph's integrity: the blocker index does not use tokens, grams, or
 //! spelling tolerance. It exists for the heuristic here, and for any future policy that decides
