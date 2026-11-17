@@ -181,7 +181,7 @@ async fn a_distinct_pair_survives_a_rebuild() {
     assert!(store.distinct(first, second, None).await.unwrap());
 
     // A rebuild: the graph is emptied, the observations and the verdict survive it.
-    crate::knowledge::snapshot::reset(&db).await.unwrap();
+    crate::knowledge2::snapshot::reset(&db).await.unwrap();
     let mut reborn = Vec::new();
     for origin in [100_001, 100_002] {
         let entity = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;

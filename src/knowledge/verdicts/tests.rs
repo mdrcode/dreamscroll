@@ -128,7 +128,7 @@ async fn a_veto_survives_a_rebuild_and_withdraws_the_new_claim() {
     assert_eq!(veto.withdrawn, 1);
 
     // A rebuild: entities, identities and claims are recreated and the parser claims again.
-    crate::knowledge::snapshot::reset(&db).await.unwrap();
+    crate::knowledge2::snapshot::reset(&db).await.unwrap();
     let reborn = seed_claim(&db, "Q", "Q131472411").await;
     fixtures::set_origin(&db, reborn, subject).await;
 
@@ -304,7 +304,7 @@ async fn replay_folds_the_pair_again() {
     store.merge(loser, winner, Cause::Repair).await.unwrap();
 
     // A rebuild: the graph is emptied, the observations and the verdict survive it.
-    crate::knowledge::snapshot::reset(&db).await.unwrap();
+    crate::knowledge2::snapshot::reset(&db).await.unwrap();
     let reborn_winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
     let reborn_loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
     fixtures::set_origin(&db, reborn_winner, winner_origin).await;
@@ -338,7 +338,7 @@ async fn replay_follows_a_winner_the_model_folded_away() {
 
     // A rebuild gives the pair back, then the model folds the person's winner into a third
     // entity: the winner is now a tombstone, and the loser is not.
-    crate::knowledge::snapshot::reset(&db).await.unwrap();
+    crate::knowledge2::snapshot::reset(&db).await.unwrap();
     let reborn_winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
     let reborn_loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
     fixtures::set_origin(&db, reborn_winner, winner_origin).await;

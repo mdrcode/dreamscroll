@@ -37,8 +37,8 @@ is unlinked by reset, so the archive is the only record of which observations we
 Consumers:
 
 - CLI: `reset` (preview + `--yes`), `compare`.
-- v1 tests: `proximity/tests`, `verdicts/tests` call `knowledge::snapshot::reset`.
-- `knowledge2/canonical` doc points at `knowledge::snapshot`.
+- v1 tests: `proximity/tests`, `verdicts/tests` call `knowledge2::snapshot::reset`.
+- `knowledge2/canonical` doc points at `knowledge2::snapshot`.
 - Snapshot tests use the v1 `test_support::link::link_all` and v1 `KnowledgeGraph::merge`.
 
 ## Assessment
@@ -92,8 +92,8 @@ the first upgrade rather than a rewrite.
 
 1. `git mv src/knowledge/snapshot src/knowledge2/snapshot`; add `pub mod snapshot` to
    `knowledge2/mod.rs`.
-2. Replace v1 `pub mod snapshot` with `pub use crate::knowledge2::snapshot;` so
-   `knowledge::snapshot::reset` continues to work for v1 tests/callers.
+2. Re-export v1 snapshot from `knowledge2` so existing callers keep working. The re-export was
+   removed once the v1 tests were repointed to `knowledge2::snapshot::reset`.
 3. Expose the existing v2 generation query as `knowledge2::graph::current_generation` and use it
    from `snapshot/reset.rs`; remove the v1 `knowledge::graph` dependency.
 4. Update CLI `reset`/`compare` to `knowledge2::snapshot`.

@@ -22,7 +22,7 @@
 //! log is the graph's command (`graph/replay.rs`), exposed as a method alongside `veto` and
 //! `unveto`.
 //!
-//! Four things stay at the root because more than one cluster needs them, and a stage that imports
+//! Three things stay at the root because more than one cluster needs them, and a stage that imports
 //! a cluster to reach its own vocabulary has the dependency backwards:
 //!
 //! - [`evidence`] — [`Identity`](evidence::Identity) and the store for `knowledge_identities`.
@@ -30,8 +30,6 @@
 //!   and on nothing else here.
 //! - [`text`] — the core surface fold and the keys derived from it; the measures live with the
 //!   heuristic. Blocking, evidence and projection use the core.
-//! - [`snapshot`] — copy the projection, empty it, diff two copies: an operation over the whole
-//!   graph, not a way of changing it.
 //! - [`helper`] — the illumination composition: which observations are linked together, and the
 //!   identity annotation that follows. The graph links a collection; only this knows it is one
 //!   reading.
@@ -46,7 +44,6 @@ pub mod graph;
 pub mod helper;
 pub mod linker;
 pub mod proximity;
-pub use crate::knowledge2::snapshot;
 /// v1 adapter: the core fold and keys; the measures live with the heuristic.
 pub mod text {
     pub(crate) use crate::knowledge2::text::{comparable, word_key};

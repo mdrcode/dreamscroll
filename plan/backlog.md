@@ -268,7 +268,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 - [x] **Destructive DB tests are racy under parallel execution.** Reproduced 2026-11-16, and the two
   snapshot failures were one test poisoning a pooled schema:
 
-  `cargo test --lib knowledge::snapshot::reset -- --test-threads=1` failed 2 of 6 with exactly the
+  `cargo test --lib knowledge2::snapshot::reset -- --test-threads=1` failed 2 of 6 with exactly the
   recorded symptom (`relation "knowledge_entity_membership__<ts>" does not exist`). Cause:
   `reset_keeps_only_the_newest_ten_snapshot_suffixes` left its ten synthetic
   `knowledge_entities__20990101T…` tables behind, and `TestDb` recycles schemas. `prune_snapshots`
