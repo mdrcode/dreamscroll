@@ -8,7 +8,7 @@
 use sea_orm::sea_query::ArrayType;
 use sea_orm::{ConnectionTrait, DatabaseBackend, QueryResult, Statement, Value};
 
-use crate::knowledge2::mutation::{Cause, KnowledgeMutation};
+use crate::knowledge2::mutation::{Cause, GraphMutation};
 use crate::knowledge2::identity::{Identity, IdentityKey, Provider};
 use crate::knowledge2::ids::{EntityOriginId, ObservationId};
 
@@ -16,41 +16,41 @@ use super::report::{Outcome, Refusal};
 
 pub(super) async fn apply<C: ConnectionTrait>(
     conn: &C,
-    mutation: &KnowledgeMutation,
+    mutation: &GraphMutation,
 ) -> anyhow::Result<Outcome> {
     match mutation {
-        KnowledgeMutation::CreateEntity { from, with } => create(conn, *from, with.as_ref()).await,
-        KnowledgeMutation::AttachObservation {
+        GraphMutation::CreateEntity { from, with } => create(conn, *from, with.as_ref()).await,
+        GraphMutation::AttachObservation {
             observation,
             entity,
             with,
             ..
         } => attach(conn, *observation, *entity, with.as_ref()).await,
-        KnowledgeMutation::DetachObservation { observation, .. } => detach(conn, *observation).await,
-        KnowledgeMutation::MergeEntity {
+        GraphMutation::DetachObservation { observation, .. } => detach(conn, *observation).await,
+        GraphMutation::MergeEntity {
             loser,
             winner,
             cause,
             why,
         } => merge(conn, *loser, *winner, *cause, why).await,
-        KnowledgeMutation::MarkDistinct { a, b, cause, why } => {
+        GraphMutation::MarkDistinct { a, b, cause, why } => {
             distinct(conn, *a, *b, *cause, why).await
         }
-        KnowledgeMutation::AttestIdentity { subject, identity } => {
+        GraphMutation::AttestIdentity { subject, identity } => {
             attest_to(conn, *subject, identity).await
         }
-        KnowledgeMutation::RetractIdentity {
+        GraphMutation::RetractIdentity {
             subject,
             provider,
             key,
         } => retract(conn, *subject, provider, key).await,
-        KnowledgeMutation::VetoIdentity {
+        GraphMutation::VetoIdentity {
             subject,
             key,
             cause,
             why,
         } => veto(conn, *subject, key, *cause, why).await,
-        KnowledgeMutation::UnvetoIdentity {
+        GraphMutation::UnvetoIdentity {
             subject,
             key,
             cause,

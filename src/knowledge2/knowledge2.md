@@ -15,7 +15,7 @@ that provenance implies. Authentication is the edge's job.
 ```
 Link ─────┐
 Resolve ──┤
-Replay ───┼──▶ Vec<KnowledgeMutation> ──▶ validate ──▶ apply ──▶ project
+Replay ───┼──▶ Vec<GraphMutation> ──▶ validate ──▶ apply ──▶ project
 Agent ────┤                                        (one transaction)
 User ─────┤
 Operator ─┘
@@ -60,7 +60,7 @@ under edit; `entity`, `subject`, `loser`, `winner`, `a`, `b` are `EntityOriginId
 ## The enum
 
 ```rust
-pub enum KnowledgeMutation {
+pub enum GraphMutation {
     CreateEntity {
         from: ObservationId,
         with: Option<Identity>,                   // None = provisional
@@ -202,7 +202,7 @@ no `illuminator` special case.
 
 ## The planner
 
-A v2 `Linker` is a policy: the pending batch in, one `KnowledgeMutation` per observation out.
+A v2 `Linker` is a policy: the pending batch in, one `GraphMutation` per observation out.
 
 - `Blocker` is recall: live entities only, ordered by id. An error is not an empty set; empty means
   "nothing matched, create," and a failed probe stops the link.

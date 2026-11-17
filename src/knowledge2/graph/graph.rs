@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use sea_orm::{DatabaseConnection, TransactionTrait};
 
 use crate::database::DbHandle;
-use crate::knowledge2::mutation::KnowledgeMutation;
+use crate::knowledge2::mutation::GraphMutation;
 
 use super::report::{Outcome, Report};
 use super::{project, sql};
@@ -31,7 +31,7 @@ impl KnowledgeGraph2 {
     ///
     /// Mutations run in canonical order, not caller order. A refusal rolls the whole call back:
     /// nothing is half-applied. `NoChange` is success.
-    pub async fn proc(&self, mutations: &[KnowledgeMutation]) -> anyhow::Result<Report> {
+    pub async fn proc(&self, mutations: &[GraphMutation]) -> anyhow::Result<Report> {
         let ordered = order(mutations);
         let txn = self.conn.begin().await?;
         let mut report = Report::default();
@@ -106,17 +106,17 @@ impl KnowledgeGraph2 {
 /// 4. fold, so evidence lands on the survivor
 /// 5. evidence
 /// 6. assert a standing denial last
-fn order(mutations: &[KnowledgeMutation]) -> Vec<&KnowledgeMutation> {
-    let rank = |mutation: &KnowledgeMutation| match mutation {
-        KnowledgeMutation::UnvetoIdentity { .. } => 0,
-        KnowledgeMutation::CreateEntity { .. } => 1,
-        KnowledgeMutation::AttachObservation { .. } | KnowledgeMutation::DetachObservation { .. } => 2,
-        KnowledgeMutation::MergeEntity { .. } => 3,
-        KnowledgeMutation::AttestIdentity { .. } | KnowledgeMutation::RetractIdentity { .. } => 4,
-        KnowledgeMutation::VetoIdentity { .. } | KnowledgeMutation::MarkDistinct { .. } => 5,
+fn order(mutations: &[GraphMutation]) -> Vec<&GraphMutation> {
+    let rank = |mutation: &GraphMutation| match mutation {
+        GraphMutation::UnvetoIdentity { .. } => 0,
+        GraphMutation::CreateEntity { .. } => 1,
+        GraphMutation::AttachObservation { .. } | GraphMutation::DetachObservation { .. } => 2,
+        GraphMutation::MergeEntity { .. } => 3,
+        GraphMutation::AttestIdentity { .. } | GraphMutation::RetractIdentity { .. } => 4,
+        GraphMutation::VetoIdentity { .. } | GraphMutation::MarkDistinct { .. } => 5,
     };
 
-    let mut ordered: Vec<&KnowledgeMutation> = mutations.iter().collect();
+    let mut ordered: Vec<&GraphMutation> = mutations.iter().collect();
     ordered.sort_by_key(|mutation| rank(mutation));
     ordered
 }
@@ -164,7 +164,7 @@ mod tests {
         let graph = KnowledgeGraph2::new(&db);
 
         let report = graph
-            .proc(&[KnowledgeMutation::CreateEntity {
+            .proc(&[GraphMutation::CreateEntity {
                 from: ObservationId(observation),
                 with: Some(identity("wikidata", "Q1")),
             }])
@@ -212,11 +212,11 @@ mod tests {
 
         let report = graph
             .proc(&[
-                KnowledgeMutation::CreateEntity {
+                GraphMutation::CreateEntity {
                     from: ObservationId(first),
                     with: None,
                 },
-                KnowledgeMutation::AttachObservation {
+                GraphMutation::AttachObservation {
                     observation: ObservationId(second),
                     entity: EntityOriginId(ObservationId(999_999)),
                     with: None,
@@ -275,11 +275,11 @@ mod tests {
 
         graph
             .proc(&[
-                KnowledgeMutation::CreateEntity {
+                GraphMutation::CreateEntity {
                     from: ObservationId(left),
                     with: None,
                 },
-                KnowledgeMutation::CreateEntity {
+                GraphMutation::CreateEntity {
                     from: ObservationId(right),
                     with: None,
                 },
@@ -301,7 +301,7 @@ mod tests {
             .expect("right entity");
 
         let report = graph
-            .proc(&[KnowledgeMutation::MergeEntity {
+            .proc(&[GraphMutation::MergeEntity {
                 loser: EntityOriginId(ObservationId(left)),
                 winner: EntityOriginId(ObservationId(right)),
                 cause: Cause::Model,

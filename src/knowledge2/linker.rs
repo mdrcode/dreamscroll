@@ -1,12 +1,12 @@
 //! The planner seam: pending observations in, graph mutations out.
 //!
 //! The blocker is recall; the holder is the one evidence read. A policy implements [`Linker`] and
-//! emits [`KnowledgeMutation`]s; [`HeuristicPlanner`](crate::knowledge2::heuristic::HeuristicPlanner) is
+//! emits [`GraphMutation`]s; [`HeuristicPlanner`](crate::knowledge2::heuristic::HeuristicPlanner) is
 //! today's.
 
 use crate::model;
 
-use super::mutation::KnowledgeMutation;
+use super::mutation::GraphMutation;
 use super::blocker::Blocker;
 use super::ids::EntityOriginId;
 
@@ -28,5 +28,5 @@ pub trait Linker: Send + Sync {
         blocker: &dyn Blocker,
         holder: &dyn IdentityHolder,
         observations: &[model::user_observed_entity::Model],
-    ) -> anyhow::Result<Vec<KnowledgeMutation>>;
+    ) -> anyhow::Result<Vec<GraphMutation>>;
 }

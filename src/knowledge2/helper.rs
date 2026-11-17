@@ -11,7 +11,7 @@ use sea_orm::{
 };
 
 use crate::database::DbHandle;
-use crate::knowledge2::mutation::KnowledgeMutation;
+use crate::knowledge2::mutation::GraphMutation;
 use crate::knowledge2::blocker::SqlBlocker;
 use crate::knowledge2::graph::KnowledgeGraph2;
 use crate::knowledge2::ids::{EntityOriginId, ObservationId};
@@ -87,7 +87,7 @@ impl LinkHelper {
         let mutations = self.linker.plan(&self.blocker, self, &pending).await?;
         let created = mutations
             .iter()
-            .filter(|mutation| matches!(mutation, KnowledgeMutation::CreateEntity { .. }))
+            .filter(|mutation| matches!(mutation, GraphMutation::CreateEntity { .. }))
             .count();
         let attached = mutations.len() - created;
 

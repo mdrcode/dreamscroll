@@ -29,7 +29,7 @@ impl Cause {
 /// Everything a caller may ask of the graph.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "mutation", rename_all = "snake_case")]
-pub enum KnowledgeMutation {
+pub enum GraphMutation {
     /// Make a new entity from one unlinked observation, optionally asserting one identity.
     CreateEntity {
         from: ObservationId,

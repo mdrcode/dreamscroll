@@ -6,7 +6,7 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
 use crate::fetch::{self, Allowance, FetchCache, Gateway, Refusal};
-use crate::knowledge2::mutation::KnowledgeMutation;
+use crate::knowledge2::mutation::GraphMutation;
 use crate::knowledge2::graph::KnowledgeGraph2;
 use crate::knowledge2::identity::{
     Identity, IdentityKey, Provider, RESERVED_PROVIDER_IDS,
@@ -183,7 +183,7 @@ impl ResolveEngine {
                     let existing = existing_keys(&self.db, *entity_id, provider).await?;
                     let removed = existing.len();
                     for key in existing {
-                        mutations.push(KnowledgeMutation::RetractIdentity {
+                        mutations.push(GraphMutation::RetractIdentity {
                             subject,
                             provider: Provider(provider.to_string()),
                             key,
@@ -193,7 +193,7 @@ impl ResolveEngine {
                     for mut identity in keep {
                         // The resolver names the authority; make the row carry it.
                         identity.provider = Provider(provider.to_string());
-                        mutations.push(KnowledgeMutation::AttestIdentity { subject, identity });
+                        mutations.push(GraphMutation::AttestIdentity { subject, identity });
                     }
 
                     report.identities_written += written;
@@ -441,7 +441,7 @@ mod tests {
             .expect("the fixture entity exists");
         let origin = row.origin_observation_id.expect("the fixture has an origin");
         KnowledgeGraph2::new(db)
-            .proc(&[KnowledgeMutation::AttestIdentity {
+            .proc(&[GraphMutation::AttestIdentity {
                 subject: EntityOriginId(ObservationId(origin)),
                 identity: identity(external_id),
             }])
@@ -528,7 +528,7 @@ mod tests {
             .unwrap();
         let origin = row.origin_observation_id.unwrap();
         KnowledgeGraph2::new(&db)
-            .proc(&[KnowledgeMutation::VetoIdentity {
+            .proc(&[GraphMutation::VetoIdentity {
                 subject: EntityOriginId(ObservationId(origin)),
                 key: IdentityKey {
                     scheme: "fake".into(),
