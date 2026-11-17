@@ -937,7 +937,8 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Verdicts(args) => match args.command {
             VerdictsCommand::Replay(_) => {
-                let report = knowledge2::replay::replay(&db).await?;
+                let graph = knowledge2::KnowledgeGraph2::new(&db);
+                let report = knowledge2::replay::replay(&graph).await?;
                 println!(
                     "applied {} · already {} · gone {} · refused {} · withdrawn {} · settled {}",
                     report.applied,

@@ -6,7 +6,6 @@
 
 use std::collections::BTreeMap;
 
-use crate::database::DbHandle;
 use crate::knowledge2::graph::{KnowledgeGraph2, Refusal};
 use crate::knowledge2::identity::IdentityKey;
 use crate::knowledge2::ids::{EntityOriginId, ObservationId};
@@ -31,8 +30,7 @@ pub struct ReplayReport {
 }
 
 /// Apply the recorded verdicts to the current graph.
-pub async fn replay(db: &DbHandle) -> anyhow::Result<ReplayReport> {
-    let graph = KnowledgeGraph2::new(db);
+pub async fn replay(graph: &KnowledgeGraph2) -> anyhow::Result<ReplayReport> {
     let selector = graph.selector();
     let verdicts = selector.verdicts();
     let mut report = ReplayReport::default();
@@ -134,6 +132,7 @@ mod tests {
 
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 
+    use crate::database::DbHandle;
     use crate::knowledge2::graph::KnowledgeGraph2;
     use crate::knowledge2::identity::{Identity, Provider};
     use crate::knowledge2::mutation::GraphMutation;
@@ -194,7 +193,7 @@ mod tests {
         let loser_origin = fixtures::origin(&db, loser).await;
         insert_merge(&db, winner_origin, loser_origin).await;
 
-        let report = replay(&db).await.unwrap();
+        let report = replay(&KnowledgeGraph2::new(&db)).await.unwrap();
 
         assert_eq!(report.applied, 1, "{report:?}");
         let loser = model::knowledge_entity::Entity::find_by_id(loser)
@@ -223,7 +222,8 @@ mod tests {
         db_or_skip!(db);
         let entity = fixtures::knowledge_entity_with_member(&db, "Vetoed").await;
         let origin = fixtures::origin(&db, entity).await;
-        KnowledgeGraph2::new(&db)
+        let graph = KnowledgeGraph2::new(&db);
+        graph
             .proc(&[GraphMutation::Identify {
                 subject: EntityOriginId(ObservationId(origin)),
                 identity: identity("Q1"),
@@ -232,7 +232,7 @@ mod tests {
             .unwrap();
         insert_veto(&db, origin, "Q1").await;
 
-        let report = replay(&db).await.unwrap();
+        let report = replay(&graph).await.unwrap();
 
         assert_eq!(report.withdrawn, 1, "{report:?}");
         let held = model::knowledge_identity::Entity::find()
@@ -242,7 +242,7 @@ mod tests {
             .unwrap();
         assert_eq!(held, 0);
 
-        let again = replay(&db).await.unwrap();
+        let again = replay(&graph).await.unwrap();
         assert_eq!(again.withdrawn, 0, "{again:?}");
         assert_eq!(again.settled, 1, "{again:?}");
     }
