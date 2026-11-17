@@ -13,8 +13,7 @@ use super::ids::{EntityOriginId, ObservationId};
 
 /// Which entities are worth considering.
 ///
-/// Live entities only, ordered by id. An error is not an empty set: empty means "nothing matched,
-/// create", and a failed probe means "ask again".
+/// Live entities only, ordered by id. An error is not an empty set: empty means "nothing matched"
 #[async_trait::async_trait]
 pub trait Blocker: Send + Sync {
     async fn candidates(

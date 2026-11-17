@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use dreamscroll::{config, database, knowledge, stats, telemetry};
+use dreamscroll::{config, database, knowledge, knowledge2, stats, telemetry};
 
 #[derive(FromArgs)]
 #[argh(description = "offline knowledge-graph tooling: observations, knowledge entities, evidence")]
@@ -13,6 +13,8 @@ struct Args {
 #[argh(subcommand)]
 enum Command {
     Link(LinkArgs),
+    Link2(Link2Args),
+    Shape(ShapeArgs),
     Stats(StatsArgs),
     Merge(MergeArgs),
     Reset(ResetArgs),
@@ -144,6 +146,16 @@ struct ReprojectArgs {
     description = "link every unlinked observation to a knowledge entity, creating one as needed"
 )]
 struct LinkArgs {}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "link2")]
+#[argh(description = "link every pending illumination through knowledge2")]
+struct Link2Args {}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "shape")]
+#[argh(description = "print a stable, id-independent shape of the graph")]
+struct ShapeArgs {}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "merge")]
@@ -791,6 +803,21 @@ async fn main() -> anyhow::Result<()> {
                 report.left_pending,
                 report.vetoed
             );
+        }
+        Command::Link2(_) => {
+            let report = knowledge2::link_all_pending(&db).await?;
+            println!(
+                "illuminations {} · considered {} · already linked {} · created {} · attached {} · left pending {}",
+                report.illuminations,
+                report.considered,
+                report.already_linked,
+                report.created,
+                report.attached,
+                report.left_pending
+            );
+        }
+        Command::Shape(_) => {
+            print!("{}", knowledge2::shape::snapshot(&db).await?.render());
         }
         Command::Merge(args) => {
             let store = knowledge::KnowledgeGraph::new(&db);

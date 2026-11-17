@@ -331,7 +331,10 @@ mod tests {
         crate::knowledge::link_all_pending(&left).await.unwrap();
         super::link_all_pending(&right).await.unwrap();
 
-        assert_eq!(shape(&left).await, shape(&right).await);
+        assert_eq!(
+            crate::knowledge2::shape::snapshot(&left).await.unwrap(),
+            crate::knowledge2::shape::snapshot(&right).await.unwrap(),
+        );
     }
 
     async fn seed(db: &DbHandle) {
@@ -361,81 +364,4 @@ mod tests {
         .await;
     }
 
-    /// Everything that should be equal across two isolated schemas. Ids, timestamps, and user
-    /// ownership are deliberately excluded; the graph's shape is what we are comparing.
-    async fn shape(db: &DbHandle) -> (Vec<String>, Vec<String>, Vec<Vec<String>>) {
-        let mut entities: Vec<String> = model::knowledge_entity::Entity::find()
-            .all(&db.conn)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|entity| {
-                format!(
-                    "name={:?} type={:?} alt_names={:?} alt_types={:?} \
-                     description={:?} alt_descriptions={:?} search={:?} alt_search={:?} \
-                     status={:?} confidence={} platform={:?} handle={:?} display={:?}",
-                    entity.name,
-                    entity.entity_type,
-                    entity.alt_names,
-                    entity.alt_types,
-                    entity.description,
-                    entity.alt_descriptions,
-                    entity.search_query,
-                    entity.alt_search_queries,
-                    entity.status,
-                    entity.confidence.is_some(),
-                    entity.platform,
-                    entity.platform_handle,
-                    entity.platform_display_name,
-                )
-            })
-            .collect();
-        entities.sort();
-
-        let mut identities: Vec<String> = model::knowledge_identity::Entity::find()
-            .all(&db.conn)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|identity| {
-                format!(
-                    "{:?}",
-                    (
-                        identity.scheme,
-                        identity.external_id,
-                        identity.provider,
-                        identity.method,
-                        identity.confidence.is_some(),
-                        identity.label,
-                        identity.description,
-                        identity.classes,
-                        identity.user_observed_entity_id.is_some(),
-                    )
-                )
-            })
-            .collect();
-        identities.sort();
-
-        let mut groups: std::collections::BTreeMap<i32, Vec<String>> =
-            std::collections::BTreeMap::new();
-        for observation in model::user_observed_entity::Entity::find()
-            .all(&db.conn)
-            .await
-            .unwrap()
-        {
-            if let Some(entity) = observation.knowledge_entity_id {
-                groups.entry(entity).or_default().push(observation.name);
-            }
-        }
-        let mut memberships: Vec<Vec<String>> = groups
-            .into_values()
-            .map(|mut names| {
-                names.sort();
-                names
-            })
-            .collect();
-        memberships.sort();
-
-        (entities, identities, memberships)
-    }
 }

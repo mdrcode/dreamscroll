@@ -12,6 +12,7 @@ pub mod helper;
 pub mod identity;
 pub mod ids;
 pub mod linker;
+pub mod shape;
 
 pub use action::{Cause, KnowledgeAction};
 pub use graph::{KnowledgeGraph2, Refusal, Report};

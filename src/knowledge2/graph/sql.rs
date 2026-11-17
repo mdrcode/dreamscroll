@@ -571,7 +571,12 @@ DO UPDATE SET
     label = EXCLUDED.label,
     description = EXCLUDED.description,
     classes = EXCLUDED.classes,
-    user_observed_entity_id = EXCLUDED.user_observed_entity_id
+    -- Provenance is the first observation that carried this key; a repeat refines the metadata,
+    -- it does not rewrite where the evidence came from.
+    user_observed_entity_id = COALESCE(
+        knowledge_identities.user_observed_entity_id,
+        EXCLUDED.user_observed_entity_id
+    )
 "#;
 
 async fn attest_to<C: ConnectionTrait>(
