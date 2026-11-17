@@ -8,7 +8,7 @@
 use sea_orm::sea_query::ArrayType;
 use sea_orm::{ConnectionTrait, DatabaseBackend, QueryResult, Statement, Value};
 
-use crate::knowledge2::action::{Cause, KnowledgeAction};
+use crate::knowledge2::mutation::{Cause, KnowledgeMutation};
 use crate::knowledge2::identity::{Identity, IdentityKey, Provider};
 use crate::knowledge2::ids::{EntityOriginId, ObservationId};
 
@@ -16,41 +16,41 @@ use super::report::{Outcome, Refusal};
 
 pub(super) async fn apply<C: ConnectionTrait>(
     conn: &C,
-    action: &KnowledgeAction,
+    mutation: &KnowledgeMutation,
 ) -> anyhow::Result<Outcome> {
-    match action {
-        KnowledgeAction::CreateEntity { from, with } => create(conn, *from, with.as_ref()).await,
-        KnowledgeAction::AttachObservation {
+    match mutation {
+        KnowledgeMutation::CreateEntity { from, with } => create(conn, *from, with.as_ref()).await,
+        KnowledgeMutation::AttachObservation {
             observation,
             entity,
             with,
             ..
         } => attach(conn, *observation, *entity, with.as_ref()).await,
-        KnowledgeAction::DetachObservation { observation, .. } => detach(conn, *observation).await,
-        KnowledgeAction::MergeEntity {
+        KnowledgeMutation::DetachObservation { observation, .. } => detach(conn, *observation).await,
+        KnowledgeMutation::MergeEntity {
             loser,
             winner,
             cause,
             why,
         } => merge(conn, *loser, *winner, *cause, why).await,
-        KnowledgeAction::MarkDistinct { a, b, cause, why } => {
+        KnowledgeMutation::MarkDistinct { a, b, cause, why } => {
             distinct(conn, *a, *b, *cause, why).await
         }
-        KnowledgeAction::AttestIdentity { subject, identity } => {
+        KnowledgeMutation::AttestIdentity { subject, identity } => {
             attest_to(conn, *subject, identity).await
         }
-        KnowledgeAction::RetractIdentity {
+        KnowledgeMutation::RetractIdentity {
             subject,
             provider,
             key,
         } => retract(conn, *subject, provider, key).await,
-        KnowledgeAction::VetoIdentity {
+        KnowledgeMutation::VetoIdentity {
             subject,
             key,
             cause,
             why,
         } => veto(conn, *subject, key, *cause, why).await,
-        KnowledgeAction::UnvetoIdentity {
+        KnowledgeMutation::UnvetoIdentity {
             subject,
             key,
             cause,
@@ -141,7 +141,7 @@ async fn resolve<C: ConnectionTrait>(
         _ => return Ok(Err(Refusal::AmbiguousOrigin(origin))),
     };
 
-    // Lock the live row: a concurrent fold must not tombstone it under this action.
+    // Lock the live row: a concurrent fold must not tombstone it under this mutation.
     let Some(row) = one(
         conn,
         "SELECT id FROM knowledge_entities \

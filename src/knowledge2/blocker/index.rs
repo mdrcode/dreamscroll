@@ -196,7 +196,7 @@ pub async fn check(db: &DbHandle) -> anyhow::Result<Report> {
 mod tests {
     use super::*;
 
-    use crate::knowledge2::action::{Cause, KnowledgeAction};
+    use crate::knowledge2::mutation::{Cause, KnowledgeMutation};
     use crate::knowledge2::ids::{EntityOriginId, ObservationId};
     use crate::test_support::{db_or_skip, fixtures};
     use sea_orm::{DatabaseBackend, Statement};
@@ -208,7 +208,7 @@ mod tests {
         winner: i32,
     ) {
         let report = store
-            .proc(&[KnowledgeAction::MergeEntity {
+            .proc(&[KnowledgeMutation::MergeEntity {
                 loser: EntityOriginId(ObservationId(fixtures::origin(db, loser).await)),
                 winner: EntityOriginId(ObservationId(fixtures::origin(db, winner).await)),
                 cause: Cause::Repair,

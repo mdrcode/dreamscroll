@@ -2,7 +2,7 @@
 //!
 //! The engine is the automated provider's execution strategy: select, batch, call, replace, report.
 //! An agentic provider does not need it — it needs the graph's awaiting query, the Wikidata core and
-//! the graph actions. Everything here retires when the heuristic does.
+//! the graph mutations. Everything here retires when the heuristic does.
 
 mod classes;
 pub(crate) mod decide;

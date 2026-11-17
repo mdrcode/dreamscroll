@@ -1,4 +1,4 @@
-//! The harness: select, ask, turn answers into actions, report.
+//! The harness: select, ask, turn answers into mutations, report.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -6,7 +6,7 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
 use crate::fetch::{self, Allowance, FetchCache, Gateway, Refusal};
-use crate::knowledge2::action::KnowledgeAction;
+use crate::knowledge2::mutation::KnowledgeMutation;
 use crate::knowledge2::graph::KnowledgeGraph2;
 use crate::knowledge2::identity::{
     Identity, IdentityKey, Provider, RESERVED_PROVIDER_IDS,
@@ -162,7 +162,7 @@ impl ResolveEngine {
                 }
             }
         } else {
-            let mut actions = Vec::new();
+            let mut mutations = Vec::new();
             for (entity_id, proposals) in &proposed {
                 let Some(entity) = entities.iter().find(|entity| entity.id == *entity_id) else {
                     continue;
@@ -183,7 +183,7 @@ impl ResolveEngine {
                     let existing = existing_keys(&self.db, *entity_id, provider).await?;
                     let removed = existing.len();
                     for key in existing {
-                        actions.push(KnowledgeAction::RetractIdentity {
+                        mutations.push(KnowledgeMutation::RetractIdentity {
                             subject,
                             provider: Provider(provider.to_string()),
                             key,
@@ -193,7 +193,7 @@ impl ResolveEngine {
                     for mut identity in keep {
                         // The resolver names the authority; make the row carry it.
                         identity.provider = Provider(provider.to_string());
-                        actions.push(KnowledgeAction::AttestIdentity { subject, identity });
+                        mutations.push(KnowledgeMutation::AttestIdentity { subject, identity });
                     }
 
                     report.identities_written += written;
@@ -208,8 +208,8 @@ impl ResolveEngine {
                     }
                 }
             }
-            if !actions.is_empty() {
-                self.graph.proc(&actions).await?;
+            if !mutations.is_empty() {
+                self.graph.proc(&mutations).await?;
             }
         }
 
@@ -384,7 +384,7 @@ mod tests {
     use super::*;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
-    use crate::knowledge2::action::Cause;
+    use crate::knowledge2::mutation::Cause;
     use crate::test_support::{db_or_skip, fixtures};
 
     struct Fake;
@@ -441,7 +441,7 @@ mod tests {
             .expect("the fixture entity exists");
         let origin = row.origin_observation_id.expect("the fixture has an origin");
         KnowledgeGraph2::new(db)
-            .proc(&[KnowledgeAction::AttestIdentity {
+            .proc(&[KnowledgeMutation::AttestIdentity {
                 subject: EntityOriginId(ObservationId(origin)),
                 identity: identity(external_id),
             }])
@@ -528,7 +528,7 @@ mod tests {
             .unwrap();
         let origin = row.origin_observation_id.unwrap();
         KnowledgeGraph2::new(&db)
-            .proc(&[KnowledgeAction::VetoIdentity {
+            .proc(&[KnowledgeMutation::VetoIdentity {
                 subject: EntityOriginId(ObservationId(origin)),
                 key: IdentityKey {
                     scheme: "fake".into(),

@@ -1,4 +1,4 @@
-//! Stable references: the two ids an action or an identity may carry.
+//! Stable references: the two ids a mutation or an identity may carry.
 //!
 //! There is no entity id. An entity is named by the observation that created it, so both references
 //! survive a rebuild.

@@ -1,13 +1,13 @@
 //! knowledge2: a graph that processes mutations, and nothing else.
 //!
 //! Callers — a linker, a resolver, a person, a model — decide what should happen and emit
-//! [`KnowledgeAction`] values. [`KnowledgeGraph2::proc`] applies them in one transaction. The graph
+//! [`KnowledgeMutation`] values. [`KnowledgeGraph2::proc`] applies them in one transaction. The graph
 //! itself holds no policy: `heuristic` is the default non-agentic planner and resolver, and
 //! `blocker` is its recall.
 //!
 //! Design: `knowledge2.md`.
 
-pub mod action;
+pub mod mutation;
 pub mod blocker;
 pub mod graph;
 pub mod heuristic;
@@ -19,7 +19,7 @@ pub mod shape;
 pub mod text;
 pub mod wikidata;
 
-pub use action::{Cause, KnowledgeAction};
+pub use mutation::{Cause, KnowledgeMutation};
 pub use blocker::Blocker;
 pub use graph::{KnowledgeGraph2, Refusal, ReprojectScope, Report};
 pub use helper::{LinkAllReport, LinkHelper, LinkReport, link_all_pending, link_illumination};

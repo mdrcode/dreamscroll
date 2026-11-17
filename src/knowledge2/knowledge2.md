@@ -1,13 +1,13 @@
-# knowledge2: actions and their parameters
+# knowledge2: mutations and their parameters
 
 Status: v11, implemented in `graph/`, `helper.rs`, and `linker.rs`. Projection and the blocking index
 run in v2. Same four tables. Proximity out of scope.
 
-Callers emit actions; one call is one transaction. No action contains a generation-scoped entity id,
+Callers emit mutations; one call is one transaction. No mutation contains a generation-scoped entity id,
 so a list is independent of the generation it is applied to.
 
 The graph does not care which code assembled the list, or who is calling. It stores the provenance
-each action carries — `provider` on an identity, `cause` on decisions — and enforces the invariants
+each mutation carries — `provider` on an identity, `cause` on decisions — and enforces the invariants
 that provenance implies. Authentication is the edge's job.
 
 ## Shape
@@ -15,7 +15,7 @@ that provenance implies. Authentication is the edge's job.
 ```
 Link ─────┐
 Resolve ──┤
-Replay ───┼──▶ Vec<KnowledgeAction> ──▶ validate ──▶ apply ──▶ project
+Replay ───┼──▶ Vec<KnowledgeMutation> ──▶ validate ──▶ apply ──▶ project
 Agent ────┤                                        (one transaction)
 User ─────┤
 Operator ─┘
@@ -60,7 +60,7 @@ under edit; `entity`, `subject`, `loser`, `winner`, `a`, `b` are `EntityOriginId
 ## The enum
 
 ```rust
-pub enum KnowledgeAction {
+pub enum KnowledgeMutation {
     CreateEntity {
         from: ObservationId,
         with: Option<Identity>,                   // None = provisional
@@ -110,15 +110,15 @@ pub enum KnowledgeAction {
 }
 ```
 
-`Identity` and `Cause` are explicit because they are the provenance the row stores. The action means
+`Identity` and `Cause` are explicit because they are the provenance the row stores. The mutation means
 what it says without the call; the caller is not consulted to interpret it, and is not stored.
 
 The graph never sees a platform link. The caller decides whether an observation's `platform_*`
-columns are an identity, converts that to an `Identity`, and passes it on the membership action or as
+columns are an identity, converts that to an `Identity`, and passes it on the membership mutation or as
 an `AttestIdentity`. The graph upserts exactly what it is handed; it has no `platform_link` call and
 no `illuminator` special case.
 
-## Per-action contract
+## Per-mutation contract
 
 - **`CreateEntity { from, with }`**
   - Accepts: the observation exists; it is currently unlinked; `with`, when present, has a non-empty
@@ -158,14 +158,14 @@ no `illuminator` special case.
   - Does: move observations, move identities (dropping duplicates), tombstone the loser, forget its
     block index row, log, project the winner. A folded origin resolves to its survivor, so a merge
     that names it folds the survivor.
-  - Logs: `kind = merge`, the pair's canonical origins, `why` in `note`, the action's `cause`.
+  - Logs: `kind = merge`, the pair's canonical origins, `why` in `note`, the mutation's `cause`.
 
 - **`MarkDistinct { a, b, cause, why }`**
   - Accepts: both origins resolve to live entities and are distinct; no pending repair merge on the
     pair.
   - NoChange: already distinct.
   - Does: insert the verdict. No graph row changes; projection is not needed.
-  - Logs: `kind = distinct`, the origin pair, the action's `cause`.
+  - Logs: `kind = distinct`, the origin pair, the mutation's `cause`.
   - One-way: knowledge 1 has no inverse; a wrong `distinct` cannot be lifted yet.
 
 - **`AttestIdentity { subject, identity }`**
@@ -177,7 +177,7 @@ no `illuminator` special case.
     the subject.
   - Logs: nothing. Identities are recomputable, and a resolver run replaces them.
   - Why: `Identity` carries the provider, so the uniqueness rule and the veto rule are readable at
-    the action.
+    the mutation.
 
 - **`RetractIdentity { subject, provider, key }`**
   - Accepts: the subject resolves.
@@ -190,19 +190,19 @@ no `illuminator` special case.
   - NoChange: already vetoed on that origin and key.
   - Does: insert the verdict, delete every provider's row for `(entity, key)`, project the subject.
   - Logs: `kind = veto_identity`, subject origin, `identity_scheme`, `identity_external_id`, the
-    action's `cause` and `why`.
+    mutation's `cause` and `why`.
 
 - **`UnvetoIdentity { subject, key, cause }`**
   - Accepts: the subject resolves; no veto row for the origin and key has a `cause` above this one.
   - NoChange: no veto row.
   - Does: delete every veto row for the origin and key. Nothing is restored; the next resolve may
     assert the annotation again.
-  - Lifting rule: `Model` cannot lift a `Cause::Repair` row. The action states its own cause; the
+  - Lifting rule: `Model` cannot lift a `Cause::Repair` row. The mutation states its own cause; the
     edge is responsible for not letting a model claim `Repair`.
 
 ## The planner
 
-A v2 `Linker` is a policy: the pending batch in, one `KnowledgeAction` per observation out.
+A v2 `Linker` is a policy: the pending batch in, one `KnowledgeMutation` per observation out.
 
 - `Blocker` is recall: live entities only, ordered by id. An error is not an empty set; empty means
   "nothing matched, create," and a failed probe stops the link.
@@ -245,7 +245,7 @@ transport, parsed candidate and answer. It does not rank or write.
 
 The shared identity primitive is `KnowledgeGraph2::awaiting_identities`: live entities a provider has
 not answered, with the per-provider filter. An agentic provider uses that, the Wikidata core, and the
-graph's `AttestIdentity`/`RetractIdentity` actions directly.
+graph's `AttestIdentity`/`RetractIdentity` mutations directly.
 
 `knowledge2::heuristic::resolution` is the automated provider. Its engine selects and batches, runs
 the policy through the gateway, replaces the provider's set, and reports. Its policy is `plan`,
@@ -301,23 +301,23 @@ One coupling remains: projection still reads member `platform_*` columns to fill
 `Link`, `Resolve` and `Replay` are code, not vocabulary. The graph never learns their names, and it
 does not authenticate the caller.
 
-- **Provenance is on the action.** An `Identity` carries `provider`; a decision carries `cause`.
-  That is what the row stores, and it is enough for replay to re-emit the same action later.
+- **Provenance is on the mutation.** An `Identity` carries `provider`; a decision carries `cause`.
+  That is what the row stores, and it is enough for replay to re-emit the same mutation later.
 - **The graph enforces the invariants of that provenance.** A lift may not delete a row whose
   `cause` is above its own (`Model` < `Repair`). A provider-scoped write is scoped by the identity's
   `provider`, and veto admission filters it.
-- **The edge authenticates.** The agent adapter maps every model action to `provider = model` and
+- **The edge authenticates.** The agent adapter maps every model mutation to `provider = model` and
   `Cause::Model`, and exposes only the subset a model may call. Internal callers are trusted. There
   is no `Principal` in the graph and no capability table.
 - **If the executor becomes a public boundary**, add a principal argument. That is authorization,
-  not vocabulary, and it does not belong in the action.
+  not vocabulary, and it does not belong in the mutation.
 
 What the code paths build:
 
 - **Link**: a `Linker` plans the pending batch; `CreateEntity` and `AttachObservation` carry the
   `Identity` its policy admits. The graph never sees the platform link.
 - **Resolve**: `AttestIdentity`, `RetractIdentity`, chunked per entity. That is how a provider
-  replaces its set without a set-shaped action.
+  replaces its set without a set-shaped mutation.
 - **Replay**: `CreateEntity`, `AttachObservation`, `DetachObservation`, `MergeEntity`,
   `VetoIdentity`, with the recorded `cause`. It resolves origins to entities through the rebuilt
   graph and never re-emits identities.
@@ -325,11 +325,11 @@ What the code paths build:
 
 ## Call rules
 
-- **One call, one transaction.** Every action implementation takes `&C: ConnectionTrait`; the
+- **One call, one transaction.** Every mutation implementation takes `&C: ConnectionTrait`; the
   executor opens the transaction, applies in canonical order, and projects once at the end.
 - **Rows are locked, not just written.** Resolving an origin takes `FOR UPDATE` on the live entity;
   the observation under a membership edit is locked too. Two writers serialize, and a fold cannot
-  tombstone an entity another action is mutating.
+  tombstone an entity another mutation is mutating.
 - **All-or-nothing.** Any `Refuse` blocks the call. `NoChange` is a success, not a failure.
 - **Canonical order**, not caller order:
   1. `UnvetoIdentity` — lift a standing veto before anything it would block
@@ -345,7 +345,7 @@ What the code paths build:
   and accepts an origin that an earlier `CreateEntity` in the call will establish; the transaction's
   guards are authoritative.
 - **Projection set** is the union of: the new entity (create); source and target (attach); source
-  (detach); winner (merge); subject (attest, retract, veto, unveto). Distinct actions touch none.
+  (detach); winner (merge); subject (attest, retract, veto, unveto). Distinct mutations touch none.
   Dedup, project once.
 - **Projection derives no identities.** The call recomputes name, `alt_*`, descriptions, search,
   platform presence, status and confidence from the members and the evidence, and writes the
@@ -373,7 +373,7 @@ pub enum Refusal {
 
 ## Retries
 
-Every action is safe to re-apply after a committed call, because the second pass lands on a
+Every mutation is safe to re-apply after a committed call, because the second pass lands on a
 `NoChange` rather than a duplicate:
 
 - create: the observation is on an entity whose origin is that observation → `NoChange`.

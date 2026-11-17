@@ -2,7 +2,7 @@
 
 use crate::model;
 
-use crate::knowledge2::action::KnowledgeAction;
+use crate::knowledge2::mutation::KnowledgeMutation;
 use crate::knowledge2::blocker::Blocker;
 use crate::knowledge2::identity::Identity;
 use crate::knowledge2::ids::{EntityOriginId, ObservationId};
@@ -28,12 +28,12 @@ impl Linker for HeuristicPlanner {
         blocker: &dyn Blocker,
         holder: &dyn IdentityHolder,
         observations: &[model::user_observed_entity::Model],
-    ) -> anyhow::Result<Vec<KnowledgeAction>> {
+    ) -> anyhow::Result<Vec<KnowledgeMutation>> {
         // The order the capture emitted them, which decides who wins a contested entity.
         let mut observations = observations.to_vec();
         observations.sort_by_key(|observation| (observation.position, observation.id));
 
-        let mut actions = Vec::with_capacity(observations.len());
+        let mut mutations = Vec::with_capacity(observations.len());
         for observation in observations {
             let with = Identity::from_observation(&observation);
 
@@ -44,7 +44,7 @@ impl Linker for HeuristicPlanner {
                     .holder(&identity.scheme, &identity.external_id)
                     .await?
             {
-                actions.push(KnowledgeAction::AttachObservation {
+                mutations.push(KnowledgeMutation::AttachObservation {
                     observation: ObservationId(observation.id),
                     entity,
                     with,
@@ -59,20 +59,20 @@ impl Linker for HeuristicPlanner {
             // The best candidate that qualifies. An empty ranking is a decision too: nothing here
             // is this observation, so it starts a new entity.
             match ranked.first() {
-                Some((index, _)) => actions.push(KnowledgeAction::AttachObservation {
+                Some((index, _)) => mutations.push(KnowledgeMutation::AttachObservation {
                     observation: ObservationId(observation.id),
                     entity: origin_of(&candidates[*index])?,
                     with,
                     why: Some("heuristic".into()),
                 }),
-                None => actions.push(KnowledgeAction::CreateEntity {
+                None => mutations.push(KnowledgeMutation::CreateEntity {
                     from: ObservationId(observation.id),
                     with,
                 }),
             }
         }
 
-        Ok(actions)
+        Ok(mutations)
     }
 }
 

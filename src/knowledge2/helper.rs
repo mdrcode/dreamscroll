@@ -1,7 +1,7 @@
 //! The first end-to-end use case: link illuminations into the v2 graph.
 //!
 //! The graph has no linker and no blocker. This helper is the external executor: it hands the
-//! pending observations to a v2 [`Linker`] and applies the actions. The graph projects natively,
+//! pending observations to a v2 [`Linker`] and applies the mutations. The graph projects natively,
 //! including the blocking index, so the next illumination's SQL blocker sees the same graph v1 would
 //! have built.
 
@@ -11,7 +11,7 @@ use sea_orm::{
 };
 
 use crate::database::DbHandle;
-use crate::knowledge2::action::KnowledgeAction;
+use crate::knowledge2::mutation::KnowledgeMutation;
 use crate::knowledge2::blocker::SqlBlocker;
 use crate::knowledge2::graph::KnowledgeGraph2;
 use crate::knowledge2::ids::{EntityOriginId, ObservationId};
@@ -84,15 +84,15 @@ impl LinkHelper {
             .collect();
         let already_linked = considered - pending.len();
 
-        let actions = self.linker.plan(&self.blocker, self, &pending).await?;
-        let created = actions
+        let mutations = self.linker.plan(&self.blocker, self, &pending).await?;
+        let created = mutations
             .iter()
-            .filter(|action| matches!(action, KnowledgeAction::CreateEntity { .. }))
+            .filter(|mutation| matches!(mutation, KnowledgeMutation::CreateEntity { .. }))
             .count();
-        let attached = actions.len() - created;
+        let attached = mutations.len() - created;
 
-        if !actions.is_empty() {
-            let report = self.graph.proc(&actions).await?;
+        if !mutations.is_empty() {
+            let report = self.graph.proc(&mutations).await?;
             anyhow::ensure!(
                 report.refused.is_none(),
                 "linking refused: {:?}",
@@ -105,7 +105,7 @@ impl LinkHelper {
             already_linked,
             created,
             attached,
-            left_pending: pending.len().saturating_sub(actions.len()),
+            left_pending: pending.len().saturating_sub(mutations.len()),
         })
     }
 

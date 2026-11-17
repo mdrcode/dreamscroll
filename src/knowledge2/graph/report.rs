@@ -36,7 +36,7 @@ impl Report {
     }
 }
 
-/// What one action did, before the call is committed.
+/// What one mutation did, before the call is committed.
 pub(super) enum Outcome {
     /// Applied, touching these entity ids (which will be reprojected).
     Applied(Vec<i32>),

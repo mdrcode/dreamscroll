@@ -1,4 +1,4 @@
-//! The facade: one transaction per call, one match per action.
+//! The facade: one transaction per call, one match per mutation.
 //!
 //! It has no linker, no blocker, no resolver. Callers decide; this applies. The only derived write
 //! is projection — the entity's columns and its blocking-index row — and it runs inside the same
@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use sea_orm::{DatabaseConnection, TransactionTrait};
 
 use crate::database::DbHandle;
-use crate::knowledge2::action::KnowledgeAction;
+use crate::knowledge2::mutation::KnowledgeMutation;
 
 use super::report::{Outcome, Report};
 use super::{project, sql};
@@ -27,18 +27,18 @@ impl KnowledgeGraph2 {
         }
     }
 
-    /// Apply every action in one transaction.
+    /// Apply every mutation in one transaction.
     ///
-    /// Actions run in canonical order, not caller order. A refusal rolls the whole call back:
+    /// Mutations run in canonical order, not caller order. A refusal rolls the whole call back:
     /// nothing is half-applied. `NoChange` is success.
-    pub async fn proc(&self, actions: &[KnowledgeAction]) -> anyhow::Result<Report> {
-        let ordered = order(actions);
+    pub async fn proc(&self, mutations: &[KnowledgeMutation]) -> anyhow::Result<Report> {
+        let ordered = order(mutations);
         let txn = self.conn.begin().await?;
         let mut report = Report::default();
         let mut touched = BTreeSet::new();
 
-        for action in ordered {
-            match sql::apply(&txn, action).await? {
+        for mutation in ordered {
+            match sql::apply(&txn, mutation).await? {
                 Outcome::Applied(entities) => {
                     report.applied += 1;
                     touched.extend(entities);
@@ -72,7 +72,7 @@ impl KnowledgeGraph2 {
         project::project(&self.conn, entity).await
     }
 
-    /// Recompute projections for a scope. Maintenance, not an action.
+    /// Recompute projections for a scope. Maintenance, not a mutation.
     pub async fn reproject(&self, scope: super::ReprojectScope) -> anyhow::Result<usize> {
         project::reproject(&self.conn, scope).await
     }
@@ -101,23 +101,23 @@ impl KnowledgeGraph2 {
 /// Dependency order, not preference:
 ///
 /// 1. lift a standing veto before evidence it would block
-/// 2. create, so later actions can name what it made
+/// 2. create, so later mutations can name what it made
 /// 3. membership
 /// 4. fold, so evidence lands on the survivor
 /// 5. evidence
 /// 6. assert a standing denial last
-fn order(actions: &[KnowledgeAction]) -> Vec<&KnowledgeAction> {
-    let rank = |action: &KnowledgeAction| match action {
-        KnowledgeAction::UnvetoIdentity { .. } => 0,
-        KnowledgeAction::CreateEntity { .. } => 1,
-        KnowledgeAction::AttachObservation { .. } | KnowledgeAction::DetachObservation { .. } => 2,
-        KnowledgeAction::MergeEntity { .. } => 3,
-        KnowledgeAction::AttestIdentity { .. } | KnowledgeAction::RetractIdentity { .. } => 4,
-        KnowledgeAction::VetoIdentity { .. } | KnowledgeAction::MarkDistinct { .. } => 5,
+fn order(mutations: &[KnowledgeMutation]) -> Vec<&KnowledgeMutation> {
+    let rank = |mutation: &KnowledgeMutation| match mutation {
+        KnowledgeMutation::UnvetoIdentity { .. } => 0,
+        KnowledgeMutation::CreateEntity { .. } => 1,
+        KnowledgeMutation::AttachObservation { .. } | KnowledgeMutation::DetachObservation { .. } => 2,
+        KnowledgeMutation::MergeEntity { .. } => 3,
+        KnowledgeMutation::AttestIdentity { .. } | KnowledgeMutation::RetractIdentity { .. } => 4,
+        KnowledgeMutation::VetoIdentity { .. } | KnowledgeMutation::MarkDistinct { .. } => 5,
     };
 
-    let mut ordered: Vec<&KnowledgeAction> = actions.iter().collect();
-    ordered.sort_by_key(|action| rank(action));
+    let mut ordered: Vec<&KnowledgeMutation> = mutations.iter().collect();
+    ordered.sort_by_key(|mutation| rank(mutation));
     ordered
 }
 
@@ -126,7 +126,7 @@ mod tests {
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 
     use super::*;
-    use crate::knowledge2::action::Cause;
+    use crate::knowledge2::mutation::Cause;
     use crate::knowledge2::identity::{Identity, Provider};
     use crate::knowledge2::ids::{EntityOriginId, ObservationId};
     use crate::model;
@@ -164,7 +164,7 @@ mod tests {
         let graph = KnowledgeGraph2::new(&db);
 
         let report = graph
-            .proc(&[KnowledgeAction::CreateEntity {
+            .proc(&[KnowledgeMutation::CreateEntity {
                 from: ObservationId(observation),
                 with: Some(identity("wikidata", "Q1")),
             }])
@@ -212,11 +212,11 @@ mod tests {
 
         let report = graph
             .proc(&[
-                KnowledgeAction::CreateEntity {
+                KnowledgeMutation::CreateEntity {
                     from: ObservationId(first),
                     with: None,
                 },
-                KnowledgeAction::AttachObservation {
+                KnowledgeMutation::AttachObservation {
                     observation: ObservationId(second),
                     entity: EntityOriginId(ObservationId(999_999)),
                     with: None,
@@ -275,11 +275,11 @@ mod tests {
 
         graph
             .proc(&[
-                KnowledgeAction::CreateEntity {
+                KnowledgeMutation::CreateEntity {
                     from: ObservationId(left),
                     with: None,
                 },
-                KnowledgeAction::CreateEntity {
+                KnowledgeMutation::CreateEntity {
                     from: ObservationId(right),
                     with: None,
                 },
@@ -301,7 +301,7 @@ mod tests {
             .expect("right entity");
 
         let report = graph
-            .proc(&[KnowledgeAction::MergeEntity {
+            .proc(&[KnowledgeMutation::MergeEntity {
                 loser: EntityOriginId(ObservationId(left)),
                 winner: EntityOriginId(ObservationId(right)),
                 cause: Cause::Model,
