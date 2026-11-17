@@ -36,12 +36,12 @@ impl<'a> GraphSelector<'a> {
     }
 
     /// Which of `entity_ids` this provider already annotated.
-    pub async fn annotated_by(
+    pub async fn identified_by(
         &self,
         provider: &str,
         entity_ids: &[i32],
     ) -> anyhow::Result<std::collections::HashSet<i32>> {
-        annotated_by(self.conn, provider, entity_ids).await
+        identified_by(self.conn, provider, entity_ids).await
     }
 }
 
@@ -93,7 +93,7 @@ pub(super) async fn awaiting_identities(
 }
 
 /// The entities in `entity_ids` this provider already annotated.
-pub(super) async fn annotated_by(
+pub(super) async fn identified_by(
     conn: &DatabaseConnection,
     provider: &str,
     entity_ids: &[i32],

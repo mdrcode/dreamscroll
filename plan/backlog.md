@@ -366,7 +366,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   outcome alone — found 180 d, **empty 30 d**, degraded 23 h, failed 10 m — so every platform-handle
   question that comes back empty is re-asked a month later. The motivating case: an entity identified
   *by its handle* (`status = identified`, annotation from `illuminator`) is **not** annotated by
-  Wikidata, so the engine's `annotated_by` filter does not skip it; every capture that touches it
+  Wikidata, so the engine's `identified_by` filter does not skip it; every capture that touches it
   re-asks the handle question after expiry. In the local corpus that is 265 of 351 platform-linked
   entities, touched by 267 illuminations — and `search_label`/`search_hint` empties expire on the
   same clock, at one paced call each because they cannot batch.

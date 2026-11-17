@@ -95,7 +95,7 @@ impl ResolveEngine {
             let already_annotated = if self.options.include_already_annotated {
                 HashSet::new()
             } else {
-                selector.annotated_by(resolver.id(), &entity_ids).await?
+                selector.identified_by(resolver.id(), &entity_ids).await?
             };
             let batch: Vec<model::knowledge_entity::Model> = entities
                 .iter()
