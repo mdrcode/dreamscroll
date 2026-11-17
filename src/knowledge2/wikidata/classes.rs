@@ -104,7 +104,7 @@ impl Family {
 /// for the ranking, so every type we have an opinion about counts, including the eight whose
 /// arms turned out too blunt to refuse on (`place`, `organization`, `publication`, …). A candidate
 /// possible under any one of the entity's types is possible.
-pub(super) fn compatible(types: &[&str], classes: &[String]) -> Option<bool> {
+pub(crate) fn compatible(types: &[&str], classes: &[String]) -> Option<bool> {
     let found: std::collections::BTreeSet<Family> = classes
         .iter()
         .filter_map(|class| Family::of(class))

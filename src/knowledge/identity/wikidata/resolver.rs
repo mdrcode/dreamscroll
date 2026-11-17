@@ -21,7 +21,7 @@ use crate::knowledge::evidence::Identity;
 use crate::knowledge::identity::IdentityResolver;
 use crate::model;
 
-use super::transport::Wire;
+use super::Wire;
 use super::{WikidataCandidate, WikidataKind, decide, gather, plan};
 
 /// One authority: its decisions, and the wire it speaks through.

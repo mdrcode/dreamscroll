@@ -16,6 +16,21 @@ use super::{WikidataCandidate, WikidataKind, plan};
 /// A property match: the item *is* the account, so it is claimed before the set is asked.
 const HANDLE_CONFIDENCE: f32 = 0.95;
 
+/// The v1 annotation a decided candidate becomes. The engine supplies the provider; this helper
+/// knows only the authority's scheme.
+pub(crate) fn identity(candidate: &WikidataCandidate, method: &str, confidence: f32) -> Identity {
+    Identity {
+        scheme: super::ID.to_string(),
+        external_id: candidate.id.clone(),
+        method: Some(method.to_string()),
+        confidence: Some(confidence),
+        label: candidate.label.clone(),
+        description: candidate.description.clone(),
+        classes: candidate.classes.clone(),
+        observation_id: None,
+    }
+}
+
 /// A candidate and every strategy that produced it. One QID from two answers is one item with two
 /// pieces of provenance, not two candidates. The strongest strategy is what `ranking` prices, and
 /// all of them are what a diagnostic can show.
@@ -90,6 +105,6 @@ pub(crate) fn by_handle(
             }
             let property = request.kind.property()?;
             let candidate = answer::referents(raw).ok()?.into_iter().next()?;
-            Some(candidate.identity(property.as_str(), HANDLE_CONFIDENCE))
+            Some(identity(&candidate, property.as_str(), HANDLE_CONFIDENCE))
         })
 }

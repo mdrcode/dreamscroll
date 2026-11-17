@@ -24,26 +24,26 @@ pub struct PropertyId(&'static str);
 
 impl PropertyId {
     /// X (formerly Twitter) username; values carry no `@`.
-    pub(super) const X_USERNAME: Self = Self("P2002");
-    pub(super) const INSTAGRAM_USERNAME: Self = Self("P2003");
+    pub(crate) const X_USERNAME: Self = Self("P2002");
+    pub(crate) const INSTAGRAM_USERNAME: Self = Self("P2003");
     /// GitHub account.
-    pub(super) const GITHUB_ACCOUNT: Self = Self("P2037");
+    pub(crate) const GITHUB_ACCOUNT: Self = Self("P2037");
     /// A YouTube *channel* ID (`UC…`), not the channel's name.
-    pub(super) const YOUTUBE_CHANNEL: Self = Self("P2397");
+    pub(crate) const YOUTUBE_CHANNEL: Self = Self("P2397");
     /// A YouTube handle; values carry no `@`.
-    pub(super) const YOUTUBE_HANDLE: Self = Self("P11245");
-    pub(super) const TIKTOK_USERNAME: Self = Self("P7085");
+    pub(crate) const YOUTUBE_HANDLE: Self = Self("P11245");
+    pub(crate) const TIKTOK_USERNAME: Self = Self("P7085");
     /// A Mastodon address, `user@server.domain`, without a leading `@`.
-    pub(super) const MASTODON_ADDRESS: Self = Self("P4033");
-    pub(super) const FACEBOOK_USERNAME: Self = Self("P2013");
-    pub(super) const LINKEDIN_PROFILE: Self = Self("P6634");
-    pub(super) const THREADS_USERNAME: Self = Self("P11892");
-    pub(super) const BLUESKY_HANDLE: Self = Self("P12361");
-    pub(super) const REDDIT_USERNAME: Self = Self("P4265");
+    pub(crate) const MASTODON_ADDRESS: Self = Self("P4033");
+    pub(crate) const FACEBOOK_USERNAME: Self = Self("P2013");
+    pub(crate) const LINKEDIN_PROFILE: Self = Self("P6634");
+    pub(crate) const THREADS_USERNAME: Self = Self("P11892");
+    pub(crate) const BLUESKY_HANDLE: Self = Self("P12361");
+    pub(crate) const REDDIT_USERNAME: Self = Self("P4265");
     /// A Reddit forum's name; not a user, and therefore not a username.
-    pub(super) const SUBREDDIT: Self = Self("P3984");
+    pub(crate) const SUBREDDIT: Self = Self("P3984");
 
-    pub(super) const fn as_str(self) -> &'static str {
+    pub(crate) const fn as_str(self) -> &'static str {
         self.0
     }
 }
@@ -51,9 +51,9 @@ impl PropertyId {
 /// One exact match to ask for: the property whose value space the handle lives in, and the literal
 /// the SPARQL `VALUES` block compares against.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct PropertyQuery {
-    pub(super) property: PropertyId,
-    pub(super) value: String,
+pub(crate) struct PropertyQuery {
+    pub(crate) property: PropertyId,
+    pub(crate) value: String,
 }
 
 /// The property that can hold this link, and the value(s) it expects.
@@ -61,7 +61,7 @@ pub(super) struct PropertyQuery {
 /// Empty when the platform is unmapped or the handle cannot fill a value space. Two queries only for
 /// case spellings of one namespace — never for two properties, because one platform link names one
 /// referent.
-pub(super) fn platform_link_queries(link: &PlatformLink) -> Vec<PropertyQuery> {
+pub(crate) fn platform_link_queries(link: &PlatformLink) -> Vec<PropertyQuery> {
     let Some(handle) = link.handle().map(str::trim) else {
         return Vec::new();
     };

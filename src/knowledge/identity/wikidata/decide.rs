@@ -7,7 +7,7 @@
 use crate::knowledge::evidence::Identity;
 use crate::model;
 
-use super::gather::CandidateSet;
+use super::gather::{self, CandidateSet};
 use super::ranking::{self, Ranked};
 
 /// What a candidate from a guessing question must look like at minimum: a prefix, not a
@@ -68,7 +68,8 @@ pub(crate) fn decide(
         return Err("two candidates fit and neither wins");
     }
     let candidate = &candidate_set[best.index].candidate;
-    Ok(candidate.identity(
+    Ok(gather::identity(
+        candidate,
         ranking::method(best.strategy, best.surface),
         ranking::confidence(&best),
     ))

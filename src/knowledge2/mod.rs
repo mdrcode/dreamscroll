@@ -17,6 +17,7 @@ pub mod ids;
 pub mod linker;
 pub mod shape;
 pub mod text;
+pub mod wikidata;
 
 pub use action::{Cause, KnowledgeAction};
 pub use blocker::Blocker;

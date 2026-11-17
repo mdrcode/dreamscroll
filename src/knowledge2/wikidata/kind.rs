@@ -43,7 +43,7 @@ impl WikidataKind {
     /// One version prefix per kind, so bumping the label query does not throw away the handle
     /// answers. `search` moved from `wbsearchentities` to MediaWiki full text, hence v3; `label` is
     /// v3 because the query now asks for `P31` alongside the label.
-    pub(super) fn shape(&self) -> String {
+    pub(crate) fn shape(&self) -> String {
         match self {
             // `@en` in the `VALUES` and the label service pinned to the same language.
             Self::Label => format!("wikidata/v3-label|lang={LANGUAGE}"),

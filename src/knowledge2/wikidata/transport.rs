@@ -29,14 +29,14 @@ const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// The wire: one client, and the four ways this authority answers a question.
 ///
 /// The door (`crate::fetch`) owns the cache, the pace and the budget; this type only speaks.
-pub(super) struct Wire {
+pub(crate) struct Wire {
     client: reqwest::Client,
 }
 
 impl Wire {
     /// The one client this authority speaks through, built here so the resolver above names no HTTP
     /// type: how a call is made is the wire's business.
-    pub(super) fn new() -> anyhow::Result<Self> {
+    pub(crate) fn new() -> anyhow::Result<Self> {
         let client = reqwest::Client::builder()
             .user_agent(USER_AGENT)
             .timeout(TIMEOUT)
