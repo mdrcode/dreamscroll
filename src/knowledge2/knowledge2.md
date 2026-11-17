@@ -247,9 +247,10 @@ The shared identity primitive is `graph.selector().awaiting_identity(...)`: live
 has not answered, with the per-provider filter. An agentic provider uses that, the Wikidata core, and
 the graph's `Identify`/`RetractIdentity` mutations directly.
 
-`knowledge2::heuristic::resolution` is the automated provider. Its engine selects and batches, runs
-the policy through the gateway, replaces the provider's set, and reports. Its policy is `plan`,
-`gather`, `measure`, `classes`, `ranking` and `decide`; it produces `knowledge2::Identity`.
+`knowledge2::heuristic::resolver::HeuristicResolver` is the automated provider. It selects and
+batches, runs the policy in `heuristic::resolution` through the gateway, replaces the provider's set,
+and reports. The policy is `plan`, `gather`, `measure`, `classes`, `ranking` and `decide`; it
+produces `knowledge2::Identity`.
 
 The v1 `IdentityEngine` and its Wikidata adapter are gone; `knowledge` keeps its graph/link/verdict
 path. Both the heuristic and a future agentic resolver go through `knowledge2::wikidata`; only the

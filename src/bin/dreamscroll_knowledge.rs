@@ -548,17 +548,13 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
     let max_requests = match (args.offline, args.max_requests) {
         (true, _) => 0,
         (false, Some(n)) => n,
-        (false, None) => knowledge2::heuristic::resolution::DEFAULT_MAX_REQUESTS,
+        (false, None) => knowledge2::heuristic::resolver::DEFAULT_MAX_REQUESTS,
     };
-    let options = knowledge2::heuristic::resolution::Options {
+    let options = knowledge2::heuristic::resolver::Options {
         include_already_annotated: args.entity.is_some(),
         dry_run: args.dry_run,
     };
-    let engine = knowledge2::heuristic::resolution::ResolveEngine::new(
-        db,
-        options,
-        vec![Box::new(knowledge2::heuristic::resolution::Wikidata::new()?)],
-    )?;
+    let engine = knowledge2::heuristic::resolver::HeuristicResolver::new(db, options)?;
     let cache = dreamscroll::fetch::FetchCache::new(&db.conn);
     let allowance = (!args.offline).then(|| {
         dreamscroll::fetch::Allowance::new(
@@ -628,15 +624,14 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
             report
         }
         None => {
-            knowledge2::heuristic::resolution::resolve_all_pending(
-                db,
-                &engine,
-                &cache,
-                allowance.as_ref(),
-                args.limit,
-                args.newest,
-            )
-            .await?
+            engine
+                .resolve_all_pending(
+                    &cache,
+                    allowance.as_ref(),
+                    args.limit,
+                    args.newest,
+                )
+                .await?
         }
     };
 

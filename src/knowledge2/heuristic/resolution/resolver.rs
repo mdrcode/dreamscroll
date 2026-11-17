@@ -36,11 +36,6 @@ impl Wikidata {
 }
 
 impl Wikidata {
-    /// This authority's id: the provider on every request and the scheme on every identity.
-    pub fn id(&self) -> &'static str {
-        ID
-    }
-
     /// The complete set of identities this authority asserts for each entity it answers about.
     pub async fn resolve(
         &self,
@@ -150,7 +145,7 @@ mod tests {
         for (_, request) in plan::all_requests(&entity) {
             assert_eq!(request.provider, crate::knowledge2::wikidata::ID);
         }
-        assert_eq!(engine().id(), crate::knowledge2::wikidata::ID);
+        assert_eq!(Resolver::id(&engine()), crate::knowledge2::wikidata::ID);
     }
 
     /// A wire that answers from a table and records what it was asked: no client, no database.

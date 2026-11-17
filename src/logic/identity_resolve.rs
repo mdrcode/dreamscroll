@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::knowledge2::heuristic::resolution::ResolveEngine;
+use crate::knowledge2::heuristic::resolver::HeuristicResolver;
 use crate::{api, task};
 
 /// The concrete task for resolving one illumination's entities.
@@ -73,12 +73,12 @@ pub async fn exec(
 /// The ownership check belongs here, where the payload is: an illumination row names its user, and
 /// the task claims to be acting for one.
 pub(crate) async fn resolve(
-    engine: &ResolveEngine,
+    engine: &HeuristicResolver,
     cache: &crate::fetch::FetchCache,
     service_api: &crate::api::ServiceApiClient,
     task: &IdentityResolveTask,
     allowance: crate::fetch::AllowanceConfig,
-) -> anyhow::Result<crate::knowledge2::heuristic::resolution::ResolutionReport> {
+) -> anyhow::Result<crate::knowledge2::heuristic::resolver::ResolutionReport> {
     let illumination = service_api.illumination(task.illumination_id).await?;
     anyhow::ensure!(
         illumination.user_id == task.entity_owner_id,
@@ -123,30 +123,8 @@ mod tests {
 
     /// The payload names an owner; an illumination row names its user. Acting for someone else is
     /// refused before any transport call.
-    struct Empty;
-
-    #[async_trait::async_trait]
-    impl crate::knowledge2::heuristic::resolution::Resolver for Empty {
-        fn id(&self) -> &'static str {
-            "fake"
-        }
-
-        async fn resolve(
-            &self,
-            _entities: &[crate::model::knowledge_entity::Model],
-            _gateway: &crate::fetch::Gateway<'_>,
-        ) -> Vec<(i32, crate::knowledge2::identity::Identity)> {
-            Vec::new()
-        }
-    }
-
-    fn engine(db: &crate::database::DbHandle) -> ResolveEngine {
-        ResolveEngine::new(
-            db,
-            crate::knowledge2::heuristic::resolution::Options::default(),
-            vec![Box::new(Empty)],
-        )
-        .expect("the fake provider is not reserved")
+    fn engine(db: &crate::database::DbHandle) -> HeuristicResolver {
+        HeuristicResolver::new(db, Default::default()).expect("the heuristic resolver")
     }
 
     #[tokio::test]

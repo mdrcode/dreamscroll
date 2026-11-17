@@ -25,4 +25,4 @@ pub use graph::{GraphSelector, KnowledgeGraph2, Refusal, ReprojectScope, Report,
 pub use helper::{LinkAllReport, LinkHelper, LinkReport, link_all_pending, link_illumination};
 pub use identity::{Identity, IdentityKey, Provider};
 pub use ids::{EntityOriginId, ObservationId};
-pub use heuristic::HeuristicPlanner;
+pub use heuristic::{HeuristicPlanner, HeuristicResolver};

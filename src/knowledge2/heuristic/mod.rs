@@ -11,8 +11,10 @@
 
 pub mod planner;
 pub mod resolution;
+pub mod resolver;
 pub mod scoring;
 pub mod text;
 
 pub use planner::HeuristicPlanner;
+pub use resolver::HeuristicResolver;
 pub use scoring::Heuristic;

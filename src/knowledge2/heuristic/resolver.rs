@@ -14,18 +14,27 @@ use crate::knowledge2::identity::{
 use crate::knowledge2::ids::{EntityOriginId, ObservationId};
 use crate::model;
 
-use super::{DryRunIdentity, Options, ProviderReport, ResolutionReport, Resolver};
+pub use super::resolution::{DryRunIdentity, Options, ProviderReport, ResolutionReport};
+use super::resolution::{Resolver, Wikidata};
 
-/// The harness: it holds the resolvers, invokes them, and applies their output.
-pub struct ResolveEngine {
+/// Transport calls a plain resolve is allowed to make when the caller does not choose a budget.
+pub const DEFAULT_MAX_REQUESTS: usize = 200;
+
+/// The heuristic resolver: Wikidata, the cache gateway and the graph.
+pub struct HeuristicResolver {
     db: DbHandle,
     graph: KnowledgeGraph2,
     options: Options,
     resolvers: Vec<Box<dyn Resolver>>,
 }
 
-impl ResolveEngine {
-    pub fn new(
+impl HeuristicResolver {
+    /// The default resolver over Wikidata.
+    pub fn new(db: &DbHandle, options: Options) -> anyhow::Result<Self> {
+        Self::with_resolvers(db, options, vec![Box::new(Wikidata::new()?)])
+    }
+
+    fn with_resolvers(
         db: &DbHandle,
         options: Options,
         resolvers: Vec<Box<dyn Resolver>>,
@@ -222,51 +231,52 @@ impl ResolveEngine {
     }
 }
 
-/// Resolve every entity still pending for any configured provider.
-///
-/// The engine receives the whole pending set in one call, so the wavefront still fills its batches.
-/// This is the rebuild/drain path; a live capture resolves through the service API's illumination
-/// read, which also reports whether linking finished.
-pub async fn resolve_all_pending(
-    db: &DbHandle,
-    engine: &ResolveEngine,
-    cache: &FetchCache,
-    allowance: Option<&Allowance>,
-    limit: Option<usize>,
-    newest_first: bool,
-) -> anyhow::Result<ResolutionReport> {
-    let graph = KnowledgeGraph2::new(db);
-    let selector = graph.selector();
-    // One provider's pending set, then the union: an entity Wikidata answered is still pending for
-    // another authority. The limit is global, so a second resolver does not silently double the run.
-    let mut pending: BTreeMap<i32, model::knowledge_entity::Model> = BTreeMap::new();
-    for provider in engine.providers() {
-        for entity in selector
-            .awaiting_identity(&[provider], None, newest_first)
-            .await?
-        {
-            pending.entry(entity.id).or_insert(entity);
+impl HeuristicResolver {
+    /// Resolve every entity still pending for any configured provider.
+    ///
+    /// The engine receives the whole pending set in one call, so the wavefront still fills its
+    /// batches. This is the rebuild/drain path; a live capture resolves through the service API's
+    /// illumination read, which also reports whether linking finished.
+    pub async fn resolve_all_pending(
+        &self,
+        cache: &FetchCache,
+        allowance: Option<&Allowance>,
+        limit: Option<usize>,
+        newest_first: bool,
+    ) -> anyhow::Result<ResolutionReport> {
+        let selector = self.graph.selector();
+        // One provider's pending set, then the union: an entity Wikidata answered is still pending
+        // for another authority. The limit is global, so a second resolver does not silently double
+        // the run.
+        let mut pending: BTreeMap<i32, model::knowledge_entity::Model> = BTreeMap::new();
+        for provider in self.providers() {
+            for entity in selector
+                .awaiting_identity(&[provider], None, newest_first)
+                .await?
+            {
+                pending.entry(entity.id).or_insert(entity);
+            }
         }
-    }
-    let mut entities: Vec<model::knowledge_entity::Model> = if newest_first {
-        pending.into_values().rev().collect()
-    } else {
-        pending.into_values().collect()
-    };
-    if let Some(limit) = limit {
-        entities.truncate(limit);
-    }
-
-    // An online corpus pass is the maintenance moment: drop answers that aged out long ago. A
-    // per-illumination resolve does not do this — it must stay quick.
-    if allowance.is_some() {
-        let pruned = cache.prune().await?;
-        if pruned > 0 {
-            tracing::info!(pruned, "Pruned expired fetch cache rows");
+        let mut entities: Vec<model::knowledge_entity::Model> = if newest_first {
+            pending.into_values().rev().collect()
+        } else {
+            pending.into_values().collect()
+        };
+        if let Some(limit) = limit {
+            entities.truncate(limit);
         }
-    }
 
-    engine.resolve(&entities, cache, allowance).await
+        // An online corpus pass is the maintenance moment: drop answers that aged out long ago. A
+        // per-illumination resolve does not do this — it must stay quick.
+        if allowance.is_some() {
+            let pruned = cache.prune().await?;
+            if pruned > 0 {
+                tracing::info!(pruned, "Pruned expired fetch cache rows");
+            }
+        }
+
+        self.resolve(&entities, cache, allowance).await
+    }
 }
 
 fn group_by_resolver(proposals: &[(usize, Identity)]) -> BTreeMap<usize, Vec<Identity>> {
@@ -386,6 +396,7 @@ mod tests {
     use super::*;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
+    use crate::knowledge2::heuristic::resolution::Resolver;
     use crate::knowledge2::mutation::Cause;
     use crate::test_support::{db_or_skip, fixtures};
 
@@ -423,8 +434,8 @@ mod tests {
         }
     }
 
-    async fn engine(db: &DbHandle, dry_run: bool) -> ResolveEngine {
-        ResolveEngine::new(
+    async fn resolver(db: &DbHandle, dry_run: bool) -> HeuristicResolver {
+        HeuristicResolver::with_resolvers(
             db,
             Options {
                 include_already_annotated: true,
@@ -469,7 +480,7 @@ mod tests {
         attest(&db, entity, "Q1").await;
 
         let cache = FetchCache::new(&db.conn);
-        let report = engine(&db, false)
+        let report = resolver(&db, false)
             .await
             .resolve(
                 &[model::knowledge_entity::Entity::find_by_id(entity)
@@ -496,7 +507,7 @@ mod tests {
         attest(&db, entity, "Q1").await;
 
         let cache = FetchCache::new(&db.conn);
-        let report = engine(&db, true)
+        let report = resolver(&db, true)
             .await
             .resolve(
                 &[model::knowledge_entity::Entity::find_by_id(entity)
@@ -543,7 +554,7 @@ mod tests {
             .unwrap();
 
         let cache = FetchCache::new(&db.conn);
-        let report = engine(&db, false)
+        let report = resolver(&db, false)
             .await
             .resolve(
                 &[model::knowledge_entity::Entity::find_by_id(entity)
