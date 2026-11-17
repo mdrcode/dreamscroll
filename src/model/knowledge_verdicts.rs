@@ -50,6 +50,9 @@ pub enum Cause {
     /// An older repair, applied to this generation by the replay.
     #[sea_orm(string_value = "replayed")]
     Replayed,
+    /// A model decided. Durable like a repair, but not a person's instruction.
+    #[sea_orm(string_value = "model")]
+    Model,
 }
 
 impl Cause {
@@ -58,6 +61,7 @@ impl Cause {
             Self::ProximityAuto => "proximity_auto",
             Self::Repair => "repair",
             Self::Replayed => "replayed",
+            Self::Model => "model",
         }
     }
 }

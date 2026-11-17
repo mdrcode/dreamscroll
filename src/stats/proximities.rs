@@ -160,6 +160,8 @@ pub async fn proximity_list(
                     decisions.entry(pair).or_insert(StatusWhy::ProximityAuto);
                 }
                 Cause::Replayed => {}
+                // knowledge2's decisions are not proximity decisions; the pair reads open here.
+                Cause::Model => {}
             },
             Kind::Distinct => {
                 decisions.insert(pair, StatusWhy::Distinct);

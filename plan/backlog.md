@@ -380,6 +380,14 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   suppresses exactly the new-surface discovery the cache handles correctly. Gate: handle/search-empty
   volume becomes visible in `fetch_cache` or in 429s.
 
+### Knowledge graph v2
+
+- [ ] **Consider the addition of `Cause::Model`.** `knowledge2` emits it for a model's merge,
+  distinct and veto decisions, and `model::knowledge_verdicts::Cause` now accepts the value so the
+  row round-trips. Decide whether it is first-class everywhere: proximity stats currently read it as
+  no decision, and lifting/replay still reason in `repair`/`replayed`. Either give it its own status
+  word and rung, or map model decisions to `repair` and lose the distinction.
+
 ## Deferred — already scoped
 
 Promote an item into **Next** when its trigger fires or it becomes the focus.

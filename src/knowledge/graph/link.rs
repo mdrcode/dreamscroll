@@ -180,8 +180,7 @@ mod unit {
     use super::*;
     use crate::database::DbHandle;
     use crate::knowledge::blocker::Blocker;
-    use crate::knowledge::evidence::Evidence;
-    use crate::knowledge::linker::Linker;
+    use crate::knowledge::linker::{IdentityHolder, Linker};
     use crate::model::knowledge_entity as entity;
     use crate::test_support::{db_or_skip, fixtures};
 
@@ -222,7 +221,7 @@ mod unit {
         async fn decide_link(
             &self,
             _blocker: &dyn Blocker,
-            _evidence: &Evidence,
+            _holder: &dyn IdentityHolder,
             _observations: &[model::user_observed_entity::Model],
         ) -> anyhow::Result<Vec<crate::knowledge::linker::Decision>> {
             Ok(Vec::new())
@@ -269,7 +268,7 @@ mod unit {
         async fn decide_link(
             &self,
             _blocker: &dyn Blocker,
-            _evidence: &Evidence,
+            _holder: &dyn IdentityHolder,
             _observations: &[model::user_observed_entity::Model],
         ) -> anyhow::Result<Vec<crate::knowledge::linker::Decision>> {
             Ok(vec![crate::knowledge::linker::Decision {
@@ -308,7 +307,7 @@ mod unit {
         async fn decide_link(
             &self,
             _blocker: &dyn Blocker,
-            _evidence: &Evidence,
+            _holder: &dyn IdentityHolder,
             observations: &[model::user_observed_entity::Model],
         ) -> anyhow::Result<Vec<Decision>> {
             assert_eq!(observations.len(), 2, "the fixture captures two");

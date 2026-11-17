@@ -19,7 +19,7 @@ pub mod heuristic;
 use crate::model;
 
 use super::blocker::Blocker;
-use super::evidence::Evidence;
+use super::evidence::{Evidence, IdentityKey};
 
 /// What to do with one observation.
 #[derive(Debug, Clone, PartialEq)]
@@ -39,14 +39,39 @@ pub struct Decision {
     pub action: Action,
 }
 
+/// The one read a linker asks of the evidence: which entity already holds this key?
+///
+/// Narrow on purpose. A linker does not own the evidence store; it asks one question of it, and the
+/// key is two strings so a caller can answer without constructing an `Evidence` or an `IdentityKey`.
+#[async_trait::async_trait]
+pub trait IdentityHolder: Send + Sync {
+    /// The most substantiated live entity holding `(scheme, external_id)`, if any.
+    async fn holder(&self, scheme: &str, external_id: &str) -> anyhow::Result<Option<i32>>;
+}
+
+#[async_trait::async_trait]
+impl IdentityHolder for Evidence {
+    async fn holder(&self, scheme: &str, external_id: &str) -> anyhow::Result<Option<i32>> {
+        let key = IdentityKey {
+            scheme: scheme.to_string(),
+            external_id: external_id.to_string(),
+        };
+        Ok(self
+            .query_entities_for_identity(&key)
+            .await?
+            .first()
+            .map(|entity| entity.id))
+    }
+}
+
 #[async_trait::async_trait]
 pub trait Linker: Send + Sync {
     /// Decide what each observation in the batch is.
     ///
     /// `blocker` is recall and nothing else: it may return nothing, it over-generates by design, and
-    /// its order means nothing. `evidence` answers what is already held, and names the identity a
-    /// capture asserted — the executor imported those before calling. The policy is the
-    /// implementation's own, held as a member: this call measures with it and nothing else.
+    /// its order means nothing. `holder` answers one question — which entity already carries this
+    /// key — and the rest is the policy's own. The policy is the implementation's own, held as a
+    /// member: this call measures with it and nothing else.
     ///
     /// The batch arrives whole: a reading is decided as one, and every observation in a call comes
     /// from one illumination, so an implementation that needs the set has it by the arguments rather
@@ -55,7 +80,7 @@ pub trait Linker: Send + Sync {
     async fn decide_link(
         &self,
         blocker: &dyn Blocker,
-        evidence: &Evidence,
+        holder: &dyn IdentityHolder,
         observations: &[model::user_observed_entity::Model],
     ) -> anyhow::Result<Vec<Decision>>;
 }

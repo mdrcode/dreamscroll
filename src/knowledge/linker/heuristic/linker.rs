@@ -7,8 +7,8 @@
 
 use crate::model;
 
-use crate::knowledge::evidence::{Evidence, IdentityKey, platform_link};
-use crate::knowledge::linker::{Action, Decision, Linker};
+use crate::knowledge::evidence::{IdentityKey, platform_link};
+use crate::knowledge::linker::{Action, Decision, IdentityHolder, Linker};
 
 use super::Heuristic;
 
@@ -62,7 +62,7 @@ impl Linker for HeuristicLinker {
     async fn decide_link(
         &self,
         blocker: &dyn crate::knowledge::blocker::Blocker,
-        evidence: &Evidence,
+        holder: &dyn IdentityHolder,
         observations: &[model::user_observed_entity::Model],
     ) -> anyhow::Result<Vec<Decision>> {
         // The order the capture emitted them, which decides who wins a contested entity.
@@ -79,16 +79,20 @@ impl Linker for HeuristicLinker {
             // no identity.
             let key =
                 platform_link(&observation).and_then(|link| IdentityKey::try_from(&link).ok());
-            let holders = match key {
-                Some(key) => evidence.query_entities_for_identity(&key).await?,
-                None => Vec::new(),
-            };
 
-            // The holders arrive most substantiated first; the rest go to the scan.
-            if let Some(best) = holders.into_iter().next() {
+            // A held identity settles it; the holder answers with the most substantiated entity.
+            let held = match key {
+                Some(key) => {
+                    holder
+                        .holder(key.scheme.as_str(), key.external_id.as_str())
+                        .await?
+                }
+                None => None,
+            };
+            if let Some(entity) = held {
                 decisions.push(Decision {
                     observation,
-                    action: Action::Attach(best.id),
+                    action: Action::Attach(entity),
                 });
                 continue;
             }
@@ -116,6 +120,7 @@ impl Linker for HeuristicLinker {
 mod tests {
     use super::*;
 
+    use crate::knowledge::evidence::Evidence;
     use crate::model;
     use crate::test_support::db_or_skip;
 
