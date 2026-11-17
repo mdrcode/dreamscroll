@@ -365,7 +365,7 @@ one.
 | `../knowledge2/heuristic/identification/` | the policy it runs: `plan`, `gather`, `measure`, `classes`, `ranking`, `decide`, and Wikidata |
 | `../knowledge2/replay.rs` | replay: latest repair merge per unordered origin pair (logged `replayed`), then repair vetoes through `VetoIdentity`; `distinct` is consultative and skipped |
 |`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, with a TTL per outcome: found 180 days, empty 30, degraded 23 hours, failed 10 minutes) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
-| `eval/` | offline diagnostics, both read-only: `eval blocker` measures recall; `identity inspect` walks one entity through blocking, ranking and the plan |
+| `../knowledge2/eval/` | offline diagnostics, both read-only: `eval blocker` measures recall; `identity inspect` walks one entity through blocking, ranking and the plan |
 
 The three write paths that carry their own logic and tests (`link.rs`, `project.rs`, `merge.rs`) are
 reached through `KnowledgeGraph`'s methods; `link` and `project` are private modules, and what

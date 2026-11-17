@@ -13,11 +13,11 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use crate::database::DbHandle;
 use crate::fetch::cache::{FetchCache, State};
 use crate::fetch::{Answer, Outcome, Request};
-use crate::knowledge::blocker::SqlBlocker;
+use crate::knowledge2::blocker::SqlBlocker;
 use crate::knowledge2::heuristic::identification::{decide, gather, plan, ranking};
+use crate::knowledge2::heuristic::HeuristicScorer;
+use crate::knowledge2::text;
 use crate::knowledge2::wikidata::{WikidataCandidate, WikidataKind};
-use crate::knowledge::linker::heuristic::HeuristicScorer;
-use crate::knowledge::text;
 use crate::model;
 
 /// One entity, and everything the pipeline did with it.
@@ -148,7 +148,11 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
         None => Vec::new(),
     };
 
-    let vetoes = crate::knowledge::KnowledgeGraph::new(db).vetoed().await?;
+    let vetoes = crate::knowledge2::KnowledgeGraph2::new(db)
+        .selector()
+        .verdicts()
+        .vetoed_keys()
+        .await?;
     let walked = walk(db, &entity, &vetoes).await?;
     let identity = current_identity(db, entity.id).await?;
 
@@ -470,8 +474,11 @@ mod tests {
 
     use crate::fetch::cache::FetchCache;
     use crate::fetch::{Answer, Outcome};
-    use crate::knowledge::KnowledgeGraph;
+    use crate::knowledge2::identity::IdentityKey;
+    use crate::knowledge2::ids::{EntityOriginId, ObservationId};
+    use crate::knowledge2::mutation::{Cause, GraphMutation};
     use crate::knowledge2::wikidata::{WikidataCandidate, WikidataKind};
+    use crate::knowledge2::KnowledgeGraph2;
     use crate::test_support::{db_or_skip, fixtures};
     use sea_orm::EntityTrait;
 
@@ -512,8 +519,17 @@ mod tests {
             )
             .await
             .unwrap();
-        KnowledgeGraph::new(&db)
-            .veto(id, "wikidata", "Q42", Some("test veto"))
+        let origin = entity.origin_observation_id.expect("the fixture has an origin");
+        KnowledgeGraph2::new(&db)
+            .proc(&[GraphMutation::VetoIdentity {
+                subject: EntityOriginId(ObservationId(origin)),
+                key: IdentityKey {
+                    scheme: "wikidata".into(),
+                    external_id: "Q42".into(),
+                },
+                cause: Cause::Repair,
+                why: "test veto".into(),
+            }])
             .await
             .unwrap();
 

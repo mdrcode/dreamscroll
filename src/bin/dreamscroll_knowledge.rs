@@ -331,7 +331,7 @@ struct ResolveArgs {
 struct StatsArgs {}
 
 /// Print one entity's walk through the pipeline.
-fn print_inspection(report: &knowledge::eval::inspect::Report) {
+fn print_inspection(report: &knowledge2::eval::inspect::Report) {
     let entity = &report.entity;
     println!(
         "entity {} · {} [{}] · {}",
@@ -688,7 +688,7 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
 /// counts if its entity already had an earlier member — so this answers "was the right thing on
 /// the table when it mattered", not "can the index still find it now".
 async fn eval_blocker(db: &database::DbHandle) -> anyhow::Result<()> {
-    let report = knowledge::eval::replay_blocker(db).await?;
+    let report = knowledge2::eval::replay_blocker(db).await?;
     println!(
         "observations {} (superseded {} skipped) · first member {} · eligible {}",
         report.observations, report.superseded, report.new_entity, report.eligible
@@ -1104,7 +1104,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Identity(args) => match args.command {
             IdentityCommand::Resolve(args) => resolve_identity(&db, args).await?,
             IdentityCommand::Inspect(args) => {
-                let report = knowledge::eval::inspect::inspect(&db, &args.target).await?;
+                let report = knowledge2::eval::inspect::inspect(&db, &args.target).await?;
                 match report {
                     Some(report) => {
                         if args.json {

@@ -14,8 +14,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
-use crate::knowledge::blocker::{Blocker, SqlBlocker, index};
-use crate::knowledge::text;
+use crate::knowledge2::blocker::{Blocker, SqlBlocker, index};
+use crate::knowledge2::text;
 use crate::model;
 
 /// One eligible observation whose true entity was not offered.
@@ -267,7 +267,7 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
 mod tests {
     use super::*;
 
-    use crate::knowledge::KnowledgeGraph;
+    use crate::knowledge2::KnowledgeGraph2;
     use crate::model;
     use crate::test_support::{db_or_skip, fixtures};
     use sea_orm::{ColumnTrait, EntityTrait, Set, sea_query::Expr};
@@ -288,7 +288,7 @@ mod tests {
             .exec(&db.conn)
             .await
             .unwrap();
-        KnowledgeGraph::new(db)
+        KnowledgeGraph2::new(db)
             .update_projection(entity)
             .await
             .unwrap();

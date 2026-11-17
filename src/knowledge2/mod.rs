@@ -9,6 +9,7 @@
 
 pub mod mutation;
 pub mod blocker;
+pub mod eval;
 pub mod graph;
 pub mod proximity;
 pub mod replay;
