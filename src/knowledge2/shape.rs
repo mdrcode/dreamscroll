@@ -50,9 +50,7 @@ pub async fn snapshot(db: &DbHandle) -> anyhow::Result<Shape> {
         .collect();
     let origin = |entity_id: i32| origins.get(&entity_id).copied().flatten();
 
-    let mut shape = Shape::default();
-
-    shape.entities = entities
+    let mut entity_lines: Vec<String> = entities
         .iter()
         .map(|entity| {
             format!(
@@ -78,9 +76,9 @@ pub async fn snapshot(db: &DbHandle) -> anyhow::Result<Shape> {
             )
         })
         .collect();
-    shape.entities.sort();
+    entity_lines.sort();
 
-    shape.identities = model::knowledge_identity::Entity::find()
+    let mut identity_lines: Vec<String> = model::knowledge_identity::Entity::find()
         .all(&db.conn)
         .await?
         .into_iter()
@@ -101,9 +99,9 @@ pub async fn snapshot(db: &DbHandle) -> anyhow::Result<Shape> {
             )
         })
         .collect();
-    shape.identities.sort();
+    identity_lines.sort();
 
-    shape.memberships = model::user_observed_entity::Entity::find()
+    let mut membership_lines: Vec<String> = model::user_observed_entity::Entity::find()
         .all(&db.conn)
         .await?
         .into_iter()
@@ -116,9 +114,9 @@ pub async fn snapshot(db: &DbHandle) -> anyhow::Result<Shape> {
             )
         })
         .collect();
-    shape.memberships.sort();
+    membership_lines.sort();
 
-    shape.index = model::knowledge_blocking_index::Entity::find()
+    let mut index_lines: Vec<String> = model::knowledge_blocking_index::Entity::find()
         .all(&db.conn)
         .await?
         .into_iter()
@@ -133,7 +131,12 @@ pub async fn snapshot(db: &DbHandle) -> anyhow::Result<Shape> {
             )
         })
         .collect();
-    shape.index.sort();
+    index_lines.sort();
 
-    Ok(shape)
+    Ok(Shape {
+        entities: entity_lines,
+        identities: identity_lines,
+        memberships: membership_lines,
+        index: index_lines,
+    })
 }
