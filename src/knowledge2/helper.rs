@@ -1,21 +1,18 @@
 //! The first end-to-end use case: link illuminations into the v2 graph.
 //!
 //! The graph has no linker and no blocker. This helper is the external executor: it hands the
-//! pending observations to a v2 [`Linker`] and applies the mutations. The graph projects natively,
+//! pending observations to the v2 heuristic planner and applies the mutations. The graph projects natively,
 //! including the blocking index, so the next illumination's SQL blocker sees the same graph v1 would
 //! have built.
 
 use sea_orm::sea_query::{Expr, ExprTrait, Query};
-use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseBackend, QueryFilter, QueryOrder, Statement, Value,
-};
+use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
 use crate::knowledge2::mutation::GraphMutation;
 use crate::knowledge2::blocker::SqlBlocker;
 use crate::knowledge2::graph::KnowledgeGraph2;
-use crate::knowledge2::ids::{EntityOriginId, ObservationId};
-use crate::knowledge2::{HeuristicPlanner, IdentityHolder, Linker};
+use crate::knowledge2::heuristic::HeuristicPlanner;
 use crate::model;
 
 /// One illumination's link.
@@ -45,7 +42,7 @@ pub struct LinkHelper {
     db: DbHandle,
     graph: KnowledgeGraph2,
     blocker: SqlBlocker,
-    linker: HeuristicPlanner,
+    planner: HeuristicPlanner,
 }
 
 impl LinkHelper {
@@ -54,7 +51,7 @@ impl LinkHelper {
             db: db.clone(),
             graph: KnowledgeGraph2::new(db),
             blocker: SqlBlocker::new(db),
-            linker: HeuristicPlanner::new(),
+            planner: HeuristicPlanner::new(),
         }
     }
 
@@ -84,7 +81,11 @@ impl LinkHelper {
             .collect();
         let already_linked = considered - pending.len();
 
-        let mutations = self.linker.plan(&self.blocker, self, &pending).await?;
+        let selector = self.graph.selector();
+        let mutations = self
+            .planner
+            .plan(&self.blocker, &selector, &pending)
+            .await?;
         let created = mutations
             .iter()
             .filter(|mutation| matches!(mutation, GraphMutation::CreateEntity { .. }))
@@ -137,48 +138,6 @@ impl LinkHelper {
             report.left_pending += part.left_pending;
         }
         Ok(report)
-    }
-}
-
-const HOLDER: &str = r#"
-SELECT e.origin_observation_id
-  FROM knowledge_identities i
-  JOIN knowledge_entities e ON e.id = i.knowledge_entity_id
- WHERE e.merged_into_id IS NULL
-   AND i.scheme = $1
-   AND i.external_id = $2
- ORDER BY e.confidence DESC NULLS LAST, e.id
- LIMIT 1
-"#;
-
-/// The one read the planner asks, answered from v2's own tables.
-///
-/// The ordering is the resolver's rule — most substantiated first, `NULL` last, then id — so the
-/// decision matches the one knowledge1's `Evidence` would have given.
-#[async_trait::async_trait]
-impl IdentityHolder for LinkHelper {
-    async fn holder(
-        &self,
-        scheme: &str,
-        external_id: &str,
-    ) -> anyhow::Result<Option<EntityOriginId>> {
-        let row = self
-            .db
-            .conn
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                HOLDER,
-                vec![
-                    Value::String(Some(scheme.to_string())),
-                    Value::String(Some(external_id.to_string())),
-                ],
-            ))
-            .await?;
-        let Some(row) = row else {
-            return Ok(None);
-        };
-        let origin: Option<i32> = row.try_get_by_index(0)?;
-        Ok(origin.map(|id| EntityOriginId(ObservationId(id))))
     }
 }
 

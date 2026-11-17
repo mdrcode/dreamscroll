@@ -4,9 +4,9 @@ use crate::model;
 
 use crate::knowledge2::mutation::GraphMutation;
 use crate::knowledge2::blocker::Blocker;
+use crate::knowledge2::graph::GraphSelector;
 use crate::knowledge2::identity::Identity;
 use crate::knowledge2::ids::{EntityOriginId, ObservationId};
-use crate::knowledge2::linker::{IdentityHolder, Linker};
 use super::Heuristic;
 
 /// Today's policy: a held identity wins; else the best qualifying candidate; else create.
@@ -19,14 +19,11 @@ impl HeuristicPlanner {
     pub fn new() -> Self {
         Self::default()
     }
-}
 
-#[async_trait::async_trait]
-impl Linker for HeuristicPlanner {
-    async fn plan(
+    pub async fn plan(
         &self,
         blocker: &dyn Blocker,
-        holder: &dyn IdentityHolder,
+        selector: &GraphSelector<'_>,
         observations: &[model::user_observed_entity::Model],
     ) -> anyhow::Result<Vec<GraphMutation>> {
         // The order the capture emitted them, which decides who wins a contested entity.
@@ -40,7 +37,7 @@ impl Linker for HeuristicPlanner {
             // A held identity settles it before any scoring. The capture's handle is the observation's
             // own evidence; the entity carrying it is the thing.
             if let Some(identity) = &with
-                && let Some(entity) = holder
+                && let Some(entity) = selector
                     .holder(&identity.scheme, &identity.external_id)
                     .await?
             {

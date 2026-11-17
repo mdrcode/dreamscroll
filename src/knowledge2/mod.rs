@@ -15,7 +15,6 @@ pub mod heuristic;
 pub mod helper;
 pub mod identity;
 pub mod ids;
-pub mod linker;
 pub mod shape;
 pub mod text;
 pub mod wikidata;
@@ -27,4 +26,3 @@ pub use helper::{LinkAllReport, LinkHelper, LinkReport, link_all_pending, link_i
 pub use identity::{Identity, IdentityKey, Provider};
 pub use ids::{EntityOriginId, ObservationId};
 pub use heuristic::HeuristicPlanner;
-pub use linker::{IdentityHolder, Linker};

@@ -1,6 +1,6 @@
 # knowledge2: mutations and their parameters
 
-Status: v11, implemented in `graph/`, `helper.rs`, and `linker.rs`. Projection and the blocking index
+Status: v11, implemented in `graph/`, `helper.rs`, and `heuristic/`. Projection and the blocking index
 run in v2. Same four tables. Proximity out of scope.
 
 Callers emit mutations; one call is one transaction. No mutation contains a generation-scoped entity id,
@@ -202,11 +202,11 @@ no `illuminator` special case.
 
 ## The planner
 
-A v2 `Linker` is a policy: the pending batch in, one `GraphMutation` per observation out.
+The v2 planner is a policy: the pending batch in, one `GraphMutation` per observation out.
 
 - `Blocker` is recall: live entities only, ordered by id. An error is not an empty set; empty means
   "nothing matched, create," and a failed probe stops the link.
-- `IdentityHolder` is the one evidence read: which live entity already carries
+- `GraphSelector::holder` is the one evidence read: which live entity already carries
   `(scheme, external_id)`, named by origin.
 - `heuristic::HeuristicPlanner` is today's policy: a held identity wins; else the best qualifying
   blocker candidate; else create. The target is an `EntityOriginId`, never an entity id, so a
@@ -216,7 +216,7 @@ The caller selects the batch. Already-linked observations are not the planner's 
 filters them before planning.
 
 The heuristic lives in `knowledge2::heuristic` with the measures it ranks with. It is the default
-policy, not the interface: another `Linker` — including an agentic one — can replace it without
+policy, not the interface: another planner — including an agentic one — can replace it without
 touching the graph.
 
 ## Text
@@ -322,7 +322,7 @@ does not authenticate the caller.
 
 What the code paths build:
 
-- **Link**: a `Linker` plans the pending batch; `CreateEntity` and `AttachObservation` carry the
+- **Link**: `HeuristicPlanner` plans the pending batch; `CreateEntity` and `AttachObservation` carry the
   `Identity` its policy admits. The graph never sees the platform link.
 - **Resolve**: `Identify`, `RetractIdentity`, chunked per entity. That is how a provider
   replaces its set without a set-shaped mutation.
