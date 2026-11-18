@@ -1,9 +1,9 @@
-//! The first end-to-end use case: link illuminations into the v2 graph.
+//! The first end-to-end use cases: link illuminations into the v2 graph and
+//! identify entities with Wikidata.
 //!
-//! The graph has no linker and no blocker. This helper is the external executor: it hands the
-//! pending observations to the v2 heuristic planner and applies the mutations. The graph projects natively,
-//! including the blocking index, so the next illumination's SQL blocker sees the same graph v1 would
-//! have built.
+//! The "helper" structs below are external executors which leverage the
+//! heuristic linker and identifier to perform the end-to-end graph 
+//! construction operations
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -22,12 +22,63 @@ use crate::knowledge2::mutation::GraphMutation;
 use crate::knowledge2::wikidata::ID;
 use crate::model;
 
-pub use crate::knowledge2::heuristic::identification::{
-    DryRunIdentity, IdentificationReport, Options, ProviderReport,
-};
-
 /// Transport calls a plain identification is allowed to make when the caller does not choose a budget.
 pub const DEFAULT_MAX_REQUESTS: usize = 200;
+
+#[derive(Debug, Clone, Default)]
+pub struct Options {
+    /// Ask Wikidata again even when it already annotated the entity. `--entity` sets this;
+    /// without it, the already-annotated filter makes an entity-scoped run empty.
+    pub include_already_annotated: bool,
+    /// Report what a positive answer would write, without writing or projecting it.
+    pub dry_run: bool,
+}
+
+/// One identity a dry run would write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DryRunIdentity {
+    pub entity_id: i32,
+    pub provider: String,
+    pub scheme: String,
+    pub external_id: String,
+    pub method: Option<String>,
+}
+
+/// One identification run.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct IdentificationReport {
+    pub offline: bool,
+    /// No identities were written or projected; the counts are what the run would do. Provider
+    /// answers may still populate `fetch_cache`.
+    pub dry_run: bool,
+
+    pub considered: usize,
+    pub fetch_traffic: fetch::Stats,
+
+    pub entities_identified: usize,
+    pub identities_written: usize,
+    pub identities_vetoed: usize,
+    pub identities_replaced: usize,
+
+    pub by_provider: Vec<ProviderReport>,
+    /// What a dry run would write; empty for a real run.
+    pub preview: Vec<DryRunIdentity>,
+    /// The run-wide budget refusal, or a provider's rate limit, for the report.
+    pub refusal: Option<fetch::Refusal>,
+}
+
+/// What Wikidata did in one run.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ProviderReport {
+    pub provider: String,
+    pub batch: usize,
+    pub fetch_traffic: fetch::Stats,
+
+    pub identities_written: usize,
+    pub identities_vetoed: usize,
+    /// Old annotations this provider owned that the run replaced.
+    pub identities_replaced: usize,
+}
 
 /// One illumination's link.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
