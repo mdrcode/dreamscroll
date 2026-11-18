@@ -19,12 +19,11 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 | K4 | S2 | Unmerge |
 | K5 | S2 | Projection invariant |
 | K7 | S3 | `Cause::Model` semantics |
-| K9 | S4 | Ghost set |
 | K10 | S4 | Normalisation watch |
 | K11 | S2 | Illumination retries append rather than replace |
 
 > Former K2 and K6 are folded into K3; their ids are retired. K8 shipped 2026-11-18; its id is
-> retired.
+> retired. K9 is accepted in `plan/pragmatism.md`; its id is retired.
 
 ### Illumination inference
 
@@ -307,19 +306,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   previous attempt before `link` ever sees it — the graph's "every reading survives" rule silently
   loses the reading. A re-illumination from a *new* run is unaffected. This is the supersede change
   and the only part of the illumination-history work that touches ingest.
-
-- [ ] **Surface the ghost set — but it is the memberless set, not the superseded one.**
-  Checked against `project` on 2026-11-16: `current` compares a member's illumination against the
-  maximum *among the entity's own members*, and the member holding that maximum is one of them, so
-  `members.iter().find(current)` succeeds whenever `members` is non-empty. "Every member of this
-  entity is superseded" therefore has exactly one spelling — the entity has no members at all — and
-  such an entity keeps its previous `name` and `description` (the `row.*` fallback in `project`)
-  while nothing can attach to it. That is the real ghost: a row wearing surfaces no observation
-  supports any more.
-  `link_illumination`'s transaction (shipped 2026-11-16) closed the only capture-side path that made
-  them, so the count should be structurally zero — which makes a `knowledge_stats` column an
-  invariant rather than a signal. Decide whether that is worth a column, or whether the
-  `Assert the projection invariant` item above covers it at the fixture level.
 
 ### Knowledge graph v2
 
