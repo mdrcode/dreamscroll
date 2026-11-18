@@ -195,7 +195,9 @@ struct EntityShowArgs {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "proximity")]
-#[argh(description = "entities sharing an identity; scan is read-only, distinct records a decision")]
+#[argh(
+    description = "entities sharing an identity; scan is read-only, distinct records a decision"
+)]
 struct ProximityArgs {
     #[argh(subcommand)]
     command: ProximityCommand,
@@ -517,7 +519,7 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
         (false, Some(n)) => n,
         (false, None) => knowledge2::DEFAULT_MAX_REQUESTS,
     };
-    let options = knowledge2::Options {
+    let options = knowledge2::IdentificationOptions {
         include_already_annotated: args.entity.is_some(),
         dry_run: args.dry_run,
     };
@@ -545,7 +547,7 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
                     allowance.as_ref(),
                 )
                 .await?;
-            if report.dry_run {
+            if args.dry_run {
                 println!("entity {id} identities (dry run — no identities written)");
                 let previews: Vec<_> = report
                     .preview
@@ -557,11 +559,10 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
                 }
                 for preview in previews {
                     println!(
-                        "  → {}:{}  {}  provider {}",
+                        "  → {}:{}  {}",
                         preview.scheme,
                         preview.external_id,
-                        preview.method.as_deref().unwrap_or("-"),
-                        preview.provider
+                        preview.method.as_deref().unwrap_or("-")
                     );
                 }
             } else {
@@ -592,52 +593,38 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
         }
         None => {
             engine
-                .identify_all_pending(
-                    &cache,
-                    allowance.as_ref(),
-                    args.limit,
-                    args.newest,
-                )
+                .identify_all_pending(&cache, allowance.as_ref(), args.limit, args.newest)
                 .await?
         }
     };
 
-    if report.offline {
+    if args.offline {
         println!("offline — cache only, no transport calls");
     } else {
         println!("budget {max_requests} requests");
     }
-    if report.dry_run {
+    if args.dry_run {
         println!("dry run — no identities written");
     }
     println!(
-        "considered {} · requested {} · cache hits {}",
-        report.considered, report.fetch_traffic.requested, report.fetch_traffic.cache_hits
+        "considered {} · batch {} · requested {} · cache hits {}",
+        report.considered,
+        report.batch,
+        report.fetch_traffic.requested,
+        report.fetch_traffic.cache_hits
     );
-    if report.dry_run {
+    if args.dry_run {
         println!(
-            "fetched {} · failed {} · would write {} identities · would resolve {} entities · vetoed {}",
+            "fetched {} · failed {} · would write {} identities · would identify {} entities · vetoed {}",
             report.fetch_traffic.fetched,
             report.fetch_traffic.failed,
             report.identities_written,
             report.entities_identified,
             report.identities_vetoed
         );
-        for provider in &report.by_provider {
-            println!(
-                "  {:<16} batch {:>5} · requested {:>5} · cache {:>5} · fetched {:>4} · would write {:>4} · vetoed {}",
-                provider.provider,
-                provider.batch,
-                provider.fetch_traffic.requested,
-                provider.fetch_traffic.cache_hits,
-                provider.fetch_traffic.fetched,
-                provider.identities_written,
-                provider.identities_vetoed
-            );
-        }
     } else {
         println!(
-            "fetched {} · failed {} · identities {} · entities resolved {} · vetoed {} · replaced {}",
+            "fetched {} · failed {} · identities {} · entities identified {} · vetoed {} · replaced {}",
             report.fetch_traffic.fetched,
             report.fetch_traffic.failed,
             report.identities_written,
@@ -645,19 +632,6 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
             report.identities_vetoed,
             report.identities_replaced
         );
-        for provider in &report.by_provider {
-            println!(
-                "  {:<16} batch {:>5} · requested {:>5} · cache {:>5} · fetched {:>4} · identities {:>4} · vetoed {} · replaced {}",
-                provider.provider,
-                provider.batch,
-                provider.fetch_traffic.requested,
-                provider.fetch_traffic.cache_hits,
-                provider.fetch_traffic.fetched,
-                provider.identities_written,
-                provider.identities_vetoed,
-                provider.identities_replaced
-            );
-        }
     }
     match report.refusal {
         Some(dreamscroll::fetch::Refusal::Budget) => {
@@ -667,12 +641,12 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
         Some(dreamscroll::fetch::Refusal::RateLimited { retry_after_secs }) => {
             match retry_after_secs {
                 Some(seconds) => println!(
-                    "a provider rate limited us — it stopped; retry it in {seconds}s \
-                     (or lower --min-interval-ms / --max-requests); other providers continued"
+                    "Wikidata rate limited us — the run stopped; retry in {seconds}s \
+                     (or lower --min-interval-ms / --max-requests)"
                 ),
                 None => println!(
-                    "a provider rate limited us — it stopped; it gave no retry time \
-                     (or lower --min-interval-ms / --max-requests); other providers continued"
+                    "Wikidata rate limited us — the run stopped; it gave no retry time \
+                     (or lower --min-interval-ms / --max-requests)"
                 ),
             }
         }
@@ -755,7 +729,9 @@ async fn main() -> anyhow::Result<()> {
 
     match args.command {
         Command::Link(_) => {
-            let report = knowledge2::LinkHelper::new(&db).link_all_pending(&db).await?;
+            let report = knowledge2::LinkHelper::new(&db)
+                .link_all_pending(&db)
+                .await?;
             println!(
                 "illuminations {} · considered {} · already linked {} · created {} · attached {} · left pending {}",
                 report.illuminations,
@@ -829,12 +805,14 @@ async fn main() -> anyhow::Result<()> {
             }
 
             let selector = graph.selector();
-            let loser = selector.origin_of(args.loser).await?.ok_or_else(|| {
-                anyhow::anyhow!("knowledge entity {} has no origin", args.loser)
-            })?;
-            let winner = selector.origin_of(args.winner).await?.ok_or_else(|| {
-                anyhow::anyhow!("knowledge entity {} has no origin", args.winner)
-            })?;
+            let loser = selector
+                .origin_of(args.loser)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("knowledge entity {} has no origin", args.loser))?;
+            let winner = selector
+                .origin_of(args.winner)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("knowledge entity {} has no origin", args.winner))?;
             let outcome = graph
                 .proc(&[knowledge2::GraphMutation::MergeEntity {
                     loser,
@@ -1119,7 +1097,9 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     knowledge2::ReprojectScope::Stale
                 };
-                let total = knowledge2::KnowledgeGraph2::new(&db).reproject(scope).await?;
+                let total = knowledge2::KnowledgeGraph2::new(&db)
+                    .reproject(scope)
+                    .await?;
                 println!(
                     "reprojected {total} {}",
                     if args.all {

@@ -2,7 +2,7 @@
 //! identify entities with Wikidata.
 //!
 //! The "helper" structs below are external executors which leverage the
-//! heuristic linker and identifier to perform the end-to-end graph 
+//! heuristic linker and identifier to perform the end-to-end graph
 //! construction operations
 
 use std::collections::{BTreeMap, HashSet};
@@ -14,71 +14,13 @@ use crate::database::DbHandle;
 use crate::fetch::{self, Allowance, FetchCache, Gateway};
 use crate::knowledge2::blocker::SqlBlocker;
 use crate::knowledge2::graph::KnowledgeGraph2;
-use crate::knowledge2::heuristic::HeuristicLinker;
 use crate::knowledge2::heuristic::HeuristicIdentifier;
+use crate::knowledge2::heuristic::HeuristicLinker;
 use crate::knowledge2::identity::{Identity, Provider};
 use crate::knowledge2::ids::{EntityOriginId, ObservationId};
 use crate::knowledge2::mutation::GraphMutation;
 use crate::knowledge2::wikidata::ID;
 use crate::model;
-
-/// Transport calls a plain identification is allowed to make when the caller does not choose a budget.
-pub const DEFAULT_MAX_REQUESTS: usize = 200;
-
-#[derive(Debug, Clone, Default)]
-pub struct Options {
-    /// Ask Wikidata again even when it already annotated the entity. `--entity` sets this;
-    /// without it, the already-annotated filter makes an entity-scoped run empty.
-    pub include_already_annotated: bool,
-    /// Report what a positive answer would write, without writing or projecting it.
-    pub dry_run: bool,
-}
-
-/// One identity a dry run would write.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DryRunIdentity {
-    pub entity_id: i32,
-    pub provider: String,
-    pub scheme: String,
-    pub external_id: String,
-    pub method: Option<String>,
-}
-
-/// One identification run.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct IdentificationReport {
-    pub offline: bool,
-    /// No identities were written or projected; the counts are what the run would do. Provider
-    /// answers may still populate `fetch_cache`.
-    pub dry_run: bool,
-
-    pub considered: usize,
-    pub fetch_traffic: fetch::Stats,
-
-    pub entities_identified: usize,
-    pub identities_written: usize,
-    pub identities_vetoed: usize,
-    pub identities_replaced: usize,
-
-    pub by_provider: Vec<ProviderReport>,
-    /// What a dry run would write; empty for a real run.
-    pub preview: Vec<DryRunIdentity>,
-    /// The run-wide budget refusal, or a provider's rate limit, for the report.
-    pub refusal: Option<fetch::Refusal>,
-}
-
-/// What Wikidata did in one run.
-#[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct ProviderReport {
-    pub provider: String,
-    pub batch: usize,
-    pub fetch_traffic: fetch::Stats,
-
-    pub identities_written: usize,
-    pub identities_vetoed: usize,
-    /// Old annotations this provider owned that the run replaced.
-    pub identities_replaced: usize,
-}
 
 /// One illumination's link.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -145,10 +87,7 @@ impl LinkHelper {
         let already_linked = considered - pending.len();
 
         let selector = self.graph.selector();
-        let mutations = self
-            .linker
-            .plan(&self.blocker, &selector, &pending)
-            .await?;
+        let mutations = self.linker.plan(&self.blocker, &selector, &pending).await?;
         let created = mutations
             .iter()
             .filter(|mutation| matches!(mutation, GraphMutation::CreateEntity { .. }))
@@ -204,15 +143,55 @@ impl LinkHelper {
     }
 }
 
+/// Transport calls a plain identification is allowed to make when the caller does not choose a budget.
+pub const DEFAULT_MAX_REQUESTS: usize = 200;
+
+#[derive(Debug, Clone, Default)]
+pub struct IdentificationOptions {
+    /// Ask Wikidata again even when it already annotated the entity. `--entity` sets this;
+    /// without it, the already-annotated filter makes an entity-scoped run empty.
+    pub include_already_annotated: bool,
+    /// Report what a positive answer would write, without writing or projecting it.
+    pub dry_run: bool,
+}
+
+/// One identity a dry run would write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DryRunIdentity {
+    pub entity_id: i32,
+    pub scheme: String,
+    pub external_id: String,
+    pub method: Option<String>,
+}
+
+/// One identification run.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct IdentificationReport {
+    pub considered: usize,
+    /// Entities sent to Wikidata after the already-annotated filter.
+    pub batch: usize,
+    pub fetch_traffic: fetch::Stats,
+
+    pub entities_identified: usize,
+    pub identities_written: usize,
+    pub identities_vetoed: usize,
+    pub identities_replaced: usize,
+
+    /// What a dry run would write; empty for a real run.
+    pub preview: Vec<DryRunIdentity>,
+    /// The run-wide budget refusal, or Wikidata's rate limit, for the report.
+    pub refusal: Option<fetch::Refusal>,
+}
+
 /// The identification executor: the heuristic provider and the graph.
 pub struct IdentifyHelper {
     graph: KnowledgeGraph2,
-    options: Options,
+    options: IdentificationOptions,
     identifier: HeuristicIdentifier,
 }
 
 impl IdentifyHelper {
-    pub fn new(db: &DbHandle, options: Options) -> anyhow::Result<Self> {
+    pub fn new(db: &DbHandle, options: IdentificationOptions) -> anyhow::Result<Self> {
         Ok(Self {
             graph: KnowledgeGraph2::new(db),
             options,
@@ -241,12 +220,6 @@ impl IdentifyHelper {
 
         let mut report = IdentificationReport {
             considered: entities.len(),
-            offline: gateway.offline(),
-            dry_run: self.options.dry_run,
-            ..Default::default()
-        };
-        let mut provider_report = ProviderReport {
-            provider: ID.to_string(),
             ..Default::default()
         };
         let mut proposed: BTreeMap<i32, Vec<Identity>> = BTreeMap::new();
@@ -266,8 +239,7 @@ impl IdentifyHelper {
                 .collect();
             let batch_ids: HashSet<i32> = batch.iter().map(|entity| entity.id).collect();
 
-            provider_report.batch = batch.len();
-            let before = gateway.stats();
+            report.batch = batch.len();
             if !batch.is_empty() {
                 for (knowledge_entity_id, identity) in
                     self.identifier.identify_batch(&batch, &gateway).await
@@ -280,40 +252,35 @@ impl IdentifyHelper {
                         );
                         continue;
                     }
-                    proposed.entry(knowledge_entity_id).or_default().push(identity);
+                    proposed
+                        .entry(knowledge_entity_id)
+                        .or_default()
+                        .push(identity);
                 }
             }
-            let after = gateway.stats();
-            provider_report.fetch_traffic = fetch::Stats {
-                requested: after.requested.saturating_sub(before.requested),
-                cache_hits: after.cache_hits.saturating_sub(before.cache_hits),
-                fetched: after.fetched.saturating_sub(before.fetched),
-                failed: after.failed.saturating_sub(before.failed),
-            };
-
             if self.options.dry_run {
                 for (entity_id, identities) in &proposed {
                     let (keep, vetoed) = filter_identities(*entity_id, identities, &vetoes);
                     let written = keep.len();
                     report.identities_written += written;
                     report.identities_vetoed += vetoed;
-                    provider_report.identities_written += written;
-                    provider_report.identities_vetoed += vetoed;
                     if written > 0 {
                         identified.insert(*entity_id);
                     }
-                    report.preview.extend(keep.into_iter().map(|identity| DryRunIdentity {
-                        entity_id: *entity_id,
-                        provider: ID.to_string(),
-                        scheme: identity.scheme,
-                        external_id: identity.external_id,
-                        method: identity.method,
-                    }));
+                    report
+                        .preview
+                        .extend(keep.into_iter().map(|identity| DryRunIdentity {
+                            entity_id: *entity_id,
+                            scheme: identity.scheme,
+                            external_id: identity.external_id,
+                            method: identity.method,
+                        }));
                 }
             } else {
                 let mut mutations = Vec::new();
                 for (entity_id, identities) in &proposed {
-                    let Some(entity) = entities.iter().find(|entity| entity.id == *entity_id) else {
+                    let Some(entity) = entities.iter().find(|entity| entity.id == *entity_id)
+                    else {
                         continue;
                     };
                     let Some(origin) = entity.origin_observation_id else {
@@ -340,9 +307,6 @@ impl IdentifyHelper {
                     report.identities_written += written;
                     report.identities_vetoed += vetoed;
                     report.identities_replaced += removed;
-                    provider_report.identities_written += written;
-                    provider_report.identities_vetoed += vetoed;
-                    provider_report.identities_replaced += removed;
                     if written > 0 {
                         identified.insert(*entity_id);
                     }
@@ -354,7 +318,6 @@ impl IdentifyHelper {
         }
 
         report.entities_identified = identified.len();
-        report.by_provider = vec![provider_report];
         report.fetch_traffic = gateway.stats();
         report.refusal = gateway.refusal();
         Ok(report)
@@ -495,7 +458,7 @@ mod tests {
     fn identifier(db: &DbHandle, dry_run: bool) -> IdentifyHelper {
         let mut helper = IdentifyHelper::new(
             db,
-            Options {
+            IdentificationOptions {
                 include_already_annotated: true,
                 dry_run,
             },
@@ -512,7 +475,9 @@ mod tests {
             .await
             .unwrap()
             .expect("the fixture entity exists");
-        let origin = row.origin_observation_id.expect("the fixture has an origin");
+        let origin = row
+            .origin_observation_id
+            .expect("the fixture has an origin");
         KnowledgeGraph2::new(db)
             .proc(&[GraphMutation::Identify {
                 subject: EntityOriginId(ObservationId(origin)),
@@ -581,7 +546,10 @@ mod tests {
 
         assert_eq!(report.identities_written, 1, "{report:?}");
         assert_eq!(
-            report.preview.first().map(|preview| preview.external_id.as_str()),
+            report
+                .preview
+                .first()
+                .map(|preview| preview.external_id.as_str()),
             Some("Q2")
         );
         assert_eq!(keys(&db, entity).await, ["Q1"]);
@@ -672,5 +640,4 @@ mod tests {
             1
         );
     }
-
 }
