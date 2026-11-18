@@ -1,5 +1,6 @@
 //! Today's link policy: a held identity wins; else the best qualifying candidate; else create.
 
+use crate::illumination::v2::PlatformLink;
 use crate::model;
 
 use crate::knowledge::mutation::GraphMutation;
@@ -32,7 +33,16 @@ impl HeuristicLinker {
 
         let mut mutations = Vec::with_capacity(observations.len());
         for observation in observations {
-            let with = Identity::from_observation(&observation);
+            let with = PlatformLink::from_columns(
+                observation.platform.clone(),
+                observation.platform_handle.clone(),
+                observation.platform_display_name.clone(),
+            )
+            .and_then(|link| Identity::from_platform_link(&link))
+            .map(|mut identity| {
+                identity.observation_id = Some(ObservationId(observation.id));
+                identity
+            });
 
             // A held identity settles it before any scoring. The capture's handle is the observation's
             // own evidence; the entity carrying it is the thing.

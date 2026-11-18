@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model;
+use crate::illumination::v2::PlatformLink;
 
 use super::ids::ObservationId;
 use super::text;
@@ -46,22 +46,21 @@ pub struct Identity {
 }
 
 impl Identity {
-    /// The platform link an observation carried, as an identity, or nothing.
+    /// The platform link as an identity, when it carries a handle.
     ///
-    /// The caller's admission rule: a platform and a handle are enough. No handle, no identity.
-    pub fn from_observation(observation: &model::user_observed_entity::Model) -> Option<Self> {
-        let platform = observation.platform.as_deref()?;
-        let handle = observation.platform_handle.as_deref()?;
+    /// The caller decides which link, if any, to promote; this only folds the link's key.
+    pub fn from_platform_link(link: &PlatformLink) -> Option<Self> {
+        let handle = link.handle()?;
         Some(Self {
             provider: Provider("illuminator".into()),
-            scheme: text::comparable(platform),
+            scheme: text::comparable(link.platform_name()),
             external_id: text::comparable(handle),
-            method: Some("observation".into()),
+            method: Some("platform_link".into()),
             confidence: None,
             label: None,
             description: None,
             classes: Vec::new(),
-            observation_id: Some(ObservationId(observation.id)),
+            observation_id: None,
         })
     }
 }

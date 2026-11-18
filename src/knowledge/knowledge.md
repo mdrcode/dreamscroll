@@ -114,8 +114,8 @@ pub enum GraphMutation {
 what it says without the call; the caller is not consulted to interpret it, and is not stored.
 
 The graph never sees a platform link. The caller decides whether an observation's `platform_*`
-columns are an identity, converts that to an `Identity`, and passes it on the membership mutation or as
-an `Identify`. The graph upserts exactly what it is handed; it has no `platform_link` call and
+columns form a `PlatformLink`, converts that link to an `Identity`, and passes it on the membership
+mutation or as an `Identify`. The graph upserts exactly what it is handed; it has no `platform_link` call and
 no `illuminator` special case.
 
 ## Per-mutation contract
@@ -233,7 +233,7 @@ touching the graph.
   word-prefix are how the heuristic linker and Wikidata decide whether two texts mean the same thing. The graph's integrity does not depend on them.
 
 If Link and Identify are replaced by LLM-driven flows that do their own text, the core keeps `text`;
-`heuristic::text` goes with those components. Identity-key folding (`Identity::from_observation`, v1's
+`heuristic::text` goes with those components. Identity-key folding (`Identity::from_platform_link`, v1's
 `IdentityKey::try_from`) is producer-side: the caller supplies canonical `(scheme, external_id)`
 strings, and the graph stores them as given.
 
@@ -281,8 +281,9 @@ Pre-cutover, local corpus, `link` only on both engines (2,802 observations, 732 
 ## Identities are caller-supplied
 
 If an observation's platform columns should become an identity, the caller says so. The caller — today
-the Link producer — reads `platform_link(observation)`; if its policy admits the handle, it passes an
-`Identity` on `CreateEntity` or `AttachObservation`. An agent or operator may pass none.
+the Link producer — extracts a `PlatformLink` from the observation; if its policy admits the handle,
+it calls `Identity::from_platform_link` and passes the result on `CreateEntity` or
+`AttachObservation`. An agent or operator may pass none.
 
 - The admission rule lives with the caller. Today it is "any handle is an identity"; a caller that
   wants a stricter rule changes its own construction, not the executor.
