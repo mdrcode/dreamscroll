@@ -311,7 +311,7 @@ mod tests {
         // entities were known to be one, so its miss is not a blocking failure.
         model::knowledge_verdicts::Entity::insert(model::knowledge_verdicts::ActiveModel {
             generation: Set(1),
-            cause: Set(model::knowledge_verdicts::Cause::Repair),
+            cause: Set(crate::knowledge::Cause::Repair),
             kind: Set(model::knowledge_verdicts::Kind::Merge),
             winner_label: Set(Some("Bible".to_string())),
             loser_label: Set(Some("The Holy Bible".to_string())),

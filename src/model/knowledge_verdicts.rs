@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 
+use crate::knowledge::mutation::Cause;
+
 /// Which statement a verdict row makes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::None)")]
@@ -35,43 +37,6 @@ impl std::fmt::Display for Kind {
     }
 }
 
-/// What decided a merge. The distinction is the point of keeping the log: a person's instruction is
-/// replayed in every later generation, while the automatic pass's opinion is re-derived. `replayed`
-/// is historical: newer replay applies decisions without appending another row.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
-#[sea_orm(rs_type = "String", db_type = "String(StringLen::None)")]
-pub enum Cause {
-    /// The automatic pass folded a proximity candidate. The model's opinion, re-derived every build.
-    #[sea_orm(string_value = "proximity_auto")]
-    ProximityAuto,
-    /// A person decided these are one thing. Kept, and replayed in every later generation.
-    #[sea_orm(string_value = "repair")]
-    Repair,
-    /// An older repair, applied to this generation by the replay.
-    #[sea_orm(string_value = "replayed")]
-    Replayed,
-    /// A model decided. Durable like a repair, but not a person's instruction.
-    #[sea_orm(string_value = "model")]
-    Model,
-}
-
-impl Cause {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::ProximityAuto => "proximity_auto",
-            Self::Repair => "repair",
-            Self::Replayed => "replayed",
-            Self::Model => "model",
-        }
-    }
-}
-
-impl std::fmt::Display for Cause {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
 /// One merge that happened, and what decided it — the graph's modification log.
 ///
 /// Keyed by `origin_observation_id` on each side, because entity ids are generation-scoped: a reset
@@ -79,13 +44,14 @@ impl std::fmt::Display for Cause {
 /// recorded rather than just the pair — it is the side that keeps the name, the origin and the
 /// projected columns.
 ///
-/// Two kinds share the log, because both are the same statement — a person's decision about the
-/// graph, keyed by what survives a rebuild. A `merge` folds two origins into one. A `veto_identity` says an
-/// entity is *not* an identity: the item stays valid and claimable by everything else.
+/// Three kinds share the log, because each is the same statement — a decision about the graph,
+/// keyed by what survives a rebuild. A `merge` folds two origins into one. A `veto_identity` says an
+/// entity is *not* an identity: the item stays valid and claimable by everything else. A `distinct`
+/// keeps two origins separate despite a shared identity.
 ///
 /// `cause` is the whole point of keeping it: a `repair` is a person's instruction and replay applies
-/// it again in every later generation; `proximity_auto` is the model's opinion for one generation and
-/// is re-derived, never re-applied; `replayed` records that an older repair was applied again.
+/// it again in every later generation; a `model` decision is durable but not a person's; `replayed`
+/// records that an older repair was applied again.
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "knowledge_verdicts")]
@@ -96,8 +62,8 @@ pub struct Model {
     /// The generation the merge happened in.
     pub generation: i32,
 
-    /// `repair` (a person), `proximity_auto` (the automatic pass), or historical `replayed`
-    /// rows from an older replay implementation.
+    /// `repair` (a person), `model` (a model), or historical `replayed` rows from an older replay
+    /// implementation.
     #[sea_orm(default_value = "repair")]
     pub cause: Cause,
 

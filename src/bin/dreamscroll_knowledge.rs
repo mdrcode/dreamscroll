@@ -256,10 +256,7 @@ enum VerdictsCommand {
 struct VerdictsListArgs {
     #[argh(option, description = "only this generation")]
     generation: Option<i32>,
-    #[argh(
-        option,
-        description = "only this cause: repair, proximity_auto, replayed"
-    )]
+    #[argh(option, description = "only this cause: repair, model, replayed")]
     cause: Option<String>,
     #[argh(option, default = "50", description = "maximum rows to show")]
     limit: usize,

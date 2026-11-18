@@ -4,18 +4,23 @@
 //! what should happen and emits these values. [`KnowledgeGraph`](crate::knowledge::KnowledgeGraph)
 //! decides how to apply them and nothing else.
 
+use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use super::identity::{Identity, IdentityKey, Provider};
 use super::ids::{EntityOriginId, ObservationId};
 
 /// Why the mutation was made. Stored on the row; the lifting rule distinguishes the classes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, EnumIter, DeriveActiveEnum)]
 #[serde(rename_all = "snake_case")]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::None)")]
 pub enum Cause {
+    #[sea_orm(string_value = "repair")]
     Repair,
+    #[sea_orm(string_value = "model")]
     Model,
     /// Historical marker from an older replay implementation. New replay does not append rows.
+    #[sea_orm(string_value = "replayed")]
     Replayed,
 }
 
@@ -26,6 +31,12 @@ impl Cause {
             Self::Model => "model",
             Self::Replayed => "replayed",
         }
+    }
+}
+
+impl std::fmt::Display for Cause {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
     }
 }
 

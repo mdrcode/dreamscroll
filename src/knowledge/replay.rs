@@ -158,7 +158,7 @@ mod tests {
     async fn insert_merge(db: &DbHandle, winner: i32, loser: i32) {
         model::knowledge_verdicts::ActiveModel {
             generation: Set(1),
-            cause: Set(model::knowledge_verdicts::Cause::Repair),
+            cause: Set(crate::knowledge::Cause::Repair),
             kind: Set(model::knowledge_verdicts::Kind::Merge),
             winner_origin: Set(Some(winner)),
             loser_origin: Set(Some(loser)),
@@ -173,7 +173,7 @@ mod tests {
     async fn insert_veto(db: &DbHandle, subject: i32, external_id: &str) {
         model::knowledge_verdicts::ActiveModel {
             generation: Set(1),
-            cause: Set(model::knowledge_verdicts::Cause::Repair),
+            cause: Set(crate::knowledge::Cause::Repair),
             kind: Set(model::knowledge_verdicts::Kind::VetoIdentity),
             subject_origin: Set(Some(subject)),
             identity_scheme: Set(Some("wikidata".into())),

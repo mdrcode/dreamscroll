@@ -28,7 +28,7 @@ impl<'a> VerdictSelector<'a> {
         Ok(model::knowledge_verdicts::Entity::find()
             .filter(
                 model::knowledge_verdicts::Column::Cause
-                    .eq(model::knowledge_verdicts::Cause::Repair.as_str()),
+                    .eq(crate::knowledge::Cause::Repair.as_str()),
             )
             .filter(
                 model::knowledge_verdicts::Column::Kind
@@ -44,7 +44,7 @@ impl<'a> VerdictSelector<'a> {
         Ok(model::knowledge_verdicts::Entity::find()
             .filter(
                 model::knowledge_verdicts::Column::Cause
-                    .eq(model::knowledge_verdicts::Cause::Repair.as_str()),
+                    .eq(crate::knowledge::Cause::Repair.as_str()),
             )
             .filter(
                 model::knowledge_verdicts::Column::Kind

@@ -12,7 +12,7 @@ use crate::database;
 pub struct VerdictRow {
     pub id: i32,
     pub generation: i32,
-    /// `repair`, `proximity_auto` or `replayed`.
+    /// `repair`, `model` or `replayed`.
     pub cause: String,
     /// `merge`, `veto_identity` or `distinct`.
     pub kind: String,
@@ -115,9 +115,9 @@ mod tests {
         };
         let db = test_db.handle();
         for (generation, cause) in [
-            (1, crate::model::knowledge_verdicts::Cause::Repair),
-            (2, crate::model::knowledge_verdicts::Cause::Repair),
-            (2, crate::model::knowledge_verdicts::Cause::ProximityAuto),
+            (1, crate::knowledge::Cause::Repair),
+            (2, crate::knowledge::Cause::Repair),
+            (2, crate::knowledge::Cause::Model),
         ] {
             crate::model::knowledge_verdicts::Entity::insert(
                 crate::model::knowledge_verdicts::ActiveModel {
@@ -137,7 +137,7 @@ mod tests {
 
         let all = verdict_list(&db, None, None, 50).await.unwrap();
         assert_eq!(all.len(), 3);
-        assert_eq!(all[0].cause, "proximity_auto", "newest first");
+        assert_eq!(all[0].cause, "model", "newest first");
 
         assert_eq!(verdict_list(&db, Some(2), None, 50).await.unwrap().len(), 2);
         let repairs = verdict_list(&db, Some(2), Some("repair"), 50)
