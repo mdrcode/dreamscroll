@@ -148,16 +148,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `provisional` for free. Deferred with it: whether a refusal also writes a proximity (which would
   flag the established entity for a look); today "shares an identity" is a proximity, and diluting
   it is a separate decision.
-- [ ] **Score the entity-resolution precision sheet.** The 100-row stratified sheet exists at
-  `localdev/analysis/entity-promotion/evidence/review/precision_sheet.csv`
-  (45 identified / 25 ranked / 15 ambiguous / 15 unidentified), but it is **unlabelled**: every
-  `verdict` and `answer_qid` is blank, so `score.py` refuses to run. Fill those columns, then score.
-  Precision ≥ 0.90 lets the `identified` dimension drive promotion as-is; below 0.75 the
-  verification step needs rework. See `plan/archive/knowledge-evidence-prototype.md` §8.
-- [ ] **Replace the keyword type-filter with `P31` class matching.** The filter
-  rejected 444 rows whose exact-label item existed, 247 of them with a single
-  candidate. A curated `type → {class QIDs}` map tested through
-  `wdt:P31/wdt:P279*` is the fix. Same doc, §9.
 - [ ] **Define `brand` vs `organization`, `product` vs `software`.** These two
   undefined type pairs account for 111 of 179 collision pairs.
 - [ ] **Add `concept` and `organism` entity types, plus `referent_form` and
@@ -337,12 +327,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   them, so the count should be structurally zero — which makes a `knowledge_stats` column an
   invariant rather than a signal. Decide whether that is worth a column, or whether the
   `Assert the projection invariant` item above covers it at the fixture level.
-
-- [ ] **Rebuild the resolution gold-set harness.** The 25 verified rows survive in
-  `localdev/analysis/entity-promotion/evidence/resolve-gold.tsv`, but the harness that scored them
-  (`examples/eval_resolve`) went with the replay driver. Without it a scoring change is measured on
-  the whole corpus only, so a regression on a specifically hard case stays invisible until it moves
-  a claim count. No 100+ row labelled gold set exists in the tree.
 
 ### Knowledge graph v2
 

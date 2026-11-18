@@ -2,8 +2,8 @@
 
 **Status:** prototype, complete enough to judge feasibility. **Not** a production
 design. The owner's verdict (2026-10-31): the direction has merit; a robust
-implementation will be built later. Nothing here is shipped; the analysis code is
-local-only (see [Where the code lives](#where-the-code-lives)).
+implementation will be built later. Nothing here is shipped; the local analysis
+code and data were deleted on 2026-11-18, so this is history only.
 
 **Question this prototype answers:** can we reliably identify the entities our
 model extracts against external authorities (Wikidata, platform identities), and
