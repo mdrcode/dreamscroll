@@ -951,12 +951,14 @@ async fn main() -> anyhow::Result<()> {
                             .collect::<Vec<_>>()
                             .join(", ");
                         println!(
-                            "{:.3}  {} [{}] \u{21c4} {} [{}]  {}{}",
+                            "{:.3}  {} [{}|{}] \u{21c4} {} [{}|{}]  {}{}",
                             candidate.score,
                             candidate.holder_name,
                             candidate.holder_id,
+                            candidate.holder_type,
                             candidate.counterpart_name,
                             candidate.counterpart_id,
+                            candidate.counterpart_type,
                             identities,
                             if candidate.distinct {
                                 "  [distinct]"

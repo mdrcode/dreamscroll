@@ -21,8 +21,10 @@ pub struct ProximityCandidate {
     /// The more substantiated side, used as the reading order.
     pub holder_id: i32,
     pub holder_name: String,
+    pub holder_type: String,
     pub counterpart_id: i32,
     pub counterpart_name: String,
+    pub counterpart_type: String,
     /// Every identity the two entities share, in scan order.
     pub identities: Vec<IdentityKey>,
     /// A standing `distinct` verdict names this pair.
@@ -92,8 +94,10 @@ pub async fn scan(db: &DbHandle) -> anyhow::Result<Vec<ProximityCandidate>> {
             let candidate = pairs.entry(pair).or_insert_with(|| ProximityCandidate {
                 holder_id,
                 holder_name: holder.name.clone(),
+                holder_type: holder.entity_type.clone(),
                 counterpart_id,
                 counterpart_name: counterpart.name.clone(),
+                counterpart_type: counterpart.entity_type.clone(),
                 identities: Vec::new(),
                 distinct: distinct_pairs.contains(&(
                     holder
