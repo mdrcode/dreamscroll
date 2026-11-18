@@ -7,9 +7,6 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use sea_orm::sea_query::{Expr, ExprTrait, Query};
-use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
-
 use crate::database::DbHandle;
 use crate::fetch::{self, Allowance, FetchCache, Gateway};
 use crate::knowledge::blocker::SqlBlocker;
@@ -116,18 +113,8 @@ impl LinkHelper {
     ///
     /// One illumination, one `proc`, one projection pass — the same boundary as v1. The order is by
     /// illumination id, because linking one changes what a later one finds.
-    pub async fn link_all_pending(&self, db: &DbHandle) -> anyhow::Result<LinkAllReport> {
-        let unlinked = Query::select()
-            .column(model::user_observed_entity::Column::IlluminationId)
-            .from(model::user_observed_entity::Entity)
-            .and_where(model::user_observed_entity::Column::KnowledgeEntityId.is_null())
-            .to_owned();
-        let illuminations = model::illumination::Entity::load()
-            .filter(Expr::col(model::illumination::Column::Id).in_subquery(unlinked))
-            .with(model::user_observed_entity::Entity)
-            .order_by_asc(model::illumination::Column::Id)
-            .all(&db.conn)
-            .await?;
+    pub async fn link_all_pending(&self) -> anyhow::Result<LinkAllReport> {
+        let illuminations = self.graph.selector().awaiting_link().await?;
 
         let mut report = LinkAllReport::default();
         for illumination in &illuminations {
@@ -415,7 +402,7 @@ mod tests {
         )
         .await;
 
-        let report = LinkHelper::new(&db).link_all_pending(&db).await.unwrap();
+        let report = LinkHelper::new(&db).link_all_pending().await.unwrap();
 
         assert_eq!(report.illuminations, 2);
         assert_eq!(report.created, 1);
@@ -656,7 +643,7 @@ mod tests {
         )
         .await;
 
-        let report = LinkHelper::new(&db).link_all_pending(&db).await.unwrap();
+        let report = LinkHelper::new(&db).link_all_pending().await.unwrap();
 
         assert_eq!(report.created, 1);
         assert_eq!(report.attached, 1);

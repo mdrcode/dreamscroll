@@ -735,9 +735,7 @@ async fn main() -> anyhow::Result<()> {
 
     match args.command {
         Command::Link(_) => {
-            let report = knowledge::LinkHelper::new(&db)
-                .link_all_pending(&db)
-                .await?;
+            let report = knowledge::LinkHelper::new(&db).link_all_pending().await?;
             println!(
                 "illuminations {} · considered {} · already linked {} · created {} · attached {} · left pending {}",
                 report.illuminations,

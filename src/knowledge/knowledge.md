@@ -246,6 +246,9 @@ The shared identity primitive is `graph.selector().awaiting_identity(...)`: live
 has not answered, with the per-provider filter. An agentic provider uses that, the Wikidata core, and
 the graph's `Identify`/`RetractIdentity` mutations directly.
 
+The link primitive is `graph.selector().awaiting_link()`: illuminations with at least one unlinked
+observation, oldest first, with their observations loaded.
+
 `HeuristicIdentifier` is the automated provider; `IdentifyHelper` selects and batches, runs the
 policy in `heuristic::identification` through the gateway, replaces the provider's set, and reports.
 The policy is `plan`, `gather`, `measure`, `classes`, `ranking` and `decide`; it produces

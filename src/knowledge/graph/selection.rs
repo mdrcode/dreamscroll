@@ -40,6 +40,21 @@ impl<'a> GraphSelector<'a> {
         awaiting_identities(self.conn, providers, limit, newest_first).await
     }
 
+    /// Illuminations with at least one observation not yet linked, oldest first.
+    pub async fn awaiting_link(&self) -> anyhow::Result<Vec<model::illumination::ModelEx>> {
+        let unlinked = Query::select()
+            .column(model::user_observed_entity::Column::IlluminationId)
+            .from(model::user_observed_entity::Entity)
+            .and_where(model::user_observed_entity::Column::KnowledgeEntityId.is_null())
+            .to_owned();
+        Ok(model::illumination::Entity::load()
+            .filter(Expr::col(model::illumination::Column::Id).in_subquery(unlinked))
+            .with(model::user_observed_entity::Entity)
+            .order_by_asc(model::illumination::Column::Id)
+            .all(self.conn)
+            .await?)
+    }
+
     /// Which of `entity_ids` this provider already annotated.
     pub async fn identified_by(
         &self,

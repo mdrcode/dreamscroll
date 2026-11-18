@@ -7,8 +7,6 @@ use crate::database::DbHandle;
 
 /// Link every illumination that still has unlinked observations.
 pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
-    crate::knowledge::LinkHelper::new(db)
-        .link_all_pending(db)
-        .await?;
+    crate::knowledge::LinkHelper::new(db).link_all_pending().await?;
     Ok(())
 }
