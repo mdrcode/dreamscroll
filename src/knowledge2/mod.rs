@@ -29,7 +29,6 @@ pub use graph::{
 };
 pub use helper::{
     DEFAULT_MAX_REQUESTS, IdentifyHelper, LinkAllReport, LinkHelper, LinkReport, Options,
-    link_all_pending, link_illumination,
 };
 pub use identity::{Identity, IdentityKey, Provider};
 pub use ids::{EntityOriginId, ObservationId};

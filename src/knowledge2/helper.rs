@@ -153,19 +153,6 @@ impl LinkHelper {
     }
 }
 
-/// Link one illumination through a fresh helper. The v1-shaped entry point.
-pub async fn link_illumination(
-    db: &DbHandle,
-    illumination: &model::illumination::ModelEx,
-) -> anyhow::Result<LinkReport> {
-    LinkHelper::new(db).link_illumination(illumination).await
-}
-
-/// Link every pending illumination through one helper. The v1-shaped entry point.
-pub async fn link_all_pending(db: &DbHandle) -> anyhow::Result<LinkAllReport> {
-    LinkHelper::new(db).link_all_pending(db).await
-}
-
 /// The identification executor: the heuristic provider and the graph.
 pub struct IdentifyHelper {
     graph: KnowledgeGraph2,
@@ -417,7 +404,7 @@ mod tests {
         )
         .await;
 
-        let report = link_all_pending(&db).await.unwrap();
+        let report = LinkHelper::new(&db).link_all_pending(&db).await.unwrap();
 
         assert_eq!(report.illuminations, 2);
         assert_eq!(report.created, 1);
@@ -622,7 +609,7 @@ mod tests {
         )
         .await;
 
-        let report = link_all_pending(&db).await.unwrap();
+        let report = LinkHelper::new(&db).link_all_pending(&db).await.unwrap();
 
         assert_eq!(report.created, 1);
         assert_eq!(report.attached, 1);
