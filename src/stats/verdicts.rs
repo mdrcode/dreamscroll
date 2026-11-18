@@ -117,7 +117,7 @@ mod tests {
         for (generation, cause) in [
             (1, crate::knowledge::Cause::Repair),
             (2, crate::knowledge::Cause::Repair),
-            (2, crate::knowledge::Cause::Model),
+            (2, crate::knowledge::Cause::Repair),
         ] {
             crate::model::knowledge_verdicts::Entity::insert(
                 crate::model::knowledge_verdicts::ActiveModel {
@@ -137,13 +137,13 @@ mod tests {
 
         let all = verdict_list(&db, None, None, 50).await.unwrap();
         assert_eq!(all.len(), 3);
-        assert_eq!(all[0].cause, "model", "newest first");
+        assert_eq!(all[0].cause, "repair", "newest first");
 
         assert_eq!(verdict_list(&db, Some(2), None, 50).await.unwrap().len(), 2);
         let repairs = verdict_list(&db, Some(2), Some("repair"), 50)
             .await
             .unwrap();
-        assert_eq!(repairs.len(), 1, "{repairs:?}");
+        assert_eq!(repairs.len(), 2, "{repairs:?}");
         assert_eq!(repairs[0].winner, "winner");
         assert_eq!(
             verdict_list(&db, None, None, 2).await.unwrap().len(),

@@ -18,7 +18,6 @@ pub enum Refusal {
     PendingMerge,
     SharedIllumination,
     Contradiction(&'static str),
-    Unauthorized,
 }
 
 /// One call's outcome.

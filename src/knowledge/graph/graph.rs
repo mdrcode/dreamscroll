@@ -389,7 +389,7 @@ mod tests {
             .proc(&[GraphMutation::MergeEntity {
                 loser: EntityOriginId(ObservationId(left)),
                 winner: EntityOriginId(ObservationId(right)),
-                cause: Cause::Model,
+                cause: Cause::Repair,
                 why: "the same film".into(),
                 record_verdict: true,
             }])
@@ -665,7 +665,7 @@ mod tests {
             .proc(&[GraphMutation::MergeEntity {
                 loser: EntityOriginId(ObservationId(left)),
                 winner: EntityOriginId(ObservationId(right)),
-                cause: Cause::Model,
+                cause: Cause::Repair,
                 why: "same thing".into(),
                 record_verdict: true,
             }])
@@ -895,11 +895,7 @@ mod tests {
         assert_eq!(identity_rows(&db, entity).await, 0);
 
         graph
-            .proc(&[GraphMutation::UnvetoIdentity {
-                subject,
-                key,
-                cause: Cause::Repair,
-            }])
+            .proc(&[GraphMutation::UnvetoIdentity { subject, key }])
             .await
             .unwrap();
         graph
@@ -934,7 +930,7 @@ mod tests {
             .proc(&[GraphMutation::MergeEntity {
                 loser: a,
                 winner: b,
-                cause: Cause::Model,
+                cause: Cause::Repair,
                 why: "same thing".into(),
                 record_verdict: true,
             }])

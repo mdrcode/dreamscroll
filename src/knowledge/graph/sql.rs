@@ -51,11 +51,7 @@ pub(super) async fn apply<C: ConnectionTrait>(
             why,
             record_verdict,
         } => veto(conn, *subject, key, *cause, why, *record_verdict).await,
-        GraphMutation::UnvetoIdentity {
-            subject,
-            key,
-            cause,
-        } => unveto(conn, *subject, key, *cause).await,
+        GraphMutation::UnvetoIdentity { subject, key } => unveto(conn, *subject, key).await,
     }
 }
 
@@ -768,7 +764,6 @@ async fn unveto<C: ConnectionTrait>(
     conn: &C,
     subject: EntityOriginId,
     key: &IdentityKey,
-    cause: Cause,
 ) -> anyhow::Result<Outcome> {
     let entity = match resolve(conn, subject).await? {
         Ok(id) => id,
@@ -776,36 +771,18 @@ async fn unveto<C: ConnectionTrait>(
     };
     let origin = origin_of(conn, entity).await?;
 
-    const ROWS: &str = r#"
-    SELECT cause FROM knowledge_verdicts
-     WHERE kind = 'veto_identity'
-       AND subject_origin = $1
-       AND identity_scheme = $2
-       AND identity_external_id = $3
-    "#;
-    let values = || vec![int(origin), text(&key.scheme), text(&key.external_id)];
-    let rows = all(conn, ROWS, values()).await?;
-    if rows.is_empty() {
-        return Ok(Outcome::NoChange);
-    }
-
-    if cause == Cause::Model {
-        for row in &rows {
-            let stored: String = row.try_get_by_index(0)?;
-            if stored == Cause::Repair.as_str() {
-                return Ok(Outcome::Refused(Refusal::Unauthorized));
-            }
-        }
-    }
-
-    execute(
+    let removed = execute(
         conn,
         "DELETE FROM knowledge_verdicts \
          WHERE kind = 'veto_identity' AND subject_origin = $1 \
            AND identity_scheme = $2 AND identity_external_id = $3",
-        values(),
+        vec![int(origin), text(&key.scheme), text(&key.external_id)],
     )
     .await?;
 
-    Ok(Outcome::Applied(Vec::new()))
+    Ok(if removed == 0 {
+        Outcome::NoChange
+    } else {
+        Outcome::Applied(Vec::new())
+    })
 }

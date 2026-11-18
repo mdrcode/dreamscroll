@@ -1196,7 +1196,6 @@ async fn main() -> anyhow::Result<()> {
                             scheme,
                             external_id: external,
                         },
-                        cause: knowledge::Cause::Repair,
                     }])
                     .await?;
                 if let Some(refusal) = &outcome.refused {

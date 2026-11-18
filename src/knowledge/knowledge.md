@@ -48,8 +48,8 @@ pub struct Identity {
     pub observation_id: Option<ObservationId>,  // provenance: the observation that carried it
 }
 
-/// Who decided. Stored on the row; the two classes lifting distinguishes.
-pub enum Cause { Repair, Model }
+/// Why a mutation was made. Stored on the row.
+pub enum Cause { Repair }
 ```
 
 An entity is named by its origin: the observation that created it. There is no `EntityId` in the
@@ -107,7 +107,6 @@ pub enum GraphMutation {
     UnvetoIdentity {
         subject: EntityOriginId,
         key: IdentityKey,
-        cause: Cause,
     },
 }
 ```
@@ -199,13 +198,11 @@ no `illuminator` special case.
   - Logs: when `record_verdict`, `kind = veto_identity`, subject origin, `identity_scheme`,
     `identity_external_id`, the mutation's `cause` and `why`. Replay passes `false`.
 
-- **`UnvetoIdentity { subject, key, cause }`**
-  - Accepts: the subject resolves; no veto row for the origin and key has a `cause` above this one.
+- **`UnvetoIdentity { subject, key }`**
+  - Accepts: the subject resolves.
   - NoChange: no veto row.
   - Does: delete every veto row for the origin and key. Nothing is restored; the next resolve may
     assert the annotation again.
-  - Lifting rule: `Model` cannot lift a `Cause::Repair` row. The mutation states its own cause; the
-    edge is responsible for not letting a model claim `Repair`.
 
 ## Open mutation grammar
 
@@ -330,12 +327,10 @@ does not authenticate the caller.
 
 - **Provenance is on the mutation.** An `Identity` carries `provider`; a decision carries `cause`.
   That is what the row stores, and it is enough for replay to re-emit the same mutation later.
-- **The graph enforces the invariants of that provenance.** A lift may not delete a row whose
-  `cause` is above its own (`Model` < `Repair`). A provider-scoped write is scoped by the identity's
-  `provider`, and veto admission filters it.
-- **The edge authenticates.** The agent adapter maps every model mutation to `provider = model` and
-  `Cause::Model`, and exposes only the subset a model may call. Internal callers are trusted. There
-  is no `Principal` in the graph and no capability table.
+- **The graph enforces the invariants of that provenance.** A provider-scoped write is scoped by the
+  identity's `provider`, and veto admission filters it.
+- **The edge authenticates.** Internal callers are trusted. There is no `Principal` in the graph and
+  no capability table.
 - **If the executor becomes a public boundary**, add a principal argument. That is authorization,
   not vocabulary, and it does not belong in the mutation.
 
@@ -395,7 +390,6 @@ pub enum Refusal {
     PendingMerge,
     SharedIllumination,
     Contradiction(&'static str),
-    Unauthorized,
 }
 ```
 

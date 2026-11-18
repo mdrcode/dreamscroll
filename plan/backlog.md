@@ -16,13 +16,12 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 | --- | --- | --- |
 | K1 | S2 | Person vs social account |
 | K3 | S2 | Provider-neutral entity types (boundaries, coverage, mechanism) |
-| K7 | S3 | `Cause::Model` semantics |
 | K10 | S4 | Normalisation watch |
 | K11 | S2 | Illumination retries append rather than replace |
 
 > Former K2 and K6 are folded into K3; their ids are retired. K4 is retired; the incomplete mutation
-> grammar is documented in `src/knowledge/knowledge.md`. K5 shipped 2026-11-18. K8 shipped
-> 2026-11-18. K9 is accepted in `plan/pragmatism.md`.
+> grammar is documented in `src/knowledge/knowledge.md`. K5 shipped 2026-11-18. K7 is retired;
+> nothing wrote `Cause::Model`. K8 shipped 2026-11-18. K9 is accepted in `plan/pragmatism.md`.
 
 ### Illumination inference
 
@@ -292,13 +291,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   previous attempt before `link` ever sees it — the graph's "every reading survives" rule silently
   loses the reading. A re-illumination from a *new* run is unaffected. This is the supersede change
   and the only part of the illumination-history work that touches ingest.
-
-### Knowledge graph v2
-
-- [ ] **Consider the addition of `Cause::Model`.** `knowledge` emits it for a model's merge,
-  distinct and veto decisions, and the shared `knowledge::Cause` keeps the row round-trippable. Decide whether it is first-class everywhere: proximity stats currently read it as
-  no decision, and replay still reasons in `repair`. Either give it its own status
-  word and rung, or map model decisions to `repair` and lose the distinction.
 
 ## Deferred — already scoped
 

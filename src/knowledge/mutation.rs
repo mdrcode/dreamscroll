@@ -10,22 +10,19 @@ use serde::{Deserialize, Serialize};
 use super::identity::{Identity, IdentityKey, Provider};
 use super::ids::{EntityOriginId, ObservationId};
 
-/// Why the mutation was made. Stored on the row; the lifting rule distinguishes the classes.
+/// Why the mutation was made. Stored on the row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, EnumIter, DeriveActiveEnum)]
 #[serde(rename_all = "snake_case")]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::None)")]
 pub enum Cause {
     #[sea_orm(string_value = "repair")]
     Repair,
-    #[sea_orm(string_value = "model")]
-    Model,
 }
 
 impl Cause {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Repair => "repair",
-            Self::Model => "model",
         }
     }
 }
@@ -107,7 +104,6 @@ pub enum GraphMutation {
     UnvetoIdentity {
         subject: EntityOriginId,
         key: IdentityKey,
-        cause: Cause,
     },
 }
 
