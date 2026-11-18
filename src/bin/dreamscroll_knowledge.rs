@@ -1099,7 +1099,7 @@ async fn main() -> anyhow::Result<()> {
                 let scope = if args.all {
                     knowledge::ReprojectScope::All
                 } else {
-                    knowledge::ReprojectScope::Stale
+                    knowledge::ReprojectScope::Unidentified
                 };
                 let total = knowledge::KnowledgeGraph::new(&db)
                     .reproject(scope)

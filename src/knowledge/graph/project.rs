@@ -223,8 +223,8 @@ fn select(preferred: Option<&str>, candidates: &[String]) -> (Option<String>, Ve
 /// Which entities a reprojection pass walks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Scope {
-    /// Live entities holding no identity annotation — what a deletion can leave stale.
-    Stale,
+    /// Live entities holding no identity annotation — the identification backlog.
+    Unidentified,
     /// Every live entity — what a change to the projection rule needs.
     All,
 }
@@ -240,7 +240,7 @@ pub async fn reproject(
     use crate::model::knowledge_identity as identities;
 
     let mut query = entity::Entity::find().filter(entity::Column::MergedIntoId.is_null());
-    if scope == Scope::Stale {
+    if scope == Scope::Unidentified {
         let annotated = Query::select()
             .distinct()
             .column((identities::Entity, identities::Column::KnowledgeEntityId))

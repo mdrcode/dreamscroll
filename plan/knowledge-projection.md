@@ -82,9 +82,6 @@ This makes `reproject` a function of the durable graph rather than of its own pr
 
 ## Watch / out of scope
 
-- **`Scope::Stale` is narrower than it sounds.** It selects entities with zero identities; a
-  one-identity entity whose confidence or surface changed is not selected. Rename it to
-  `Unidentified`, or default repairs to `All`.
 - **Per-entity N+1.** Fine for a link batch; potentially expensive for a resolver batch of hundreds
   inside one transaction. Measure at the resolve cutover; a batched projector is the optimization.
 - **Dedupe inconsistency.** Names dedupe by folded key (first spelling wins); types and descriptions
@@ -99,6 +96,7 @@ This makes `reproject` a function of the durable graph rather than of its own pr
 - [x] Idempotence: `reproject --all` twice; the second run changes nothing.
 - [x] Detached origin drops the origin's text and platform.
 - [x] Last-member detach is refused.
+- [x] `Scope::Stale` renamed to `Scope::Unidentified`, matching what it selects.
 - [x] Corpus check: 0 entity descriptions and 0 platforms were being kept alive only by the fallback
   (45 / 2,806 observations carry no description; 40 / 2,326 live entities have no member
   description).
