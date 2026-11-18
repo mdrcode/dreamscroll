@@ -84,35 +84,34 @@ pub async fn scan(db: &DbHandle) -> anyhow::Result<Vec<ProximityCandidate>> {
                 .then_with(|| a.id.cmp(&b.id))
         });
         ids.dedup();
-        let Some(holder_id) = ids.first().copied() else {
-            continue;
-        };
-        let holder = &entities[&holder_id];
-        for counterpart_id in ids.iter().skip(1).copied() {
-            let pair = (holder_id.min(counterpart_id), holder_id.max(counterpart_id));
-            let counterpart = &entities[&counterpart_id];
-            let candidate = pairs.entry(pair).or_insert_with(|| ProximityCandidate {
-                holder_id,
-                holder_name: holder.name.clone(),
-                holder_type: holder.entity_type.clone(),
-                counterpart_id,
-                counterpart_name: counterpart.name.clone(),
-                counterpart_type: counterpart.entity_type.clone(),
-                identities: Vec::new(),
-                distinct: distinct_pairs.contains(&(
-                    holder
-                        .origin_observation_id
-                        .min(counterpart.origin_observation_id),
-                    holder
-                        .origin_observation_id
-                        .max(counterpart.origin_observation_id),
-                )),
-                score: scorer.pair(counterpart, holder),
-            });
-            candidate.identities.push(IdentityKey {
-                scheme: scheme.clone(),
-                external_id: external_id.clone(),
-            });
+        for (i, &holder_id) in ids.iter().enumerate() {
+            for &counterpart_id in &ids[i + 1..] {
+                let pair = (holder_id.min(counterpart_id), holder_id.max(counterpart_id));
+                let holder = &entities[&holder_id];
+                let counterpart = &entities[&counterpart_id];
+                let candidate = pairs.entry(pair).or_insert_with(|| ProximityCandidate {
+                    holder_id,
+                    holder_name: holder.name.clone(),
+                    holder_type: holder.entity_type.clone(),
+                    counterpart_id,
+                    counterpart_name: counterpart.name.clone(),
+                    counterpart_type: counterpart.entity_type.clone(),
+                    identities: Vec::new(),
+                    distinct: distinct_pairs.contains(&(
+                        holder
+                            .origin_observation_id
+                            .min(counterpart.origin_observation_id),
+                        holder
+                            .origin_observation_id
+                            .max(counterpart.origin_observation_id),
+                    )),
+                    score: scorer.pair(counterpart, holder),
+                });
+                candidate.identities.push(IdentityKey {
+                    scheme: scheme.clone(),
+                    external_id: external_id.clone(),
+                });
+            }
         }
     }
 
@@ -162,6 +161,49 @@ mod tests {
             (left, right)
         );
         assert!(!candidates[0].distinct);
+    }
+
+    #[tokio::test]
+    async fn scan_pairs_every_holder_with_every_other_holder() {
+        db_or_skip!(db);
+        let high = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let middle = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let low = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        for (entity, confidence) in [(high, 0.9), (middle, 0.6), (low, 0.3)] {
+            model::knowledge_entity::Entity::update_many()
+                .col_expr(
+                    model::knowledge_entity::Column::Confidence,
+                    sea_orm::sea_query::Expr::value(Some(confidence)),
+                )
+                .filter(model::knowledge_entity::Column::Id.eq(entity))
+                .exec(&db.conn)
+                .await
+                .unwrap();
+        }
+        for entity in [high, middle, low] {
+            fixtures::identity(&db, entity, "wikidata", "Q1", "test", None, Some(0.9)).await;
+        }
+
+        let candidates = scan(&db).await.unwrap();
+        assert_eq!(candidates.len(), 3);
+        let pairs: HashSet<(i32, i32)> = candidates
+            .iter()
+            .map(|candidate| (candidate.holder_id, candidate.counterpart_id))
+            .collect();
+        assert_eq!(
+            pairs,
+            HashSet::from([(high, middle), (high, low), (middle, low)])
+        );
+        for candidate in &candidates {
+            assert_eq!(
+                candidate.identities,
+                vec![IdentityKey {
+                    scheme: "wikidata".into(),
+                    external_id: "Q1".into(),
+                }]
+            );
+            assert!(!candidate.distinct);
+        }
     }
 
     #[tokio::test]
