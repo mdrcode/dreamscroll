@@ -51,8 +51,8 @@ payload can be an illumination id and nothing else; a tombstone in the join is a
 silent drop.
 
 **The cache lives with the wiring, the engine with the policy.** `FetchCache` owns a pool handle
-(it no longer borrows), so `LogicState` holds exactly one for the process; `HeuristicIdentifier` holds its
-options and Wikidata client, and a run supplies entities, that cache and an allowance. So the task passes
+(it no longer borrows), so `LogicState` holds exactly one for the process; `IdentifyHelper` holds its
+options, Wikidata provider, and graph, and a run supplies entities, that cache and an allowance. So the task passes
 `&state.cache`, never a connection — and no layer but the cache holds one at runtime.
 
 The producer replaces one provider's annotation set per entity it answered and skips entities that

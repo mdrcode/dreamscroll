@@ -15,7 +15,7 @@ annotated yet — the safety net under the online resolve task.
 | transport | Cloud Tasks delivery | Cloud Run Job execution |
 | failure | retries its own attempt, then drops | *is* the retry |
 
-**See also:** `src/knowledge2/heuristic/identifier.rs` (`identify_all_pending`),
+**See also:** `src/knowledge2/helper.rs` (`identify_all_pending`),
 `src/knowledge2/graph/selection.rs` (`awaiting_identity`), `gcloud/prod-dreamscroll-db.yaml` (the job
 this copies), `src/knowledge2/knowledge2.md`.
 

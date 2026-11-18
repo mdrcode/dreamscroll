@@ -1,7 +1,7 @@
 //! Heuristic identification: today's Wikidata policy.
 //!
-//! The entry point is [`super::identifier::HeuristicIdentifier`]; this module holds the policy it
-//! runs and the Wikidata provider.
+//! [`super::identifier::HeuristicIdentifier`] is the provider; the flow that selects, writes and
+//! reports is `knowledge2::IdentifyHelper`.
 
 mod classes;
 pub(crate) mod decide;

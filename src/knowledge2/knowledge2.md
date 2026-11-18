@@ -246,15 +246,15 @@ The shared identity primitive is `graph.selector().awaiting_identity(...)`: live
 has not answered, with the per-provider filter. An agentic provider uses that, the Wikidata core, and
 the graph's `Identify`/`RetractIdentity` mutations directly.
 
-`knowledge2::heuristic::identifier::HeuristicIdentifier` is the automated provider. It selects and
-batches, runs the policy in `heuristic::identification` through the gateway, replaces the provider's set,
-and reports. The policy is `plan`, `gather`, `measure`, `classes`, `ranking` and `decide`; it
-produces `knowledge2::Identity`.
+`HeuristicIdentifier` is the automated provider; `IdentifyHelper` selects and batches, runs the
+policy in `heuristic::identification` through the gateway, replaces the provider's set, and reports.
+The policy is `plan`, `gather`, `measure`, `classes`, `ranking` and `decide`; it produces
+`knowledge2::Identity`.
 
 The live link task and CLI `link` use `LinkHelper`; the live identification path uses
-`HeuristicIdentifier`. Both the heuristic and a future agentic flow go through
-`knowledge2::wikidata`; only the policy half is replaceable. Removing `knowledge2::heuristic` leaves
-the core, the producer and the graph untouched.
+`IdentifyHelper`. Both the heuristic and a future agentic flow go through `knowledge2::wikidata`;
+only the policy half is replaceable. Removing `knowledge2::heuristic` leaves the core, the producer
+and the graph untouched.
 
 ## Replay
 

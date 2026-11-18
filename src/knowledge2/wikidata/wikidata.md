@@ -35,7 +35,7 @@ Neither default was derived from Wikidata's documentation. Be precise about that
 
 | value | provenance |
 | --- | --- |
-| `DEFAULT_MAX_REQUESTS = 200` — the **CLI** fallback; the task config defaults to 80, sized to the corpus | `src/knowledge2/heuristic/identifier.rs`, introduced in `d00a97d` (2026-10-31, "Resolve cores against Wikidata, behind a database cache"). Its doc: *"so that omitting the budget does real work instead of quietly resolving nothing"* — a fallback so a caller that forgets the flag still resolves |
+| `DEFAULT_MAX_REQUESTS = 200` — the **CLI** fallback; the task config defaults to 80, sized to the corpus | `src/knowledge2/helper.rs`, introduced in `d00a97d` (2026-10-31, "Resolve cores against Wikidata, behind a database cache"). Its doc: *"so that omitting the budget does real work instead of quietly resolving nothing"* — a fallback so a caller that forgets the flag still resolves |
 | `min_interval_ms = 1000` | the CLI's `ResolveArgs` default (`src/bin/dreamscroll_knowledge.rs:333`), same original work: a serial pace chosen for politeness |
 | `TASK_WIKIDATA_MAX_REQUESTS` / `TASK_WIKIDATA_MIN_INTERVAL` | added with the `identity_resolve` task; they copy the two CLI defaults so a delivery behaves exactly like a plain `identity resolve` |
 

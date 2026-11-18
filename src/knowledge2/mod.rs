@@ -27,7 +27,10 @@ pub use blocker::Blocker;
 pub use graph::{
     GraphSelector, KnowledgeGraph2, MergePreview, Refusal, ReprojectScope, Report, VerdictSelector,
 };
-pub use helper::{LinkAllReport, LinkHelper, LinkReport, link_all_pending, link_illumination};
+pub use helper::{
+    DEFAULT_MAX_REQUESTS, IdentifyHelper, LinkAllReport, LinkHelper, LinkReport, Options,
+    link_all_pending, link_illumination,
+};
 pub use identity::{Identity, IdentityKey, Provider};
 pub use ids::{EntityOriginId, ObservationId};
 pub use heuristic::{HeuristicLinker, HeuristicIdentifier};
