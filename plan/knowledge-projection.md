@@ -82,8 +82,9 @@ This makes `reproject` a function of the durable graph rather than of its own pr
 
 ## Watch / out of scope
 
-- **Per-entity N+1.** Fine for a link batch; potentially expensive for a resolver batch of hundreds
-  inside one transaction. Measure at the resolve cutover; a batched projector is the optimization.
+- **Per-entity N+1 — accepted.** Fine for a link batch; a resolver batch can be hundreds through
+  `identify_all_pending` because it builds one mutation list and one `proc` transaction. Accepted
+  until measurement shows it matters; a batched projector is the optimization if it does.
 - **Dedupe inconsistency.** Names dedupe by folded key (first spelling wins); types and descriptions
   dedupe by exact string. Make that deliberate.
 - **Status semantics.** `identified` currently means "any identity row," including an illuminator
