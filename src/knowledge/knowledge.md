@@ -376,6 +376,7 @@ pub enum Refusal {
     AmbiguousOrigin(EntityOriginId),
     LinkedElsewhere(ObservationId),
     OriginClaimed(ObservationId),
+    LastMember(ObservationId),
     StandingDistinct,
     PendingMerge,
     SharedIllumination,
@@ -413,12 +414,7 @@ Every mutation is safe to re-apply after a committed call, because the second pa
    graph still reads them even though identities are caller-supplied. Zero coupling means deciding
    whether those columns stay as a presence hint, or the identifier reads identity rows instead.
 6. Is `Provider` a newtype over `String`, or the existing reserved-id constant set?
-7. `DetachObservation`, and any move that empties its source: refuse `LastMember`, define a ghost
-   state projection can write, or delete the entity. Related: an origin is a durable key, so
-   `CreateEntity` must refuse an origin already claimed, or moving/detaching an origin can give two
-   entities the same key. If attach/detach become durable they also gain a `cause`: the verdict
-   column is not null.
-8. `MarkDistinct` is one-way: knowledge 1 has no `UnmarkDistinct`. Add the inverse only if a wrong
+7. `MarkDistinct` is one-way: knowledge 1 has no `UnmarkDistinct`. Add the inverse only if a wrong
    `distinct` needs lifting; until then it is a standing decision.
-9. Contradictory plans: reject a call that merges and marks distinct one pair, attests and vetoes one
+8. Contradictory plans: reject a call that merges and marks distinct one pair, attests and vetoes one
    pairing, or attaches and detaches one observation, instead of applying in canonical order.

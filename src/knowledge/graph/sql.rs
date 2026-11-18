@@ -336,6 +336,27 @@ async fn detach<C: ConnectionTrait>(
         return Ok(Outcome::NoChange);
     };
 
+    // A live entity is a grouping of observations; detaching its last member would leave a ghost
+    // with no member-derived name, type, text or platform. Lock the entity so a concurrent attach
+    // cannot make the count stale.
+    one(
+        conn,
+        "SELECT id FROM knowledge_entities WHERE id = $1 FOR UPDATE",
+        vec![int(old)],
+    )
+    .await?;
+    let members = one(
+        conn,
+        "SELECT count(*) FROM user_observed_entities WHERE knowledge_entity_id = $1",
+        vec![int(old)],
+    )
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("count always returns one row"))?
+    .try_get_by_index::<i64>(0)?;
+    if members <= 1 {
+        return Ok(Outcome::Refused(Refusal::LastMember(observation)));
+    }
+
     execute(
         conn,
         "UPDATE user_observed_entities SET knowledge_entity_id = NULL WHERE id = $1",

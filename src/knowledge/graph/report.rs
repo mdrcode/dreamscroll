@@ -13,6 +13,7 @@ pub enum Refusal {
     AmbiguousOrigin(EntityOriginId),
     LinkedElsewhere(ObservationId),
     OriginClaimed(ObservationId),
+    LastMember(ObservationId),
     StandingDistinct,
     PendingMerge,
     SharedIllumination,

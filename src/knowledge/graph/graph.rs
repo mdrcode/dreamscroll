@@ -464,8 +464,11 @@ mod tests {
     async fn create_is_idempotent_but_refuses_a_reclaimed_origin() {
         db_or_skip!(db);
         let capture = fixtures::Capture::new(&db, "k2_origin").await;
+        let spare_capture = fixtures::Capture::new(&db, "k2_origin_spare").await;
         let observation =
             fixtures::observe(&db, &capture, 0, "Train Dreams", None, "film", None, None).await;
+        let spare =
+            fixtures::observe(&db, &spare_capture, 0, "Spare", None, "film", None, None).await;
         let graph = KnowledgeGraph::new(&db);
         let create = GraphMutation::CreateEntity {
             from: ObservationId(observation),
@@ -485,7 +488,17 @@ mod tests {
             1
         );
 
-        // The entity still owns the origin, but the observation is no longer linked to it.
+        // The entity still owns the origin, but the observation is no longer linked to it. It needs
+        // another member first: a live entity may not detach its last one.
+        graph
+            .proc(&[GraphMutation::AttachObservation {
+                observation: ObservationId(spare),
+                entity: EntityOriginId(ObservationId(observation)),
+                with: None,
+                why: None,
+            }])
+            .await
+            .unwrap();
         graph
             .proc(&[GraphMutation::DetachObservation {
                 observation: ObservationId(observation),
@@ -498,6 +511,96 @@ mod tests {
             report.refused,
             Some(Refusal::OriginClaimed(ObservationId(observation)))
         );
+    }
+
+    #[tokio::test]
+    async fn detaching_the_origin_drops_its_text_and_platform() {
+        db_or_skip!(db);
+        let rich_capture = fixtures::Capture::new(&db, "k2_purity_rich").await;
+        let bare_capture = fixtures::Capture::new(&db, "k2_purity_bare").await;
+        let rich = fixtures::observe(
+            &db,
+            &rich_capture,
+            0,
+            "Rich",
+            Some("the origin description"),
+            "film",
+            Some("x_twitter"),
+            Some("rich"),
+        )
+        .await;
+        let bare =
+            fixtures::observe(&db, &bare_capture, 0, "Bare", None, "film", None, None).await;
+        let graph = KnowledgeGraph::new(&db);
+        graph
+            .proc(&[
+                GraphMutation::CreateEntity {
+                    from: ObservationId(rich),
+                    with: None,
+                },
+                GraphMutation::AttachObservation {
+                    observation: ObservationId(bare),
+                    entity: EntityOriginId(ObservationId(rich)),
+                    with: None,
+                    why: None,
+                },
+            ])
+            .await
+            .unwrap();
+
+        let before = by_origin(&db, rich).await;
+        assert_eq!(before.description.as_deref(), Some("the origin description"));
+        assert_eq!(before.platform.as_deref(), Some("x_twitter"));
+
+        graph
+            .proc(&[GraphMutation::DetachObservation {
+                observation: ObservationId(rich),
+                why: None,
+            }])
+            .await
+            .unwrap();
+
+        let after = by_origin(&db, rich).await;
+        assert_eq!(after.name, "Bare");
+        assert_eq!(after.description, None);
+        assert!(after.alt_descriptions.is_empty());
+        assert_eq!(after.platform, None);
+        assert_eq!(after.platform_handle, None);
+        assert_eq!(after.platform_display_name, None);
+    }
+
+    #[tokio::test]
+    async fn detaching_the_last_member_is_refused() {
+        db_or_skip!(db);
+        let capture = fixtures::Capture::new(&db, "k2_last_member").await;
+        let observation =
+            fixtures::observe(&db, &capture, 0, "Only", None, "film", None, None).await;
+        let graph = KnowledgeGraph::new(&db);
+        graph
+            .proc(&[GraphMutation::CreateEntity {
+                from: ObservationId(observation),
+                with: None,
+            }])
+            .await
+            .unwrap();
+
+        let report = graph
+            .proc(&[GraphMutation::DetachObservation {
+                observation: ObservationId(observation),
+                why: None,
+            }])
+            .await
+            .unwrap();
+        assert_eq!(
+            report.refused,
+            Some(Refusal::LastMember(ObservationId(observation)))
+        );
+        let member = model::user_observed_entity::Entity::find_by_id(observation)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(member.knowledge_entity_id.is_some());
     }
 
     #[tokio::test]

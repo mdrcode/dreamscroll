@@ -1,6 +1,6 @@
 # Projection hardening
 
-Status: In progress — items 1 and 2 landed 2026-11-18; item 3 awaits the provider-text and platform-presence decisions.
+Status: Landed 2026-11-18 — projection is pure for member text and platform presence. Watch items remain.
 
 The v2 graph projects natively (`src/knowledge/graph/project.rs`, commit `5409005497`); the last
 corpus check matched the old shape exactly. This plan covers the projection changes that were held
@@ -31,35 +31,32 @@ Every projection rewrites the row and the index. `reproject --all` therefore bum
 - Keeps `updated_at` meaning "the projection changed," not "someone asked."
 - Behavior-neutral for the shape comparison; makes `Report.touched` meaningful.
 
-## 3. Make projection pure
+## 3. Make projection pure — landed
 
-The impure part is the fallback to the entity's own previous values:
+Decisions: provider text is not copied onto the entity (identity descriptions would feed back into
+`measure`), and platform presence is member-only (one slot cannot represent several identities).
+A live entity also cannot detach its last member, so name and type always have a member source.
 
-| column group | primary source | fallback today |
+The impure part was the fallback to the entity's own previous values:
+
+| column group | primary source | fallback before |
 |---|---|---|
-| `name`, `entity_type`, `alt_types` | members | none |
+| `name`, `entity_type`, `alt_types` | members | previous entity row |
 | `description`, `alt_descriptions` | selected member | previous entity row |
 | `search_query`, `alt_search_queries` | selected member | previous entity row |
 | `platform`, `platform_handle`, `platform_display_name` | selected member | previous entity row |
 | `status`, `confidence` | identity rows | none |
 
-The comment says the fallback protects a resolver-sourced description. That writer does not exist:
+The old fallback preserved **the last projection**, which could be a detached or merged-away member's
+text or platform. After a detach, an entity could keep a description and a handle no current member
+carried, and `reproject` faithfully preserved them. The corpus check found zero rows relying on that
+behavior.
 
-- `CreateEntity` (`src/knowledge/graph/sql.rs`) sets the entity description from the observation at
-  create.
-- Identity rows carry their own `description`; nothing copies it onto the entity.
-- Projection is the only other writer of the entity description.
+The pure rule is now:
 
-So the fallback preserves **the last projection**, which can be a detached or merged-away member's
-text or platform. After a detach, an entity can keep a description and a handle no current member
-carries, and `reproject` faithfully preserves them.
-
-The pure rule is a function of members and identities only:
-
-- `description` / `search_query`: the selected member's, else `None` — or, if provider text is
-  wanted, the best identity annotation's description, chosen explicitly.
+- `description` / `search_query`: the selected member's, else `None`.
 - `alt_descriptions` / `alt_search_queries`: members only.
-- `platform_*`: members' presence only — or an explicit evidence source, never the previous row.
+- `platform_*`: the selected member's presence only, else `None`.
 - `origin` remains the durable input; the origin/newest-illumination selection stays.
 - `status` / `confidence`: identity rows, unchanged.
 
@@ -98,11 +95,14 @@ This makes `reproject` a function of the durable graph rather than of its own pr
 
 ## Verification
 
-- Projection unit tests for: superseded origin, detached origin, empty members, multi-member
-  selection, no member text, platform fallback, and identity-derived text if chosen.
-- Concurrency test for the row lock.
-- Idempotence: `reproject --all` twice; the second run changes nothing.
-- Corpus shape diff when purity lands, with every difference classified as stale text or platform.
+- [x] Concurrency test for the row lock.
+- [x] Idempotence: `reproject --all` twice; the second run changes nothing.
+- [x] Detached origin drops the origin's text and platform.
+- [x] Last-member detach is refused.
+- [x] Corpus check: 0 entity descriptions and 0 platforms were being kept alive only by the fallback
+  (45 / 2,806 observations carry no description; 40 / 2,326 live entities have no member
+  description).
+- [ ] Re-run the canonical shape diff if the projection rule changes again.
 
 ## Files
 

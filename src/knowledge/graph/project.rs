@@ -86,22 +86,14 @@ pub(super) async fn project<C: ConnectionTrait>(
     let (name, alt_names) = select(origin.map(|member| member.name.trim()), &surfaces);
     let (entity_type, alt_types) = select(origin.map(|member| member.entity_type.trim()), &types);
 
-    // When no member offers text, keep what is there: an identity resolver-sourced description must
-    // not be wiped by a member list that says nothing.
-    let (description, alt_descriptions) = match select(
+    let (description, alt_descriptions) = select(
         origin.and_then(|member| member.description.as_deref()),
         &descriptions,
-    ) {
-        (Some(text), alt) => (Some(text), alt),
-        (None, _) => (row.description.clone(), row.alt_descriptions.clone()),
-    };
-    let (search_query, alt_search_queries) = match select(
+    );
+    let (search_query, alt_search_queries) = select(
         origin.and_then(|member| member.search_query.as_deref()),
         &queries,
-    ) {
-        (Some(text), alt) => (Some(text), alt),
-        (None, _) => (row.search_query.clone(), row.alt_search_queries.clone()),
-    };
+    );
 
     // The presence the resolver asks by: the origin's if it showed one, else the first member's.
     let presence = origin
@@ -113,11 +105,7 @@ pub(super) async fn project<C: ConnectionTrait>(
             member.platform_handle.clone(),
             member.platform_display_name.clone(),
         ),
-        None => (
-            row.platform.clone(),
-            row.platform_handle.clone(),
-            row.platform_display_name.clone(),
-        ),
+        None => (None, None, None),
     };
 
     let identities: Vec<Option<f32>> = model::knowledge_identity::Entity::find()
@@ -130,8 +118,8 @@ pub(super) async fn project<C: ConnectionTrait>(
     let status = model::knowledge_entity::Status::of(identities.len());
     let confidence = best_confidence(&identities);
 
-    let name = name.unwrap_or_else(|| row.name.clone());
-    let entity_type = entity_type.unwrap_or_else(|| row.entity_type.clone());
+    let name = name.unwrap_or_default();
+    let entity_type = entity_type.unwrap_or_default();
 
     let changed = row.name != name
         || row.alt_names != alt_names
