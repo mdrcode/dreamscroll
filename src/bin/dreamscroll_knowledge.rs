@@ -213,9 +213,12 @@ enum ProximityCommand {
 #[derive(FromArgs)]
 #[argh(subcommand, name = "scan")]
 #[argh(
-    description = "list every pair that shares any identity, with all shared identities and a distinct marker; writes nothing"
+    description = "list every pair that shares any identity, with all shared identities and a distinct marker; --open hides decided pairs; writes nothing"
 )]
-struct ProximityScanArgs {}
+struct ProximityScanArgs {
+    #[argh(switch, description = "hide pairs with a standing distinct verdict")]
+    open: bool,
+}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "distinct")]
@@ -934,8 +937,12 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Proximity(args) => {
             match args.command {
-                ProximityCommand::Scan(_) => {
-                    let candidates = knowledge::proximity::scan(&db).await?;
+                ProximityCommand::Scan(args) => {
+                    let candidates: Vec<_> = knowledge::proximity::scan(&db)
+                        .await?
+                        .into_iter()
+                        .filter(|candidate| !args.open || !candidate.distinct)
+                        .collect();
                     if candidates.is_empty() {
                         println!("no proximity candidates");
                     }
