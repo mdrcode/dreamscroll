@@ -8,6 +8,7 @@
 use sea_orm::sea_query::ArrayType;
 use sea_orm::{ConnectionTrait, DatabaseBackend, QueryResult, Statement, Value};
 
+use crate::knowledge::blocker;
 use crate::knowledge::mutation::{Cause, GraphMutation};
 use crate::knowledge::identity::{Identity, IdentityKey, Provider};
 use crate::knowledge::ids::{EntityOriginId, ObservationId};
@@ -454,7 +455,7 @@ async fn merge<C: ConnectionTrait>(
         tombstoned == 1,
         "entity {loser_id} was tombstoned under another writer"
     );
-    crate::knowledge::blocker::index::forget(conn, loser_id).await?;
+    blocker::index::forget(conn, loser_id).await?;
 
     execute(
         conn,

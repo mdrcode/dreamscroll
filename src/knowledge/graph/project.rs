@@ -15,6 +15,7 @@ use sea_orm::{
     ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
 
+use crate::knowledge::{blocker, text};
 use crate::model;
 
 /// Recompute the columns that are a function of the members and of the evidence.
@@ -58,7 +59,7 @@ pub(super) async fn project<C: ConnectionTrait>(
     let surfaces = gather(
         &members,
         |member| surfaces(member).collect(),
-        crate::knowledge::text::comparable,
+        text::comparable,
     );
     let types = gather(
         &members,
@@ -145,7 +146,7 @@ pub(super) async fn project<C: ConnectionTrait>(
     .await?;
 
     // The index row is a function of these columns and the current fold, so it moves with them.
-    crate::knowledge::blocker::index::write(conn, &updated).await?;
+    blocker::index::write(conn, &updated).await?;
     Ok(updated)
 }
 

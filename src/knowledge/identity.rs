@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::model;
 
 use super::ids::ObservationId;
+use super::text;
 
 /// Who asserted an identity: `illuminator`, `wikidata`, `model`, `user`, `operator`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -53,8 +54,8 @@ impl Identity {
         let handle = observation.platform_handle.as_deref()?;
         Some(Self {
             provider: Provider("illuminator".into()),
-            scheme: crate::knowledge::text::comparable(platform),
-            external_id: crate::knowledge::text::comparable(handle),
+            scheme: text::comparable(platform),
+            external_id: text::comparable(handle),
             method: Some("observation".into()),
             confidence: None,
             label: None,

@@ -85,7 +85,7 @@ impl KnowledgeGraph {
     pub(crate) async fn update_projection(
         &self,
         entity: i32,
-    ) -> anyhow::Result<crate::model::knowledge_entity::Model> {
+    ) -> anyhow::Result<model::knowledge_entity::Model> {
         project::project(&self.conn, entity).await
     }
 
@@ -182,9 +182,10 @@ mod tests {
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 
     use super::*;
-    use crate::knowledge::mutation::Cause;
-    use crate::knowledge::identity::{Identity, Provider};
+    use crate::knowledge::graph::Refusal;
+    use crate::knowledge::identity::{Identity, IdentityKey, Provider};
     use crate::knowledge::ids::{EntityOriginId, ObservationId};
+    use crate::knowledge::mutation::Cause;
     use crate::model;
     use crate::test_support::{db_or_skip, fixtures};
 
@@ -457,5 +458,248 @@ mod tests {
 
         let preview = graph.merge_preview(loser.id, winner.id).await.unwrap();
         assert!(preview.standing_verdict);
+    }
+
+    #[tokio::test]
+    async fn create_is_idempotent_but_refuses_a_reclaimed_origin() {
+        db_or_skip!(db);
+        let capture = fixtures::Capture::new(&db, "k2_origin").await;
+        let observation =
+            fixtures::observe(&db, &capture, 0, "Train Dreams", None, "film", None, None).await;
+        let graph = KnowledgeGraph::new(&db);
+        let create = GraphMutation::CreateEntity {
+            from: ObservationId(observation),
+            with: None,
+        };
+
+        assert_eq!(
+            graph.proc(std::slice::from_ref(&create)).await.unwrap().applied,
+            1
+        );
+        assert_eq!(
+            graph
+                .proc(std::slice::from_ref(&create))
+                .await
+                .unwrap()
+                .unchanged,
+            1
+        );
+
+        // The entity still owns the origin, but the observation is no longer linked to it.
+        graph
+            .proc(&[GraphMutation::DetachObservation {
+                observation: ObservationId(observation),
+                why: None,
+            }])
+            .await
+            .unwrap();
+        let report = graph.proc(&[create]).await.unwrap();
+        assert_eq!(
+            report.refused,
+            Some(Refusal::OriginClaimed(ObservationId(observation)))
+        );
+    }
+
+    #[tokio::test]
+    async fn merge_refuses_two_entities_in_one_illumination() {
+        db_or_skip!(db);
+        let capture = fixtures::Capture::new(&db, "k2_shared_illumination").await;
+        let left =
+            fixtures::observe(&db, &capture, 0, "Train Dreams", None, "film", None, None).await;
+        let right =
+            fixtures::observe(&db, &capture, 1, "Train Dreams", None, "film", None, None).await;
+        let graph = KnowledgeGraph::new(&db);
+        graph
+            .proc(&[
+                GraphMutation::CreateEntity {
+                    from: ObservationId(left),
+                    with: None,
+                },
+                GraphMutation::CreateEntity {
+                    from: ObservationId(right),
+                    with: None,
+                },
+            ])
+            .await
+            .unwrap();
+
+        let report = graph
+            .proc(&[GraphMutation::MergeEntity {
+                loser: EntityOriginId(ObservationId(left)),
+                winner: EntityOriginId(ObservationId(right)),
+                cause: Cause::Model,
+                why: "same thing".into(),
+            }])
+            .await
+            .unwrap();
+        assert_eq!(report.refused, Some(Refusal::SharedIllumination));
+        let loser = model::knowledge_entity::Entity::find()
+            .filter(model::knowledge_entity::Column::OriginObservationId.eq(left))
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(loser.merged_into_id, None);
+    }
+
+    #[tokio::test]
+    async fn moving_a_member_reprojects_both_entities() {
+        db_or_skip!(db);
+        let left_capture = fixtures::Capture::new(&db, "k2_move_left").await;
+        let right_capture = fixtures::Capture::new(&db, "k2_move_right").await;
+        let spare_capture = fixtures::Capture::new(&db, "k2_move_spare").await;
+        let left = fixtures::observe(&db, &left_capture, 0, "Left", None, "film", None, None).await;
+        let right =
+            fixtures::observe(&db, &right_capture, 0, "Right", None, "film", None, None).await;
+        let spare =
+            fixtures::observe(&db, &spare_capture, 0, "Spare", None, "film", None, None).await;
+        let graph = KnowledgeGraph::new(&db);
+        graph
+            .proc(&[
+                GraphMutation::CreateEntity {
+                    from: ObservationId(left),
+                    with: None,
+                },
+                GraphMutation::CreateEntity {
+                    from: ObservationId(right),
+                    with: None,
+                },
+            ])
+            .await
+            .unwrap();
+
+        graph
+            .proc(&[GraphMutation::AttachObservation {
+                observation: ObservationId(spare),
+                entity: EntityOriginId(ObservationId(left)),
+                with: None,
+                why: None,
+            }])
+            .await
+            .unwrap();
+        assert_eq!(by_origin(&db, left).await.alt_names, ["Spare"]);
+
+        let report = graph
+            .proc(&[GraphMutation::AttachObservation {
+                observation: ObservationId(spare),
+                entity: EntityOriginId(ObservationId(right)),
+                with: None,
+                why: None,
+            }])
+            .await
+            .unwrap();
+
+        assert_eq!(report.applied, 1);
+        assert_eq!(report.touched.len(), 2);
+        assert!(by_origin(&db, left).await.alt_names.is_empty());
+        assert_eq!(by_origin(&db, right).await.alt_names, ["Spare"]);
+    }
+
+    #[tokio::test]
+    async fn a_veto_blocks_identification_until_it_is_lifted() {
+        db_or_skip!(db);
+        let entity = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let subject = EntityOriginId(ObservationId(fixtures::origin(&db, entity).await));
+        let key = IdentityKey {
+            scheme: "wikidata".into(),
+            external_id: "Q1".into(),
+        };
+        let graph = KnowledgeGraph::new(&db);
+
+        graph
+            .proc(&[GraphMutation::Identify {
+                subject,
+                identity: identity("wikidata", "Q1"),
+            }])
+            .await
+            .unwrap();
+        graph
+            .proc(&[GraphMutation::VetoIdentity {
+                subject,
+                key: key.clone(),
+                cause: Cause::Repair,
+                why: "not this item".into(),
+            }])
+            .await
+            .unwrap();
+        assert_eq!(identity_rows(&db, entity).await, 0);
+
+        let blocked = graph
+            .proc(&[GraphMutation::Identify {
+                subject,
+                identity: identity("wikidata", "Q1"),
+            }])
+            .await
+            .unwrap();
+        assert_eq!(blocked.unchanged, 1);
+        assert_eq!(identity_rows(&db, entity).await, 0);
+
+        graph
+            .proc(&[GraphMutation::UnvetoIdentity {
+                subject,
+                key,
+                cause: Cause::Repair,
+            }])
+            .await
+            .unwrap();
+        graph
+            .proc(&[GraphMutation::Identify {
+                subject,
+                identity: identity("wikidata", "Q1"),
+            }])
+            .await
+            .unwrap();
+        assert_eq!(identity_rows(&db, entity).await, 1);
+    }
+
+    #[tokio::test]
+    async fn merge_refuses_a_standing_distinct() {
+        db_or_skip!(db);
+        let left = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let right = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let graph = KnowledgeGraph::new(&db);
+        let a = EntityOriginId(ObservationId(fixtures::origin(&db, left).await));
+        let b = EntityOriginId(ObservationId(fixtures::origin(&db, right).await));
+
+        graph
+            .proc(&[GraphMutation::MarkDistinct {
+                a,
+                b,
+                cause: Cause::Repair,
+                why: "two works".into(),
+            }])
+            .await
+            .unwrap();
+        let report = graph
+            .proc(&[GraphMutation::MergeEntity {
+                loser: a,
+                winner: b,
+                cause: Cause::Model,
+                why: "same thing".into(),
+            }])
+            .await
+            .unwrap();
+
+        assert_eq!(report.refused, Some(Refusal::StandingDistinct));
+    }
+
+    async fn by_origin(
+        db: &crate::database::DbHandle,
+        observation: i32,
+    ) -> model::knowledge_entity::Model {
+        model::knowledge_entity::Entity::find()
+            .filter(model::knowledge_entity::Column::OriginObservationId.eq(observation))
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap()
+    }
+
+    async fn identity_rows(db: &crate::database::DbHandle, entity: i32) -> u64 {
+        model::knowledge_identity::Entity::find()
+            .filter(model::knowledge_identity::Column::KnowledgeEntityId.eq(entity))
+            .count(&db.conn)
+            .await
+            .unwrap()
     }
 }

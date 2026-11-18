@@ -105,6 +105,8 @@ mod tests {
         let right = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         fixtures::identity(&db, left, "wikidata", "Q1", "test", None, Some(0.9)).await;
         fixtures::identity(&db, right, "wikidata", "Q1", "test", None, Some(0.8)).await;
+        fixtures::identity(&db, left, "wikidata", "Q2", "test", None, Some(0.9)).await;
+        fixtures::identity(&db, right, "wikidata", "Q2", "test", None, Some(0.8)).await;
 
         let candidates = scan(&db).await.unwrap();
         assert_eq!(candidates.len(), 1);

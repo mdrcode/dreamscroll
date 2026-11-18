@@ -499,6 +499,37 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn identify_all_pending_skips_entities_wikidata_already_answered() {
+        db_or_skip!(db);
+        let annotated = fixtures::knowledge_entity_with_member(&db, "Already Known").await;
+        let pending = fixtures::knowledge_entity_with_member(&db, "Still Pending").await;
+        fixtures::identity(
+            &db,
+            annotated,
+            "wikidata",
+            "Q9",
+            "wikidata",
+            None,
+            Some(0.9),
+        )
+        .await;
+
+        let mut helper = IdentifyHelper::new(&db, IdentificationOptions::default()).unwrap();
+        helper.identifier = HeuristicIdentifier::with_test_identity(identity("Q2"))
+            .expect("the test identifier builds");
+        let cache = FetchCache::new(&db.conn);
+        let report = helper
+            .identify_all_pending(&cache, None, None, false)
+            .await
+            .unwrap();
+
+        assert_eq!(report.considered, 1);
+        assert_eq!(report.batch, 1);
+        assert_eq!(keys(&db, annotated).await, ["Q9"]);
+        assert_eq!(keys(&db, pending).await, ["Q2"]);
+    }
+
+    #[tokio::test]
     async fn a_new_answer_retracts_the_old_provider_set_and_attests_the_new_one() {
         db_or_skip!(db);
         let entity = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;

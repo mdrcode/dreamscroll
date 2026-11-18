@@ -17,6 +17,7 @@ use sea_orm::{
 use super::record::{CORE_TABLE, IDENTITIES_TABLE, Snapshot};
 
 use crate::database;
+use crate::knowledge::graph;
 use crate::model::{
     knowledge_blocking_index as blocking, knowledge_entity as entity,
     knowledge_generations as generation, knowledge_identity as identities,
@@ -161,7 +162,7 @@ async fn supersede_generation<C: ConnectionTrait>(
     identities: u64,
     members: u64,
 ) -> anyhow::Result<()> {
-    let current = crate::knowledge::graph::current_generation(conn).await?;
+    let current = graph::current_generation(conn).await?;
     // Verdicts are never deleted, so the register records how many merges the generation held, not
     // how many reset removed — which is none.
     let merges = verdicts::Entity::find()
