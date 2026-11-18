@@ -1,6 +1,6 @@
 # Projection hardening
 
-Status: Landed 2026-11-18 — projection is pure for member text and platform presence. Watch items remain.
+Status: Archived 2026-11-18 — landed; the canonical shape-diff watch trigger moved to `plan/backlog.md`.
 
 The v2 graph projects natively (`src/knowledge/graph/project.rs`, commit `5409005497`); the last
 corpus check matched the old shape exactly. This plan covers the projection changes that were held

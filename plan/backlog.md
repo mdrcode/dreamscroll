@@ -320,7 +320,8 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 | Empty handle/search cache TTL                         | —                                                                       | Handle/search-empty volume is visible in `fetch_cache` or 429s |
 | Media transcode and format policy                  | [upload-formats.md](upload-formats.md)                                 | `rejected_format` fires for a real user, uploads stay multi-MB on cellular, or a non-browser ingestion path carries originals |
 | Abandoned task-run status                          | [task-abandoned-status.md](task-abandoned-status.md)                   | Abandonment becomes a production operation                    |
-| knowledge projection purity/locking                | [knowledge-projection.md](knowledge-projection.md)                     | v1 → v2 cutover complete                                      |
+| Projection canonical shape diff                      | [knowledge-projection.md](archive/knowledge-projection.md)             | Projection rule changes again                                  |
+| Snapshot catalog tightening (Phase 2)                | [knowledge-snapshot-redesign.md](archive/knowledge-snapshot-redesign.md) | Snapshot retention, validation, or catalog work becomes active |
 
 ## Product direction — not yet scoped
 

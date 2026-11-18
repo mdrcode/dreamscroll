@@ -327,7 +327,7 @@ Nothing else writes the batch. The live pipeline is `illuminate` → `knowledge_
 webhook chains a resolve of exactly the entities that link touched (`logic/identity_resolve.rs`).
 The resolve is queued, budgeted and paced like any other delivery; a capture whose resolve was
 refused or failed keeps its entities `provisional`, and `knowledge identity resolve` is the manual
-catch-up until the nightly drain (`plan/knowledge-batch-job.md`, tabled) exists. `proximity scan` is a
+catch-up until the nightly drain (`plan/archive/knowledge-batch-job.md`, tabled) exists. `proximity scan` is a
 read-only operator command; nothing persists, so running it never changes the graph.
 
 `reset` snapshots the projection, then empties it — entities, identities and the index rows, all of

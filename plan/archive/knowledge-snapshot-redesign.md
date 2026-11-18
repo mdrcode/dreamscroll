@@ -1,6 +1,6 @@
 # knowledge snapshot: tighten the catalog later
 
-Status: Active — Phase 1 done; Phase 2 deferred.
+Status: Archived 2026-11-18 — Phase 1 shipped; Phase 2 is deferred in `plan/backlog.md`.
 
 ## Purpose
 

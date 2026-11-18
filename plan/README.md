@@ -30,19 +30,12 @@ rather than rewriting it; history is the point.
 | [smoke.md](smoke.md) | Living | Manual smoke procedure against the persistent local instance (`smoke-agent` account). |
 | [lexicon.md](lexicon.md) | Authoritative — names | The vocabulary: observations, knowledge entities, evidence; the verbs; the rename map and the names considered and rejected. Read before renaming anything in the graph. |
 | [knowledge-task-queues.md](knowledge-task-queues.md) | Active — being built | The online resolve: fix the `knowledge-link` queue (required config; missing in prod), add an `identity_resolve` task chained from the link webhook. |
-| [knowledge-projection.md](knowledge-projection.md) | Landed — watch items remain | Projection purity, entity locking, and write-if-changed. |
-| [knowledge-snapshot-redesign.md](knowledge-snapshot-redesign.md) | Active — Phase 1 implemented; Phase 2 deferred | Snapshot tooling moved into `knowledge`; next replace table-name discovery with the generation register, validation, and configurable retention. |
 | [media-serving.md](media-serving.md) | Partly implemented | Immutable-object cache policy shipped; private URL delivery waits on load-balancer/CDN work. |
 | [prod-deploy.md](prod-deploy.md) | Implemented; drift-clean — approved | Whole production release path: build/push, checked-in Cloud Run manifests, `prod-apply.sh` drift/apply/lint, `dreamscroll-db-sync` schema job, rollback. Service drift is clean; manifests and job verified in production. |
 | [topology_and_throughput.md](topology_and_throughput.md) | Reference | Cloud Run / Cloud SQL connection and concurrency budgets. |
 | [vertex-throughput.md](vertex-throughput.md) | Research — active | Vertex Gemini tail latency: evidence, hypotheses, experiments, mitigations. |
 | [upload-formats.md](upload-formats.md) | Partly implemented | Upload format policy: blocklist at the single ingest point, 415s, client `accept` steering shipped 2026-10-29. Client re-encode and server HEIC normalize deferred. |
 | [task-abandoned-status.md](task-abandoned-status.md) | Deferred — trigger-gated | A seventh terminal status for operator-closed runs, so intent stops living in `last_error_message` prose. Design only. |
-
-### Abandoned for now
-
-- [knowledge-entity-attestations.md](knowledge-entity-attestations.md) — entity-level references and a three-state status. Not pursuing.
-- [knowledge-batch-job.md](knowledge-batch-job.md) — nightly identity drain. Not pursuing; `knowledge identity resolve` remains the catch-up.
 
 ## archive/ — inactive records (default: ignore)
 
@@ -73,6 +66,10 @@ rather than rewriting it; history is the point.
 | [upgrade_3rd_party_crates.md](archive/upgrade_3rd_party_crates.md) | Dependency-upgrade procedure; proposed. |
 | [event-streaming-optimization.md](archive/event-streaming-optimization.md) | `/events` catch-up query reduction; exploratory. |
 | [upload-attempts.md](archive/upload-attempts.md) | Upload outcome log and `upload_attempts` table; proposed, deferred to CLIENT_PULSE. |
+| [knowledge-batch-job.md](archive/knowledge-batch-job.md) | Nightly identity drain; abandoned 2026-11-18. `knowledge identity resolve` remains the catch-up. |
+| [knowledge-entity-attestations.md](archive/knowledge-entity-attestations.md) | Entity-level references and a three-state status; abandoned 2026-11-18. Design only. |
+| [knowledge-projection.md](archive/knowledge-projection.md) | Projection purity, locking, and write-if-changed; landed 2026-11-18. Shape-diff trigger lives in `plan/backlog.md`. |
+| [knowledge-snapshot-redesign.md](archive/knowledge-snapshot-redesign.md) | Snapshot Phase 1 shipped 2026-11-18; Phase 2 deferred in `plan/backlog.md`. |
 | [knowledge-canonical-entities.md](archive/knowledge-canonical-entities.md) | Core entity/evidence design and rationale; implemented, with `src/knowledge/knowledge.md` as the day-to-day model. Disclosure policy deferred. |
 | [backfill.md](archive/backfill.md) | Typed backfill mechanism: bounded pumping, TaskRun correlation, dry-pump latch, status reporting. Implemented; no open questions. |
 | [schema-migration-strategy.md](archive/schema-migration-strategy.md) | Explicit `sync_schema` design: model registry, marker, manual indexes; implemented and exercised in production. |
