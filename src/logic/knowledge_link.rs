@@ -9,7 +9,7 @@
 //! a link costs one query per observation. `logic_state` builds it once; `exec` borrows it.
 //!
 //! The task links and stops. Its webhook chains `identity_resolve` for the entities it touched; the
-//! proximity scan remains an operator command; see `src/knowledge2/knowledge2.md`. Nothing here hides either of them.
+//! proximity scan remains an operator command; see `src/knowledge/knowledge.md`. Nothing here hides either of them.
 
 use serde::{Deserialize, Serialize};
 
@@ -60,10 +60,10 @@ pub async fn exec(
 
 /// Factored out so it can be exercised without a `LogicState` for test.
 pub(crate) async fn link(
-    graph: &crate::knowledge2::LinkHelper,
+    graph: &crate::knowledge::LinkHelper,
     service_api: &crate::api::ServiceApiClient,
     task: &KnowledgeLinkTask,
-) -> anyhow::Result<crate::knowledge2::LinkReport> {
+) -> anyhow::Result<crate::knowledge::LinkReport> {
     // The read belongs to the service layer, which is the worker's door to the app; the ownership
     // check belongs here, where the payload is. The store is not involved in either.
     let illumination = service_api.illumination(task.illumination_id).await?;
@@ -108,7 +108,7 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let stats = link(
-            &crate::knowledge2::LinkHelper::new(&db),
+            &crate::knowledge::LinkHelper::new(&db),
             &service_api,
             &task(first, user),
         )
@@ -124,7 +124,7 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let stats = link(
-            &crate::knowledge2::LinkHelper::new(&db),
+            &crate::knowledge::LinkHelper::new(&db),
             &service_api,
             &task(second, user),
         )
@@ -160,7 +160,7 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let error = link(
-            &crate::knowledge2::LinkHelper::new(&db),
+            &crate::knowledge::LinkHelper::new(&db),
             &service_api,
             &task(illumination, stranger),
         )

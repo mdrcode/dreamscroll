@@ -175,8 +175,8 @@ async fn initialize()
         let webhook_oidc = webhook::oidc_from_config(&cfg)?;
 
         // Link writes through the v2 helper; resolve reads and annotates through a v2 graph.
-        let knowledge = knowledge2::LinkHelper::new(&db);
-        let identity_engine = knowledge2::IdentifyHelper::new(&db, Default::default())?;
+        let knowledge = knowledge::LinkHelper::new(&db);
+        let identity_engine = knowledge::IdentifyHelper::new(&db, Default::default())?;
 
         let webhook_router = webhook::make_webhook_router(
             webhook::WebhookState {

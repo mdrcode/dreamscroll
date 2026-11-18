@@ -124,9 +124,9 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        let knowledge = crate::knowledge2::LinkHelper::new(&db);
+        let knowledge = crate::knowledge::LinkHelper::new(&db);
         let identity_engine =
-            crate::knowledge2::IdentifyHelper::new(&db, Default::default()).unwrap();
+            crate::knowledge::IdentifyHelper::new(&db, Default::default()).unwrap();
         let state = std::sync::Arc::new(crate::webhook::WebhookState {
             logic: logic::LogicState {
                 cache: crate::fetch::FetchCache::new(&db.conn),

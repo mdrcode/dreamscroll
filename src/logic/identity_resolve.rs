@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::knowledge2::IdentifyHelper;
+use crate::knowledge::IdentifyHelper;
 use crate::{api, task};
 
 /// The concrete task for resolving one illumination's entities.
@@ -78,7 +78,7 @@ pub(crate) async fn identify(
     service_api: &crate::api::ServiceApiClient,
     task: &IdentityResolveTask,
     allowance: crate::fetch::AllowanceConfig,
-) -> anyhow::Result<crate::knowledge2::helper::IdentificationReport> {
+) -> anyhow::Result<crate::knowledge::helper::IdentificationReport> {
     let illumination = service_api.illumination(task.illumination_id).await?;
     anyhow::ensure!(
         illumination.user_id == task.entity_owner_id,
@@ -102,7 +102,7 @@ mod tests {
 
     use std::time::Duration;
 
-    use crate::knowledge2::LinkHelper;
+    use crate::knowledge::LinkHelper;
     use crate::test_support::{fixtures, service_api, test_db};
 
     #[test]

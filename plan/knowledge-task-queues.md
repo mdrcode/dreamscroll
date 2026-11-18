@@ -9,7 +9,7 @@ the next production deploy, so it is fixed first.
 online task resolves exactly what one illumination touched; everything it misses waits for the batch
 job (tabled), or for `knowledge identity resolve` meanwhile.
 
-**See also:** `src/knowledge2/knowledge2.md` §Identification; `src/logic/knowledge_link.rs`
+**See also:** `src/knowledge/knowledge.md` §Identification; `src/logic/knowledge_link.rs`
 and `src/logic/beacon.rs` (the chain this copies); `src/task/task_def.rs` (the `Task`/`TaskRun`
 contract); `gcloud/cloud_task_queue.md`; `ServiceApiClient::illumination_entities` (the join).
 

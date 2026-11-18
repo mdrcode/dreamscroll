@@ -1,7 +1,7 @@
 use argh::FromArgs;
 use sea_orm::EntityTrait;
 
-use dreamscroll::{config, database, knowledge2, model, stats, telemetry};
+use dreamscroll::{config, database, knowledge, model, stats, telemetry};
 
 #[derive(FromArgs)]
 #[argh(description = "offline knowledge-graph tooling: observations, knowledge entities, evidence")]
@@ -333,7 +333,7 @@ struct ResolveArgs {
 struct StatsArgs {}
 
 /// Print one entity's walk through the pipeline.
-fn print_inspection(report: &knowledge2::eval::inspect::Report) {
+fn print_inspection(report: &knowledge::eval::inspect::Report) {
     let entity = &report.entity;
     println!(
         "entity {} · {} [{}] · {}",
@@ -517,13 +517,13 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
     let max_requests = match (args.offline, args.max_requests) {
         (true, _) => 0,
         (false, Some(n)) => n,
-        (false, None) => knowledge2::DEFAULT_MAX_REQUESTS,
+        (false, None) => knowledge::DEFAULT_MAX_REQUESTS,
     };
-    let options = knowledge2::IdentificationOptions {
+    let options = knowledge::IdentificationOptions {
         include_already_annotated: args.entity.is_some(),
         dry_run: args.dry_run,
     };
-    let engine = knowledge2::IdentifyHelper::new(db, options)?;
+    let engine = knowledge::IdentifyHelper::new(db, options)?;
     let cache = dreamscroll::fetch::FetchCache::new(&db.conn);
     let allowance = (!args.offline).then(|| {
         dreamscroll::fetch::Allowance::new(
@@ -659,7 +659,7 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
 /// counts if its entity already had an earlier member — so this answers "was the right thing on
 /// the table when it mattered", not "can the index still find it now".
 async fn eval_blocker(db: &database::DbHandle) -> anyhow::Result<()> {
-    let report = knowledge2::eval::replay_blocker(db).await?;
+    let report = knowledge::eval::replay_blocker(db).await?;
     println!(
         "observations {} (superseded {} skipped) · first member {} · eligible {}",
         report.observations, report.superseded, report.new_entity, report.eligible
@@ -729,7 +729,7 @@ async fn main() -> anyhow::Result<()> {
 
     match args.command {
         Command::Link(_) => {
-            let report = knowledge2::LinkHelper::new(&db)
+            let report = knowledge::LinkHelper::new(&db)
                 .link_all_pending(&db)
                 .await?;
             println!(
@@ -743,10 +743,10 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         Command::Shape(_) => {
-            print!("{}", knowledge2::canonical::read(&db).await?.render());
+            print!("{}", knowledge::canonical::read(&db).await?.render());
         }
         Command::Merge(args) => {
-            let graph = knowledge2::KnowledgeGraph2::new(&db);
+            let graph = knowledge::KnowledgeGraph::new(&db);
             let preview = graph.merge_preview(args.loser, args.winner).await?;
             let mut report = serde_json::json!({
                 "action": "merge",
@@ -814,16 +814,16 @@ async fn main() -> anyhow::Result<()> {
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("knowledge entity {} has no origin", args.winner))?;
             let outcome = graph
-                .proc(&[knowledge2::GraphMutation::MergeEntity {
+                .proc(&[knowledge::GraphMutation::MergeEntity {
                     loser,
                     winner,
-                    cause: knowledge2::Cause::Repair,
+                    cause: knowledge::Cause::Repair,
                     why: args.note.clone().unwrap_or_default(),
                 }])
                 .await?;
 
             match &outcome.refused {
-                Some(knowledge2::Refusal::StandingDistinct) => {
+                Some(knowledge::Refusal::StandingDistinct) => {
                     report["outcome"] = serde_json::json!("refused");
                     report["reason"] = serde_json::json!("standing_verdict");
                     if args.json {
@@ -836,7 +836,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                     exit_with(3);
                 }
-                Some(knowledge2::Refusal::SharedIllumination) => {
+                Some(knowledge::Refusal::SharedIllumination) => {
                     report["outcome"] = serde_json::json!("refused");
                     report["reason"] = serde_json::json!("state_changed");
                     if args.json {
@@ -880,8 +880,8 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Verdicts(args) => match args.command {
             VerdictsCommand::Replay(_) => {
-                let graph = knowledge2::KnowledgeGraph2::new(&db);
-                let report = knowledge2::replay::replay(&graph).await?;
+                let graph = knowledge::KnowledgeGraph::new(&db);
+                let report = knowledge::replay::replay(&graph).await?;
                 println!(
                     "applied {} · already {} · gone {} · refused {} · withdrawn {} · settled {}",
                     report.applied,
@@ -932,7 +932,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Proximity(args) => {
             match args.command {
                 ProximityCommand::Scan(_) => {
-                    let candidates = knowledge2::proximity::scan(&db).await?;
+                    let candidates = knowledge::proximity::scan(&db).await?;
                     if candidates.is_empty() {
                         println!("no proximity candidates");
                     }
@@ -950,7 +950,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
                 ProximityCommand::Distinct(args) => {
-                    let graph = knowledge2::KnowledgeGraph2::new(&db);
+                    let graph = knowledge::KnowledgeGraph::new(&db);
                     let selector = graph.selector();
                     let a = selector.origin_of(args.a).await?.ok_or_else(|| {
                         anyhow::anyhow!("knowledge entity {} has no origin", args.a)
@@ -960,10 +960,10 @@ async fn main() -> anyhow::Result<()> {
                     })?;
                     let recorded = !selector.verdicts().kept_apart(a, b).await?;
                     let outcome = graph
-                        .proc(&[knowledge2::GraphMutation::MarkDistinct {
+                        .proc(&[knowledge::GraphMutation::MarkDistinct {
                             a,
                             b,
-                            cause: knowledge2::Cause::Repair,
+                            cause: knowledge::Cause::Repair,
                             why: args.note.unwrap_or_default(),
                         }])
                         .await?;
@@ -985,14 +985,14 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Reset(args) => {
             if !args.yes {
-                let preview = knowledge2::snapshot::preview(&db).await?;
+                let preview = knowledge::snapshot::preview(&db).await?;
                 println!(
                     "would snapshot entities {} · identities {} · members {} · pass --yes to reset",
                     preview.entities, preview.identities, preview.members
                 );
                 return Ok(());
             }
-            let report = knowledge2::snapshot::reset(&db).await?;
+            let report = knowledge::snapshot::reset(&db).await?;
             match &report.snapshot {
                 Some(snapshot) => println!(
                     "snapshot {} · entities {} · identities {} · members {}",
@@ -1012,13 +1012,13 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Command::Compare(args) => {
-            let before = knowledge2::snapshot::Snapshot {
+            let before = knowledge::snapshot::Snapshot {
                 suffix: args.before.clone(),
             };
-            let after = knowledge2::snapshot::Snapshot {
+            let after = knowledge::snapshot::Snapshot {
                 suffix: args.after.clone(),
             };
-            let report = knowledge2::snapshot::compare(&db, &before, &after).await?;
+            let report = knowledge::snapshot::compare(&db, &before, &after).await?;
 
             println!("before {} · after {}", args.before, args.after);
             println!(
@@ -1038,11 +1038,11 @@ async fn main() -> anyhow::Result<()> {
             );
             for example in &report.examples {
                 match example.kind {
-                    knowledge2::snapshot::Kind::Split => println!(
+                    knowledge::snapshot::Kind::Split => println!(
                         "  split  \"{}\" · {} members → {} groups",
                         example.label, example.members, example.into
                     ),
-                    knowledge2::snapshot::Kind::Merged => println!(
+                    knowledge::snapshot::Kind::Merged => println!(
                         "  merge  \"{}\" · {} groups → {} members",
                         example.label, example.into, example.members
                     ),
@@ -1054,11 +1054,11 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Index(args) => match args.command {
             IndexCommand::Rebuild(_) => {
-                let rows = knowledge2::blocker::index::rebuild(&db).await?;
+                let rows = knowledge::blocker::index::rebuild(&db).await?;
                 println!("rebuilt {rows} index rows");
             }
             IndexCommand::Check(_) => {
-                let report = knowledge2::blocker::index::check(&db).await?;
+                let report = knowledge::blocker::index::check(&db).await?;
                 println!(
                     "indexed {} · stale {} · missing {} · orphaned {} · {}",
                     report.indexed,
@@ -1079,7 +1079,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Identity(args) => match args.command {
             IdentityCommand::Resolve(args) => resolve_identity(&db, args).await?,
             IdentityCommand::Inspect(args) => {
-                let report = knowledge2::eval::inspect::inspect(&db, &args.target).await?;
+                let report = knowledge::eval::inspect::inspect(&db, &args.target).await?;
                 match report {
                     Some(report) => {
                         if args.json {
@@ -1093,11 +1093,11 @@ async fn main() -> anyhow::Result<()> {
             }
             IdentityCommand::Reproject(args) => {
                 let scope = if args.all {
-                    knowledge2::ReprojectScope::All
+                    knowledge::ReprojectScope::All
                 } else {
-                    knowledge2::ReprojectScope::Stale
+                    knowledge::ReprojectScope::Stale
                 };
-                let total = knowledge2::KnowledgeGraph2::new(&db)
+                let total = knowledge::KnowledgeGraph::new(&db)
                     .reproject(scope)
                     .await?;
                 println!(
@@ -1110,12 +1110,12 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
             IdentityCommand::Veto(args) => {
-                let graph = knowledge2::KnowledgeGraph2::new(&db);
+                let graph = knowledge::KnowledgeGraph::new(&db);
                 let selector = graph.selector();
                 let subject = selector.origin_of(args.entity).await?.ok_or_else(|| {
                     anyhow::anyhow!("knowledge entity {} has no origin", args.entity)
                 })?;
-                let key = knowledge2::IdentityKey {
+                let key = knowledge::IdentityKey {
                     scheme: args.scheme.clone(),
                     external_id: args.identity.clone(),
                 };
@@ -1126,10 +1126,10 @@ async fn main() -> anyhow::Result<()> {
                 ));
                 let withdrawn = selector.identity_count(args.entity, &key).await?;
                 let outcome = graph
-                    .proc(&[knowledge2::GraphMutation::VetoIdentity {
+                    .proc(&[knowledge::GraphMutation::VetoIdentity {
                         subject,
                         key,
-                        cause: knowledge2::Cause::Repair,
+                        cause: knowledge::Cause::Repair,
                         why: args.note.clone().unwrap_or_default(),
                     }])
                     .await?;
@@ -1170,15 +1170,15 @@ async fn main() -> anyhow::Result<()> {
                     println!("no such veto_identity · verdict {}", args.id);
                     return Ok(());
                 };
-                let graph = knowledge2::KnowledgeGraph2::new(&db);
+                let graph = knowledge::KnowledgeGraph::new(&db);
                 let outcome = graph
-                    .proc(&[knowledge2::GraphMutation::UnvetoIdentity {
-                        subject: knowledge2::EntityOriginId(knowledge2::ObservationId(subject)),
-                        key: knowledge2::IdentityKey {
+                    .proc(&[knowledge::GraphMutation::UnvetoIdentity {
+                        subject: knowledge::EntityOriginId(knowledge::ObservationId(subject)),
+                        key: knowledge::IdentityKey {
                             scheme,
                             external_id: external,
                         },
-                        cause: knowledge2::Cause::Repair,
+                        cause: knowledge::Cause::Repair,
                     }])
                     .await?;
                 if let Some(refusal) = &outcome.refused {

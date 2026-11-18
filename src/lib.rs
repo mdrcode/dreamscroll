@@ -7,7 +7,7 @@ pub mod database;
 pub mod fetch;
 pub mod ignition;
 pub mod illumination;
-pub mod knowledge2;
+pub mod knowledge;
 pub mod llms;
 pub mod logic;
 pub mod model;

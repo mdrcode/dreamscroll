@@ -143,7 +143,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   back, and the `merge` row is the only record of which entities were involved.
 - [ ] **Make the tree `rustfmt`-clean, and keep it that way.** `cargo fmt --check` reports ~87
   differences and there is no `rustfmt.toml`. Worse for this codebase: formatting a module root
-  (`src/knowledge2/mod.rs`) recurses into every child module, so a per-file `rustfmt` run silently
+  (`src/knowledge/mod.rs`) recurses into every child module, so a per-file `rustfmt` run silently
   reformats hundreds of unrelated lines — twice in one session that had to be reverted by hand.
   Either adopt the formatter repo-wide in a single commit and gate it in CI, or pin a `rustfmt.toml`
   whose style matches what is there closely enough that the first run is small. Formatting only the
@@ -268,7 +268,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 - [x] **Destructive DB tests are racy under parallel execution.** Reproduced 2026-11-16, and the two
   snapshot failures were one test poisoning a pooled schema:
 
-  `cargo test --lib knowledge2::snapshot::reset -- --test-threads=1` failed 2 of 6 with exactly the
+  `cargo test --lib knowledge::snapshot::reset -- --test-threads=1` failed 2 of 6 with exactly the
   recorded symptom (`relation "knowledge_entity_membership__<ts>" does not exist`). Cause:
   `reset_keeps_only_the_newest_ten_snapshot_suffixes` left its ten synthetic
   `knowledge_entities__20990101T…` tables behind, and `TestDb` recycles schemas. `prune_snapshots`
@@ -382,7 +382,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ### Knowledge graph v2
 
-- [ ] **Consider the addition of `Cause::Model`.** `knowledge2` emits it for a model's merge,
+- [ ] **Consider the addition of `Cause::Model`.** `knowledge` emits it for a model's merge,
   distinct and veto decisions, and `model::knowledge_verdicts::Cause` now accepts the value so the
   row round-trips. Decide whether it is first-class everywhere: proximity stats currently read it as
   no decision, and lifting/replay still reason in `repair`/`replayed`. Either give it its own status
@@ -413,7 +413,7 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 | The title step's own name-relatedness rule            | [wikidata-cleanup-20261112.md](archive/wikidata-cleanup-20261112.md)  | A second provider answers title queries                          |
 | Media transcode and format policy                  | [upload-formats.md](upload-formats.md)                                 | `rejected_format` fires for a real user, uploads stay multi-MB on cellular, or a non-browser ingestion path carries originals |
 | Abandoned task-run status                          | [task-abandoned-status.md](task-abandoned-status.md)                   | Abandonment becomes a production operation                    |
-| knowledge2 projection purity/locking               | [knowledge2-projection.md](knowledge2-projection.md)                   | v1 → v2 cutover complete                                      |
+| knowledge projection purity/locking                | [knowledge-projection.md](knowledge-projection.md)                     | v1 → v2 cutover complete                                      |
 
 ## Product direction — not yet scoped
 

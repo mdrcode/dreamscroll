@@ -7,7 +7,7 @@ committed. This doc records a model worth keeping even if implementation waits. 
 
 **See also:** [knowledge-resolution.md](archive/knowledge-resolution.md) (the resolver contract this would
 extend), [knowledge-claim-management.md](archive/knowledge-claim-management.md) (the claim edge and its
-provenance), [lexicon.md](lexicon.md) (current vocabulary), `src/knowledge2/knowledge2.md` (the model
+provenance), [lexicon.md](lexicon.md) (current vocabulary), `src/knowledge/knowledge.md` (the model
 as built), [pragmatism.md](pragmatism.md) (the trade-off ledger).
 
 ## The trigger
