@@ -19,12 +19,12 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 | K4 | S2 | Unmerge |
 | K5 | S2 | Projection invariant |
 | K7 | S3 | `Cause::Model` semantics |
-| K8 | S4 | Third-holder pairs in `proximity scan` |
 | K9 | S4 | Ghost set |
 | K10 | S4 | Normalisation watch |
 | K11 | S2 | Illumination retries append rather than replace |
 
-> Former K2 and K6 are folded into K3; their ids are retired.
+> Former K2 and K6 are folded into K3; their ids are retired. K8 shipped 2026-11-18; its id is
+> retired.
 
 ### Illumination inference
 
@@ -242,10 +242,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   split (`scorer.rs` verbs, `identification/measure.rs` policy) makes it cheaper to state:
   `parse_search` builds `Weights` itself instead of asking the policy, which is the visible oddity
   rather than a hidden one.
-
-- [ ] **Pair every holder in `proximity scan`.** With three or more holders `scan` pairs every other
-  holder against `holders.first()`, so `(h2, h3)` never becomes a proximity and that question is
-  invisible. The corpus never exceeds two holders, so nothing is missing yet.
 
 - [x] **Destructive DB tests are racy under parallel execution.** Reproduced 2026-11-16, and the two
   snapshot failures were one test poisoning a pooled schema:
