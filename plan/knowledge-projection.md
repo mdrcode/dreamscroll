@@ -85,11 +85,8 @@ This makes `reproject` a function of the durable graph rather than of its own pr
 - **Per-entity N+1 — accepted.** Fine for a link batch; a resolver batch can be hundreds through
   `identify_all_pending` because it builds one mutation list and one `proc` transaction. Accepted
   until measurement shows it matters; a batched projector is the optimization if it does.
-- **Dedupe inconsistency.** Names dedupe by folded key (first spelling wins); types and descriptions
-  dedupe by exact string. Make that deliberate.
-- **Status semantics.** `identified` currently means "any identity row," including an illuminator
-  handle. The attestation model (`plan/knowledge-entity-attestations.md`) may change this; keep it
-  out of this plan.
+- **Status semantics — accepted.** `identified` means “any identity row,” including an illuminator
+  handle. The attestation model may refine this; not worth changing in projection now.
 
 ## Verification
 
@@ -98,6 +95,8 @@ This makes `reproject` a function of the durable graph rather than of its own pr
 - [x] Detached origin drops the origin's text and platform.
 - [x] Last-member detach is refused.
 - [x] `Scope::Stale` renamed to `Scope::Unidentified`, matching what it selects.
+- [x] Dedupe policy explicit: surfaces fold, assertion text stays exact; key-aware selection keeps
+  the origin spelling when two surfaces fold together.
 - [x] Corpus check: 0 entity descriptions and 0 platforms were being kept alive only by the fallback
   (45 / 2,806 observations carry no description; 40 / 2,326 live entities have no member
   description).

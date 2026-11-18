@@ -83,16 +83,20 @@ pub(super) async fn project<C: ConnectionTrait>(
         str::to_string,
     );
 
-    let (name, alt_names) = select(origin.map(|member| member.name.trim()), &surfaces);
-    let (entity_type, alt_types) = select(origin.map(|member| member.entity_type.trim()), &types);
+    let (name, alt_names) =
+        select(origin.map(|member| member.name.trim()), &surfaces, text::comparable);
+    let (entity_type, alt_types) =
+        select(origin.map(|member| member.entity_type.trim()), &types, str::to_string);
 
     let (description, alt_descriptions) = select(
         origin.and_then(|member| member.description.as_deref()),
         &descriptions,
+        str::to_string,
     );
     let (search_query, alt_search_queries) = select(
         origin.and_then(|member| member.search_query.as_deref()),
         &queries,
+        str::to_string,
     );
 
     // The presence the resolver asks by: the origin's if it showed one, else the first member's.
@@ -205,18 +209,31 @@ fn gather<'a>(
     distinct
 }
 
-/// Keep `preferred` while the members still offer it; otherwise take the first. Everything else
-/// becomes the alternative list.
-fn select(preferred: Option<&str>, candidates: &[String]) -> (Option<String>, Vec<String>) {
-    let selected = preferred
-        .filter(|text| candidates.iter().any(|candidate| candidate == text))
-        .map(str::to_string)
-        .or_else(|| candidates.first().cloned());
-    let alternatives = candidates
-        .iter()
-        .filter(|candidate| Some(candidate.as_str()) != selected.as_deref())
-        .cloned()
-        .collect();
+/// Keep `preferred` while the members still offer its key; otherwise take the first. The selected
+/// spelling is the preferred one, even when an earlier member introduced the same folded surface.
+/// Everything else becomes the alternative list.
+fn select(
+    preferred: Option<&str>,
+    candidates: &[String],
+    key: impl Fn(&str) -> String,
+) -> (Option<String>, Vec<String>) {
+    if let Some(preferred) = preferred {
+        let preferred_key = key(preferred);
+        if let Some(index) = candidates
+            .iter()
+            .position(|candidate| key(candidate) == preferred_key)
+        {
+            let alternatives = candidates
+                .iter()
+                .enumerate()
+                .filter(|(candidate_index, _)| *candidate_index != index)
+                .map(|(_, candidate)| candidate.clone())
+                .collect();
+            return (Some(preferred.to_string()), alternatives);
+        }
+    }
+    let selected = candidates.first().cloned();
+    let alternatives = candidates.iter().skip(1).cloned().collect();
     (selected, alternatives)
 }
 
@@ -262,4 +279,27 @@ fn best_confidence(identities: &[Option<f32>]) -> Option<f32> {
         .iter()
         .filter_map(|identity| *identity)
         .max_by(f32::total_cmp)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Surfaces dedupe by folded key; the origin still owns the spelling that survives.
+    #[test]
+    fn select_keeps_the_origin_spelling_after_folded_dedupe() {
+        let candidates = vec!["Foo".to_string(), "Bar".to_string()];
+        let (selected, alternatives) = select(Some("foo"), &candidates, text::comparable);
+        assert_eq!(selected.as_deref(), Some("foo"));
+        assert_eq!(alternatives, ["Bar"]);
+    }
+
+    /// Assertion text dedupes exactly; a case variant remains an alternative.
+    #[test]
+    fn select_uses_exact_keys_for_assertion_text() {
+        let candidates = vec!["film".to_string(), "Film".to_string()];
+        let (selected, alternatives) = select(Some("Film"), &candidates, str::to_string);
+        assert_eq!(selected.as_deref(), Some("Film"));
+        assert_eq!(alternatives, ["film"]);
+    }
 }
