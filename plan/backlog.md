@@ -146,9 +146,13 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   for handle matches, and a decision about what the executor does with a refused match (link and
   note a proximity, or leave unlinked and re-evaluate next run). Needs a real case before designing
   thresholds — a report-only count of handle matches that would fail a corroboration test is the
-  first step. Shape is settled: a refused match needs no new decision variant — it is `Create` with
-  the identity withheld and `best` naming the entity declined, which `project` then leaves
-  `provisional` for free. Deferred with it: whether a refusal also writes a proximity (which would
+  first step. Measured local 2026-11-18: **39 / 393** platform observations (9.9%) are later
+  carriers of an existing handle identity, across **38 / 739** illuminations and **34 / 353**
+  platform-key entities. Of those 39, **38** carried a different description and **16** a different
+  name than the first carrier. That is trigger frequency, not an error rate; merges account for at
+  most a small part of it. Shape is settled: a refused match needs no new decision variant — it is
+  `Create` with the identity withheld and `best` naming the entity declined, which `project` then
+  leaves `provisional` for free. Deferred with it: whether a refusal also writes a proximity (which would
   flag the established entity for a look); today "shares an identity" is a proximity, and diluting
   it is a separate decision.
 - [ ] **Define `brand` vs `organization`, `product` vs `software`.** These two
