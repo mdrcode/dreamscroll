@@ -74,9 +74,7 @@ fn make_schema() -> serde_json::Value {
     let entity_types: Vec<String> = KnowledgeEntityType::iter()
         .map(|entity_type| entity_type.as_ref().to_string())
         .collect();
-    let platforms: Vec<String> = Platform::iter()
-        .map(|platform| platform.as_ref().to_string())
-        .collect();
+    let known_platforms = Platform::KNOWN.join(", ");
 
     json!({
         "type": "object",
@@ -120,7 +118,11 @@ fn make_schema() -> serde_json::Value {
                             "properties": {
                                 "platform": {
                                     "type": "string",
-                                    "enum": platforms
+                                    "description": format!(
+                                        "Canonical platform name. Prefer one of: {known_platforms}. \
+                                         If none fits, use the platform name shown."
+                                    ),
+                                    "examples": Platform::KNOWN
                                 },
                                 "display_name": {
                                     "type": "string",
@@ -159,15 +161,26 @@ mod tests {
         // v1's separate accounts array must not leak into the v2 contract.
         assert!(schema["properties"].get("social_media_accounts").is_none());
 
-        // The enums are built with `AsRefStr` while the parser reads with serde: if the two
-        // spellings diverged, the model would be constrained to values we then reject.
+        // Entity types stay constrained; platforms are open so a new platform survives instead of
+        // being coerced to `other`.
         let entity_types = entity_schema["properties"]["type"]["enum"]
             .as_array()
             .expect("entity types should be an enum");
         assert!(entity_types.contains(&json!("online_community")));
-        let platforms = platform_link_schema["properties"]["platform"]["enum"]
-            .as_array()
-            .expect("platforms should be an enum");
-        assert!(platforms.contains(&json!("reddit")));
+        let platform = &platform_link_schema["properties"]["platform"];
+        assert_eq!(platform["type"], "string");
+        assert!(platform.get("enum").is_none());
+        assert!(
+            platform["examples"]
+                .as_array()
+                .expect("known platforms should be examples")
+                .contains(&json!("reddit"))
+        );
+        assert!(
+            platform["description"]
+                .as_str()
+                .expect("the platform schema describes the vocabulary")
+                .contains("x_twitter")
+        );
     }
 }

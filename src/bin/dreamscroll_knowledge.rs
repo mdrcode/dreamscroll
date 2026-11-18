@@ -1225,6 +1225,20 @@ async fn main() -> anyhow::Result<()> {
             }
             let linked: u64 = stats.platforms.iter().map(|group| group.observations).sum();
             println!("  total {linked} observations with a platform link");
+            if !stats.unknown_platforms.is_empty() {
+                println!("unrecognized platforms");
+                for group in &stats.unknown_platforms {
+                    println!(
+                        "  {:<14} {:>12} {:>10} {:>8} {:>8} {:>9}",
+                        group.platform,
+                        group.observations,
+                        group.identities,
+                        group.entities,
+                        group.display_names,
+                        group.captures
+                    );
+                }
+            }
             println!("identities per entity");
             println!(
                 "  entities {} · 0 identities {} · 1 identity {} · 2 identities {} · 3+ identities {}",

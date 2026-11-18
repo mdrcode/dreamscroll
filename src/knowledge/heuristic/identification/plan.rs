@@ -210,7 +210,7 @@ mod tests {
     }
 
     /// The database string is the seam that fails silently: a platform spelled differently parses to
-    /// `Platform::Other` and asks nothing at all, which is indistinguishable from "not on Wikidata".
+    /// `Platform::Other(_)` and asks nothing at all, which is indistinguishable from "not on Wikidata".
     /// The property and its value form are `property_query`'s; this is the string reaching it.
     #[test]
     fn every_platform_string_reaches_the_property_that_holds_its_handle() {

@@ -10,6 +10,7 @@ use sea_orm::{
     Statement,
 };
 
+use crate::illumination::v2::Platform;
 use crate::{database, model};
 
 /// One `(provider, scheme)` group.
@@ -66,6 +67,8 @@ pub struct KnowledgeStats {
     /// provider/scheme breakdown: what the illuminator actually saw, before linking collapses
     /// repeated handles into identities.
     pub platforms: Vec<PlatformGroup>,
+    /// Platform groups not in [`Platform::KNOWN`]: candidates for the prompt vocabulary.
+    pub unknown_platforms: Vec<PlatformGroup>,
     /// How many identity annotations a live entity holds. The shape a second identity resolver changes.
     pub identity_counts: IdentityCounts,
     /// The projected confidence over live entities, and how many have none.
@@ -203,6 +206,12 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
             })
         })
         .collect::<Result<Vec<_>, sea_orm::DbErr>>()?;
+    stats.unknown_platforms = stats
+        .platforms
+        .iter()
+        .filter(|group| !Platform::is_known(&group.platform))
+        .cloned()
+        .collect();
 
     let row = db
         .conn
@@ -430,6 +439,17 @@ mod tests {
             Some("@grace"),
         )
         .await;
+        fixtures::observe(
+            &db,
+            &capture,
+            3,
+            "Tom",
+            None,
+            "real_person",
+            Some("myspace"),
+            Some("tom"),
+        )
+        .await;
         crate::test_support::link::link_all(&db)
             .await
             .expect("build should succeed");
@@ -455,6 +475,20 @@ mod tests {
             .expect("instagram group");
         assert_eq!(instagram.observations, 1);
         assert_eq!(instagram.identities, 1);
+
+        let myspace = stats
+            .unknown_platforms
+            .iter()
+            .find(|group| group.platform == "myspace")
+            .expect("a new platform should be reported as unknown");
+        assert_eq!(myspace.observations, 1);
+        assert_eq!(myspace.identities, 1);
+        assert!(
+            !stats
+                .unknown_platforms
+                .iter()
+                .any(|group| group.platform == "instagram")
+        );
     }
 
     #[tokio::test]

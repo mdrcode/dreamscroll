@@ -90,7 +90,7 @@ pub(crate) fn platform_link_queries(link: &PlatformLink) -> Vec<PropertyQuery> {
             None => usernames(PropertyId::REDDIT_USERNAME, reddit_user(handle)),
         },
         // A platform we have not taught a property. Borrowing another platform's would fabricate.
-        Platform::Other => Vec::new(),
+        Platform::Other(_) => Vec::new(),
     }
 }
 
@@ -210,7 +210,7 @@ mod tests {
             ),
             (Platform::Threads, "@ada", &[("P11892", "ada")][..]),
             // An unmapped platform asks nothing rather than borrowing another platform's property.
-            (Platform::Other, "anything", &[][..]),
+            (Platform::Other("anything".into()), "anything", &[][..]),
         ] {
             let context = format!("{platform:?} {handle:?}");
             assert_eq!(queries_for(platform, handle), expected(want), "{context}");

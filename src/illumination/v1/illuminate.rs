@@ -75,9 +75,7 @@ fn make_schema() -> serde_json::Value {
     let entity_types: Vec<String> = EntityType::iter()
         .map(|entity_type| entity_type.as_ref().to_string())
         .collect();
-    let platform_types: Vec<String> = Platform::iter()
-        .map(|platform| platform.as_ref().to_string())
-        .collect();
+    let known_platforms = Platform::KNOWN.join(", ");
 
     json!({
         "type": "object",
@@ -134,8 +132,11 @@ fn make_schema() -> serde_json::Value {
                         },
                         "platform": {
                             "type": "string",
-                            "description": "The social-media platform",
-                            "enum": platform_types
+                            "description": format!(
+                                "The social-media platform. Prefer one of: {known_platforms}. \
+                                 If none fits, use the platform name shown."
+                            ),
+                            "examples": Platform::KNOWN
                         }
                     },
                     "required": ["display_name", "handle", "platform"]

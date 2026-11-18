@@ -56,6 +56,7 @@ Acknowledged hard dependencies:
 - SeaORM
 - Google Cloud Run and Cloud Tasks
 - HTMX
+- anyhow (crate)
 
 Three supported topologies (ignore all others):
 1. Local macOS development via `cargo run`

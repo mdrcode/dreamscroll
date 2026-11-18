@@ -125,32 +125,13 @@ pub struct Entity {
 
 
 
-/// The platforms the illuminator is allowed to name.
+/// A platform name: a known variant, or the raw name when it is new.
 ///
-/// The list is a prompt vocabulary as much as a type: the prompt is built from `Platform::iter()`, so
-/// adding a platform is a variant here and nothing else. Aliases are tolerated on the way in —
-/// models have emitted `x` and `twitter` for the same thing — and normalise to `x_twitter` on the way
-/// out, which is what the database stores.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    strum::Display,
-    strum::EnumIter,
-    strum::AsRefStr,
-    strum::EnumString,
-)]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
+/// Known aliases are canonicalized on the way in; anything else becomes `Other(raw)` so the name
+/// survives to the observation row, stats and the identity scheme. The schema is deliberately open
+/// for the same reason: a hard enum would turn every new platform into `other`.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Platform {
-    /// The explicit strings are also what `EnumString` accepts, in order: the canonical name first
-    /// (that is what `Display` and the database use), then the spellings models have emitted.
-    #[strum(serialize = "x_twitter")]
-    #[strum(serialize = "twitter")]
-    #[strum(serialize = "x")]
     XTwitter,
     Youtube,
     Instagram,
@@ -162,7 +143,95 @@ pub enum Platform {
     Mastodon,
     Reddit,
     Github,
-    Other,
+    Other(String),
+}
+
+impl Platform {
+    /// Canonical names the prompt knows. New names are not a schema error.
+    pub const KNOWN: &[&str] = &[
+        "x_twitter",
+        "youtube",
+        "instagram",
+        "tiktok",
+        "facebook",
+        "linkedin",
+        "threads",
+        "bluesky",
+        "mastodon",
+        "reddit",
+        "github",
+    ];
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::XTwitter => "x_twitter",
+            Self::Youtube => "youtube",
+            Self::Instagram => "instagram",
+            Self::Tiktok => "tiktok",
+            Self::Facebook => "facebook",
+            Self::Linkedin => "linkedin",
+            Self::Threads => "threads",
+            Self::Bluesky => "bluesky",
+            Self::Mastodon => "mastodon",
+            Self::Reddit => "reddit",
+            Self::Github => "github",
+            Self::Other(name) => name,
+        }
+    }
+
+    pub fn is_known(name: &str) -> bool {
+        Self::KNOWN.contains(&name)
+    }
+
+    fn from_name(name: &str) -> Self {
+        let name = name.trim();
+        match name.to_ascii_lowercase().as_str() {
+            "x_twitter" | "twitter" | "x" => Self::XTwitter,
+            "youtube" => Self::Youtube,
+            "instagram" => Self::Instagram,
+            "tiktok" => Self::Tiktok,
+            "facebook" => Self::Facebook,
+            "linkedin" => Self::Linkedin,
+            "threads" => Self::Threads,
+            "bluesky" => Self::Bluesky,
+            "mastodon" => Self::Mastodon,
+            "reddit" => Self::Reddit,
+            "github" => Self::Github,
+            _ => Self::Other(name.to_string()),
+        }
+    }
+}
+
+impl std::fmt::Display for Platform {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for Platform {
+    type Err = std::convert::Infallible;
+
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
+        Ok(Self::from_name(name))
+    }
+}
+
+impl Serialize for Platform {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for Platform {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Ok(Self::from_name(&String::deserialize(deserializer)?))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -181,14 +250,14 @@ impl PlatformLink {
     /// The database's flattening: three nullable columns, of which the platform is the only one a
     /// link cannot exist without.
     ///
-    /// An unrecognised platform becomes [`Platform::Other`] rather than failing: the row is a record
-    /// of what was seen, and a platform we have not taught the enum about is not a corrupt row.
+    /// An unrecognised platform becomes [`Platform::Other`] with its raw name preserved: the row is
+    /// a record of what was seen, and a platform we have not taught the enum about is not corrupt.
     pub fn from_columns(
         platform: Option<String>,
         handle: Option<String>,
         display_name: Option<String>,
     ) -> Option<Self> {
-        let platform = Platform::from_str(&platform?).unwrap_or(Platform::Other);
+        let platform = Platform::from_name(&platform?);
         Some(Self {
             platform,
             handle,
@@ -197,9 +266,9 @@ impl PlatformLink {
         })
     }
 
-    /// The canonical platform string, which is what the database column holds.
+    /// The platform string the database holds: canonical for known names, raw for new ones.
     pub fn platform_name(&self) -> &str {
-        self.platform.as_ref()
+        self.platform.as_str()
     }
 
     /// The handle, when there is one. A link with a display name and no handle is still a link.
@@ -219,6 +288,33 @@ impl PlatformLink {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn an_unknown_platform_keeps_its_raw_name() {
+        let link: PlatformLink = serde_json::from_value(json!({
+            "platform": "myspace",
+            "handle": "tom"
+        }))
+        .expect("an unknown platform should parse");
+
+        assert_eq!(link.platform, Platform::Other("myspace".into()));
+        assert_eq!(link.platform_name(), "myspace");
+        assert_eq!(link.platform.to_string(), "myspace");
+        assert_eq!(
+            PlatformLink::from_columns(
+                Some("myspace".into()),
+                Some("tom".into()),
+                Some("Tom".into())
+            )
+            .expect("the columns form a link")
+            .platform,
+            Platform::Other("myspace".into())
+        );
+        assert_eq!(
+            serde_json::to_value(&link).expect("the link should serialize")["platform"],
+            json!("myspace")
+        );
+    }
 
     #[test]
     fn illumination_deserializes_unified_v2_entities() {
