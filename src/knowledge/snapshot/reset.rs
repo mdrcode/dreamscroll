@@ -357,7 +357,7 @@ mod tests {
                 .collect();
             members.sort_unstable();
             groups.push((
-                entity.origin_observation_id.expect("linking set an origin"),
+                entity.origin_observation_id,
                 members,
             ));
         }

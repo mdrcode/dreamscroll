@@ -267,10 +267,7 @@ impl IdentifyHelper {
                     else {
                         continue;
                     };
-                    let Some(origin) = entity.origin_observation_id else {
-                        tracing::warn!(knowledge_entity_id = *entity_id, "entity has no origin");
-                        continue;
-                    };
+                    let origin = entity.origin_observation_id;
                     let subject = EntityOriginId(ObservationId(origin));
                     let (keep, vetoed) = filter_identities(*entity_id, identities, &vetoes);
                     let existing = selector.identity_keys(*entity_id, ID).await?;
@@ -459,9 +456,7 @@ mod tests {
             .await
             .unwrap()
             .expect("the fixture entity exists");
-        let origin = row
-            .origin_observation_id
-            .expect("the fixture has an origin");
+        let origin = row.origin_observation_id;
         KnowledgeGraph::new(db)
             .proc(&[GraphMutation::Identify {
                 subject: EntityOriginId(ObservationId(origin)),
@@ -580,7 +575,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let origin = row.origin_observation_id.unwrap();
+        let origin = row.origin_observation_id;
         KnowledgeGraph::new(&db)
             .proc(&[GraphMutation::VetoIdentity {
                 subject: EntityOriginId(ObservationId(origin)),

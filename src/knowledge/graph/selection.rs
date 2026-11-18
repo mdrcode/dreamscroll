@@ -98,9 +98,7 @@ impl<'a> GraphSelector<'a> {
         let row = model::knowledge_entity::Entity::find_by_id(entity)
             .one(self.conn)
             .await?;
-        Ok(row
-            .and_then(|row| row.origin_observation_id)
-            .map(|id| EntityOriginId(ObservationId(id))))
+        Ok(row.map(|row| EntityOriginId(ObservationId(row.origin_observation_id))))
     }
 
     /// How many provider rows currently assert this key for the entity.

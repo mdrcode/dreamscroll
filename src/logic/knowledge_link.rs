@@ -146,7 +146,7 @@ mod tests {
             "two readings of one thing are one entity"
         );
         assert_eq!(entities[0].name, "Train Dreams");
-        assert!(entities[0].origin_observation_id.is_some());
+        assert!(entities[0].origin_observation_id > 0);
     }
 
     #[tokio::test]

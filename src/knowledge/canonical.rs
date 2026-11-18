@@ -45,11 +45,11 @@ pub async fn read(db: &DbHandle) -> anyhow::Result<CanonicalGraph> {
     let entities = model::knowledge_entity::Entity::find()
         .all(&db.conn)
         .await?;
-    let origins: HashMap<i32, Option<i32>> = entities
+    let origins: HashMap<i32, i32> = entities
         .iter()
         .map(|entity| (entity.id, entity.origin_observation_id))
         .collect();
-    let origin = |entity_id: i32| origins.get(&entity_id).copied().flatten();
+    let origin = |entity_id: i32| origins.get(&entity_id).copied();
 
     let mut entity_lines: Vec<String> = entities
         .iter()

@@ -172,7 +172,7 @@ mod tests {
         let json = detail.to_json();
         assert_eq!(
             json["entity"]["origin_observation_id"].as_i64(),
-            detail.entity.origin_observation_id.map(i64::from)
+            Some(i64::from(detail.entity.origin_observation_id))
         );
         assert_eq!(json["identities"][0]["external_id"], "Q1");
     }

@@ -51,11 +51,11 @@ pub(super) async fn project<C: ConnectionTrait>(
         newest.get(&member.capture_id).copied() == Some(member.illumination_id)
     };
 
-    // An entity that predates the column, or whose origin is gone, falls back to its first member —
-    // but not to a superseded reading while a current one exists.
-    let recorded = row
-        .origin_observation_id
-        .and_then(|id| members.iter().find(|member| member.id == id));
+    // The origin is required. If its observation is no longer a member (detached), fall back to the
+    // current member it represents — but not to a superseded reading while a current one exists.
+    let recorded = members
+        .iter()
+        .find(|member| member.id == row.origin_observation_id);
     let origin = recorded
         .filter(|member| current(member))
         .or_else(|| members.iter().find(|member| current(member)))

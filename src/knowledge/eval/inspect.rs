@@ -105,14 +105,9 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
         return Ok(None);
     };
 
-    let probe = match entity.origin_observation_id {
-        Some(id) => {
-            model::user_observed_entity::Entity::find_by_id(id)
-                .one(&db.conn)
-                .await?
-        }
-        None => None,
-    };
+    let probe = model::user_observed_entity::Entity::find_by_id(entity.origin_observation_id)
+        .one(&db.conn)
+        .await?;
 
     let blocker = SqlBlocker::new(db);
     let found = match &probe {
@@ -519,7 +514,7 @@ mod tests {
             )
             .await
             .unwrap();
-        let origin = entity.origin_observation_id.expect("the fixture has an origin");
+        let origin = entity.origin_observation_id;
         KnowledgeGraph::new(&db)
             .proc(&[GraphMutation::VetoIdentity {
                 subject: EntityOriginId(ObservationId(origin)),

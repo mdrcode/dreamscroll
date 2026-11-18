@@ -181,7 +181,7 @@ pub async fn knowledge_entity_with_member(db: &DbHandle, name: &str) -> i32 {
             name: sea_orm::Set(name.to_string()),
             entity_type: sea_orm::Set("real_person".to_string()),
             status: sea_orm::Set(crate::model::knowledge_entity::Status::Provisional),
-            origin_observation_id: sea_orm::Set(Some(observation_id)),
+            origin_observation_id: sea_orm::Set(observation_id),
             ..Default::default()
         })
         .exec(&db.conn)
@@ -210,7 +210,6 @@ pub async fn origin(db: &DbHandle, knowledge_entity_id: i32) -> i32 {
         .unwrap()
         .unwrap()
         .origin_observation_id
-        .expect("the fixture set an origin")
 }
 
 /// Rewrites an entity's origin, standing in for what `link` would have chosen — the way a test
@@ -278,7 +277,8 @@ pub fn stub_entity(id: i32, name: &str, entity_type: &str) -> model::knowledge_e
         status: crate::model::knowledge_entity::Status::Provisional,
         confidence: None,
         merged_into_id: None,
-        origin_observation_id: None,
+        // Stub only: never inserted, and no observation exists behind it.
+        origin_observation_id: 0,
     }
 }
 

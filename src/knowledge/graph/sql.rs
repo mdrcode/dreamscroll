@@ -159,17 +159,15 @@ async fn resolve<C: ConnectionTrait>(
     Ok(Ok(row.try_get_by_index(0)?))
 }
 
-async fn origin_of<C: ConnectionTrait>(conn: &C, entity: i32) -> anyhow::Result<Option<i32>> {
+async fn origin_of<C: ConnectionTrait>(conn: &C, entity: i32) -> anyhow::Result<i32> {
     let row = one(
         conn,
         "SELECT origin_observation_id FROM knowledge_entities WHERE id = $1",
         vec![int(entity)],
     )
-    .await?;
-    Ok(match row {
-        Some(row) => row.try_get_by_index(0)?,
-        None => None,
-    })
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("entity {entity} does not exist"))?;
+    Ok(row.try_get_by_index(0)?)
 }
 
 pub(crate) async fn generation<C: ConnectionTrait>(conn: &C) -> anyhow::Result<i32> {
@@ -275,9 +273,7 @@ async fn attach<C: ConnectionTrait>(
         Ok(entity) => entity,
         Err(refusal) => return Ok(Outcome::Refused(refusal)),
     };
-    let origin = origin_of(conn, entity)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("entity {entity} has no origin"))?;
+    let origin = origin_of(conn, entity).await?;
 
     let row = one(
         conn,
@@ -448,12 +444,8 @@ async fn merge<C: ConnectionTrait>(
         return Ok(Outcome::NoChange);
     }
 
-    let loser_origin = origin_of(conn, loser_id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("entity {loser_id} has no origin"))?;
-    let winner_origin = origin_of(conn, winner_id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("entity {winner_id} has no origin"))?;
+    let loser_origin = origin_of(conn, loser_id).await?;
+    let winner_origin = origin_of(conn, winner_id).await?;
 
     if one(
         conn,
@@ -560,12 +552,8 @@ async fn distinct<C: ConnectionTrait>(
         )));
     }
 
-    let a_origin = origin_of(conn, a_id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("entity {a_id} has no origin"))?;
-    let b_origin = origin_of(conn, b_id)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("entity {b_id} has no origin"))?;
+    let a_origin = origin_of(conn, a_id).await?;
+    let b_origin = origin_of(conn, b_id).await?;
 
     if one(conn, PENDING_MERGE, vec![int(a_origin), int(b_origin)])
         .await?
@@ -638,9 +626,7 @@ async fn attest_to<C: ConnectionTrait>(
         Ok(id) => id,
         Err(refusal) => return Ok(Outcome::Refused(refusal)),
     };
-    let origin = origin_of(conn, entity)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("entity {entity} has no origin"))?;
+    let origin = origin_of(conn, entity).await?;
     attest(conn, entity, origin, identity).await
 }
 
@@ -742,9 +728,7 @@ async fn veto<C: ConnectionTrait>(
         Ok(id) => id,
         Err(refusal) => return Ok(Outcome::Refused(refusal)),
     };
-    let origin = origin_of(conn, entity)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("entity {entity} has no origin"))?;
+    let origin = origin_of(conn, entity).await?;
 
     let inserted = if record_verdict {
         execute(
@@ -789,9 +773,7 @@ async fn unveto<C: ConnectionTrait>(
         Ok(id) => id,
         Err(refusal) => return Ok(Outcome::Refused(refusal)),
     };
-    let origin = origin_of(conn, entity)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("entity {entity} has no origin"))?;
+    let origin = origin_of(conn, entity).await?;
 
     const ROWS: &str = r#"
     SELECT cause FROM knowledge_verdicts

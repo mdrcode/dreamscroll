@@ -132,6 +132,9 @@ mod tests {
             platform: sea_orm::Set(platform),
             platform_handle: sea_orm::Set(handle),
             merged_into_id: sea_orm::Set(merged_into),
+            // This helper inserts before the observation it will attach; the tests do not read the
+            // origin. A real writer always supplies one.
+            origin_observation_id: sea_orm::Set(0),
             ..Default::default()
         })
         .exec(&db.conn)

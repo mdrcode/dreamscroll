@@ -84,11 +84,5 @@ impl HeuristicLinker {
 }
 
 fn origin_of(entity: &model::knowledge_entity::Model) -> anyhow::Result<EntityOriginId> {
-    let origin = entity.origin_observation_id.ok_or_else(|| {
-        anyhow::anyhow!(
-            "blocker returned entity {} with no origin_observation_id",
-            entity.id
-        )
-    })?;
-    Ok(EntityOriginId(ObservationId(origin)))
+    Ok(EntityOriginId(ObservationId(entity.origin_observation_id)))
 }

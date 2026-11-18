@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 41;
+const REQUIRED_SCHEMA_VERSION: i32 = 42;
 
 /// Schema 23 reshapes claims into an edge — entity plus identity — and keys collisions by identity.
 ///
@@ -71,6 +71,25 @@ async fn retire_proximities<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(
         "DROP TABLE IF EXISTS knowledge_proximities CASCADE; \
          ALTER TABLE IF EXISTS knowledge_generations DROP COLUMN IF EXISTS proximities;",
+    )
+    .await?;
+    Ok(())
+}
+
+/// Schema 42 makes `knowledge_entities.origin_observation_id` required. `create` is the only writer
+/// and always sets it; the nullable column predates the current shape. Guarded, so a synced database
+/// is untouched.
+async fn require_origin_observation<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $$ BEGIN \
+           IF EXISTS (SELECT 1 FROM information_schema.columns \
+                       WHERE table_schema = current_schema() \
+                         AND table_name = 'knowledge_entities' \
+                         AND column_name = 'origin_observation_id' \
+                         AND is_nullable = 'YES') THEN \
+             ALTER TABLE knowledge_entities ALTER COLUMN origin_observation_id SET NOT NULL; \
+           END IF; \
+         END $$",
     )
     .await?;
     Ok(())
@@ -488,6 +507,7 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
             retire_reshaped_claim_tables(transaction).await?;
             retire_proximities(transaction).await?;
             retire_merge_audit(transaction).await?;
+            require_origin_observation(transaction).await?;
             relax_verdict_columns(transaction).await?;
             rename_identity_asserted_by(transaction).await?;
             rename_cache_table(transaction).await?;
@@ -586,6 +606,34 @@ mod tests {
     use crate::test_support::{db_or_skip, fixtures};
 
     use super::{check_schema_version, sync_schema};
+
+    #[tokio::test]
+    async fn schema_sync_restores_required_origin_observation() {
+        db_or_skip!(db);
+        let conn = &db.conn;
+        conn.execute_unprepared(
+            "ALTER TABLE knowledge_entities ALTER COLUMN origin_observation_id DROP NOT NULL",
+        )
+        .await
+        .expect("the test starts from a nullable column");
+
+        sync_schema(conn)
+            .await
+            .expect("sync should restore the schema invariant");
+
+        let row = conn
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT is_nullable FROM information_schema.columns \
+                  WHERE table_schema = current_schema() \
+                    AND table_name = 'knowledge_entities' \
+                    AND column_name = 'origin_observation_id'",
+            ))
+            .await
+            .expect("column lookup")
+            .expect("the column exists");
+        assert_eq!(row.try_get_by_index::<String>(0).unwrap(), "NO");
+    }
 
     #[tokio::test]
     async fn repeated_schema_sync_preserves_backfill_task_uniqueness() {

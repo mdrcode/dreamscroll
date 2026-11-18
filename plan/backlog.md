@@ -86,14 +86,10 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   admission without a second table. Needs design; see the merge item below, which is the same defect
   caught one layer later.
 
-- [ ] **Refuse a merge between incompatible types.** `merge` is driven by identity equality alone:
-  `resolve` finds two entities holding the same `(scheme, id)` and folds them, with no check that they
-  agree about what kind of thing they are. Six of the eight live collisions are exactly that — a
-  `fictional_character` holding a film's item, a `book` holding a movie's — stopped only because the
-  same-illumination veto happened to fire; in separate captures they would have merged silently.
-  Settle first whether the guard belongs here (an `ensure!` on type compatibility, the shape of the
-  tombstone guard) or upstream in resolution (a character should not resolve to a work's item). The
-  answer decides whether the collision record's `reason` needs a `type_incompatible` value.
+- [x] **Refuse a merge between incompatible types — accepted tradeoff.** Merge trusts identity
+  equality; the current type vocabulary is not provider-neutral enough for a trustworthy guard.
+  See `plan/pragmatism.md`. Revisit if a wrong cross-type merge survives a rebuild or the
+  provider-neutral type model lands.
 - [x] **Make `link_illumination` transactional.** Shipped 2026-11-16 as one transaction per
   illumination, and both blockers the item named turned out smaller than stated.
 
@@ -121,19 +117,10 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   only as two numbers a human has to compare. The cheap version is an assertion in the stats test;
   the useful one is a test that projects an entity whose *second* member carries a platform and
   asserts the column survives, since that is the order in which the blocker lag used to lose it.
-- [ ] **Make `origin_observation_id` required.** It is `Option<i32>` and the column is nullable,
-  but `create` is the only writer and it always sets it — every entity in the rebuilt corpus has
-  one, 2,119 of 2,119. The nullability is vestigial: it was added to a table that already had
-  rows, and the no-migration policy means a rebuild is the backfill. Making it `NOT NULL` would
-  turn the premise of the whole projection rule ("the entity wears the values of the member it
-  came from") into something the schema states rather than something `create` happens to honour,
-  and it would delete `project`'s fallback to the first member — a branch that exists only for the
-  null case and that reads as though origins were sometimes unknown. Two things move with it: the
-  model field becomes `i32`, and `fixtures::stub_entity` passes `None` for entities that never had
-  an observation behind them, so those stubs need either a real observation id or a shape that
-  admits an entity with no origin at all. Worth deciding at the same time whether `project` should
-  error on an entity with no members or keep its silent fallback — with the column required, "no
-  members" is the only way to reach the fallback.
+- [x] **Make `origin_observation_id` required.** Schema 42 sets the column `NOT NULL`; the model
+  field is `i32`. The null branch is gone from projection. A detached origin still selects another
+  current member, because membership can change after creation; stubs that are never inserted use
+  `0` as an explicit no-observation sentinel.
 - [ ] **Unmerge.** A merge tombstones the loser and records `kind = 'merge'` with `child` and
   `method`, so reversing one is a pointer away — `merge`'s own doc says the decision is "one pointer
   away from being undone". Nothing implements it. `plan/archive/knowledge-canonical-entities.md` §Repair

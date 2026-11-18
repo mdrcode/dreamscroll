@@ -342,9 +342,7 @@ fn print_inspection(report: &knowledge::eval::inspect::Report) {
         "entity {} · {} [{}] · {}",
         entity.id, entity.name, entity.entity_type, entity.status
     );
-    if let Some(origin) = entity.origin_observation_id {
-        println!("  origin observation: {origin}");
-    }
+    println!("  origin observation: {}", entity.origin_observation_id);
     if let Some(description) = &entity.description {
         println!("  description: {description}");
     }
@@ -468,9 +466,7 @@ fn print_entity(detail: &stats::entity::Detail) {
         entity.entity_type,
         entity.status.as_str()
     );
-    if let Some(origin) = entity.origin_observation_id {
-        println!("  origin observation: {origin}");
-    }
+    println!("  origin observation: {}", entity.origin_observation_id);
     if let Some(merged) = entity.merged_into_id {
         println!("  merged into: {merged}");
     }

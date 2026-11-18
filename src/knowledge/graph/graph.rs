@@ -242,7 +242,7 @@ mod tests {
             .await
             .unwrap()
             .expect("one entity");
-        assert_eq!(entity.origin_observation_id, Some(observation));
+        assert_eq!(entity.origin_observation_id, observation);
         assert_eq!(entity.name, "Train Dreams");
         assert_eq!(entity.entity_type, "film");
         assert_eq!(entity.status, model::knowledge_entity::Status::Identified);
@@ -382,11 +382,11 @@ mod tests {
             .unwrap();
         let left_entity = entities
             .iter()
-            .find(|entity| entity.origin_observation_id == Some(left))
+            .find(|entity| entity.origin_observation_id == left)
             .expect("left entity");
         let right_entity = entities
             .iter()
-            .find(|entity| entity.origin_observation_id == Some(right))
+            .find(|entity| entity.origin_observation_id == right)
             .expect("right entity");
 
         let report = graph
@@ -466,11 +466,11 @@ mod tests {
             .unwrap();
         let loser = entities
             .iter()
-            .find(|entity| entity.origin_observation_id == Some(left))
+            .find(|entity| entity.origin_observation_id == left)
             .expect("left entity");
         let winner = entities
             .iter()
-            .find(|entity| entity.origin_observation_id == Some(right))
+            .find(|entity| entity.origin_observation_id == right)
             .expect("right entity");
 
         let preview = graph.merge_preview(loser.id, winner.id).await.unwrap();

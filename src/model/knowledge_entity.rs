@@ -93,8 +93,7 @@ pub struct Model {
     /// Survives a merge, so the winner keeps its own surface and text instead of inheriting the
     /// loser's. Declared without a foreign key — the constraint would be a cycle with
     /// `user_observed_entities.knowledge_entity_id`, and observations are never deleted.
-    #[sea_orm(nullable)]
-    pub origin_observation_id: Option<i32>,
+    pub origin_observation_id: i32,
     /// Every other name this entity has been seen under: member names, platform display names and
     /// handles. Verbatim, unlike the derived keys the linker builds from them.
     pub alt_names: Vec<String>,

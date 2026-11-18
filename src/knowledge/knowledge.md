@@ -53,7 +53,7 @@ pub enum Cause { Repair, Model }
 ```
 
 An entity is named by its origin: the observation that created it. There is no `EntityId` in the
-vocabulary; `EntityOriginId` is looked up against `origin_observation_id`, tombstones are followed,
+vocabulary; `EntityOriginId` is looked up against the required `origin_observation_id`, tombstones are followed,
 and the live id never leaves the transaction. Field names carry the role — `observation` is the thing
 under edit; `entity`, `subject`, `loser`, `winner`, `a`, `b` are `EntityOriginId`.
 
