@@ -543,6 +543,80 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn concurrent_attaches_project_both_members() {
+        db_or_skip!(db);
+        let origin_capture = fixtures::Capture::new(&db, "k2_concurrent_origin").await;
+        let left_capture = fixtures::Capture::new(&db, "k2_concurrent_left").await;
+        let right_capture = fixtures::Capture::new(&db, "k2_concurrent_right").await;
+        let origin =
+            fixtures::observe(&db, &origin_capture, 0, "Origin", None, "film", None, None).await;
+        let left =
+            fixtures::observe(&db, &left_capture, 0, "Left", None, "film", None, None).await;
+        let right =
+            fixtures::observe(&db, &right_capture, 0, "Right", None, "film", None, None).await;
+        let graph = KnowledgeGraph::new(&db);
+        graph
+            .proc(&[GraphMutation::CreateEntity {
+                from: ObservationId(origin),
+                with: None,
+            }])
+            .await
+            .unwrap();
+
+        let left_mutation = [GraphMutation::AttachObservation {
+            observation: ObservationId(left),
+            entity: EntityOriginId(ObservationId(origin)),
+            with: None,
+            why: None,
+        }];
+        let right_mutation = [GraphMutation::AttachObservation {
+            observation: ObservationId(right),
+            entity: EntityOriginId(ObservationId(origin)),
+            with: None,
+            why: None,
+        }];
+        let (left_report, right_report) =
+            tokio::join!(graph.proc(&left_mutation), graph.proc(&right_mutation));
+        assert!(left_report.unwrap().refused.is_none());
+        assert!(right_report.unwrap().refused.is_none());
+
+        let entity = by_origin(&db, origin).await;
+        assert!(entity.alt_names.contains(&"Left".to_string()), "{entity:?}");
+        assert!(
+            entity.alt_names.contains(&"Right".to_string()),
+            "{entity:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn projection_waits_for_the_entity_row_lock() {
+        db_or_skip!(db);
+        let entity = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let first = db.conn.begin().await.unwrap();
+        super::project::project(&first, entity).await.unwrap();
+
+        let conn = db.conn.clone();
+        let mut waiting = tokio::spawn(async move {
+            let second = conn.begin().await.unwrap();
+            let projected = super::project::project(&second, entity).await;
+            second.commit().await.unwrap();
+            projected
+        });
+
+        // If projection did not lock the row, this would finish immediately.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(200), &mut waiting)
+                .await
+                .is_err(),
+            "the second projection should wait for the first transaction"
+        );
+
+        first.commit().await.unwrap();
+        waiting.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
     async fn moving_a_member_reprojects_both_entities() {
         db_or_skip!(db);
         let left_capture = fixtures::Capture::new(&db, "k2_move_left").await;

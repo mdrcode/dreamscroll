@@ -23,7 +23,13 @@ pub(super) async fn project<C: ConnectionTrait>(
     conn: &C,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
+    // Serialize projection on the row: a later mutation must not read members, then overwrite a
+    // projection that already includes an earlier commit's membership.
     let row = get(conn, knowledge_entity_id).await?;
+    if row.merged_into_id.is_some() {
+        blocker::index::write(conn, &row).await?;
+        return Ok(row);
+    }
 
     // Ordered by member id, so the alternatives come out in the order the members joined.
     let members = model::user_observed_entity::Entity::find()
@@ -124,11 +130,32 @@ pub(super) async fn project<C: ConnectionTrait>(
     let status = model::knowledge_entity::Status::of(identities.len());
     let confidence = best_confidence(&identities);
 
+    let name = name.unwrap_or_else(|| row.name.clone());
+    let entity_type = entity_type.unwrap_or_else(|| row.entity_type.clone());
+
+    let changed = row.name != name
+        || row.alt_names != alt_names
+        || row.entity_type != entity_type
+        || row.alt_types != alt_types
+        || row.description != description
+        || row.alt_descriptions != alt_descriptions
+        || row.search_query != search_query
+        || row.alt_search_queries != alt_search_queries
+        || row.platform != platform
+        || row.platform_handle != platform_handle
+        || row.platform_display_name != platform_display_name
+        || row.status != status
+        || row.confidence != confidence;
+    if !changed {
+        blocker::index::ensure(conn, &row).await?;
+        return Ok(row);
+    }
+
     let updated = model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
         id: Set(knowledge_entity_id),
-        name: Set(name.unwrap_or_else(|| row.name.clone())),
+        name: Set(name),
         alt_names: Set(alt_names),
-        entity_type: Set(entity_type.unwrap_or_else(|| row.entity_type.clone())),
+        entity_type: Set(entity_type),
         alt_types: Set(alt_types),
         description: Set(description),
         alt_descriptions: Set(alt_descriptions),
@@ -155,6 +182,7 @@ async fn get<C: ConnectionTrait>(
     knowledge_entity_id: i32,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
     model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
+        .lock_exclusive()
         .one(conn)
         .await?
         .ok_or_else(|| anyhow::anyhow!("knowledge entity {knowledge_entity_id} does not exist"))

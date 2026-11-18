@@ -103,6 +103,31 @@ pub(crate) async fn write<C: ConnectionTrait>(
     Ok(())
 }
 
+/// Write the index only when its row is missing, stale, or carries different keys.
+pub(crate) async fn ensure<C: ConnectionTrait>(
+    conn: &C,
+    entity: &model::knowledge_entity::Model,
+) -> anyhow::Result<()> {
+    if entity.merged_into_id.is_some() {
+        return forget(conn, entity.id).await;
+    }
+    let keys = keys_for_entity(entity);
+    let text = keys.surfaces.join(" ");
+    let current = model::knowledge_blocking_index::Entity::find_by_id(entity.id)
+        .one(conn)
+        .await?
+        .is_some_and(|row| {
+            row.built_with == text::norm_fingerprint()
+                && row.surfaces == keys.surfaces
+                && row.word_keys == keys.word_keys
+                && row.text == text
+        });
+    if !current {
+        write(conn, entity).await?;
+    }
+    Ok(())
+}
+
 /// Drop an entity's row: it was tombstoned by a merge, or the generation was emptied.
 pub(crate) async fn forget<C: ConnectionTrait>(
     conn: &C,
@@ -257,6 +282,47 @@ mod tests {
                 orphaned: 0
             }
         );
+    }
+
+    /// A reprojection with no derived change must not bump the entity or index timestamps.
+    #[tokio::test]
+    async fn reprojecting_an_unchanged_entity_keeps_its_timestamps() {
+        db_or_skip!(db);
+        let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let graph = crate::knowledge::KnowledgeGraph::new(&db);
+        graph.update_projection(id).await.unwrap();
+
+        let before = model::knowledge_entity::Entity::find_by_id(id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .expect("entity");
+        let index_before = model::knowledge_blocking_index::Entity::find_by_id(id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .expect("index row");
+
+        assert_eq!(
+            graph
+                .reproject(crate::knowledge::ReprojectScope::All)
+                .await
+                .unwrap(),
+            1
+        );
+
+        let after = model::knowledge_entity::Entity::find_by_id(id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .expect("entity");
+        let index_after = model::knowledge_blocking_index::Entity::find_by_id(id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .expect("index row");
+        assert_eq!(after.updated_at, before.updated_at);
+        assert_eq!(index_after.built_at, index_before.built_at);
     }
 
     /// A row built by an older key rule is stale, and `rebuild` is what fixes it.

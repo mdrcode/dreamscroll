@@ -1,12 +1,12 @@
 # Projection hardening
 
-Status: Ready — v1 is removed.
+Status: In progress — items 1 and 2 landed 2026-11-18; item 3 awaits the provider-text and platform-presence decisions.
 
 The v2 graph projects natively (`src/knowledge/graph/project.rs`, commit `5409005497`); the last
 corpus check matched the old shape exactly. This plan covers the projection changes that were held
 behind the v1 comparison.
 
-## 1. Serialize projection with a row lock
+## 1. Serialize projection with a row lock — landed
 
 Projection reads the members, computes the columns, then updates the entity row. Two mutations can
 target the same source entity and interleave their final projections; the later-committing stale
@@ -21,7 +21,7 @@ of `AttachObservation` is the clear example.
 - Behavior-neutral; add a concurrency test (two mutations, one entity, both memberships in the final
   projection).
 
-## 2. Write only when the derived values changed
+## 2. Write only when the derived values changed — landed
 
 Every projection rewrites the row and the index. `reproject --all` therefore bumps every entity's
 `updated_at` and every index row's `built_at`, even when nothing changed.
