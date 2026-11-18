@@ -751,6 +751,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn moving_the_last_member_is_refused() {
+        db_or_skip!(db);
+        let source_capture = fixtures::Capture::new(&db, "k2_move_last_source").await;
+        let target_capture = fixtures::Capture::new(&db, "k2_move_last_target").await;
+        let source =
+            fixtures::observe(&db, &source_capture, 0, "Only", None, "film", None, None).await;
+        let target =
+            fixtures::observe(&db, &target_capture, 0, "Target", None, "film", None, None).await;
+        let graph = KnowledgeGraph::new(&db);
+        graph
+            .proc(&[
+                GraphMutation::CreateEntity {
+                    from: ObservationId(source),
+                    with: None,
+                },
+                GraphMutation::CreateEntity {
+                    from: ObservationId(target),
+                    with: None,
+                },
+            ])
+            .await
+            .unwrap();
+
+        let report = graph
+            .proc(&[GraphMutation::AttachObservation {
+                observation: ObservationId(source),
+                entity: EntityOriginId(ObservationId(target)),
+                with: None,
+                why: None,
+            }])
+            .await
+            .unwrap();
+
+        assert_eq!(
+            report.refused,
+            Some(Refusal::LastMember(ObservationId(source)))
+        );
+        let source_entity = by_origin(&db, source).await;
+        let observation = model::user_observed_entity::Entity::find_by_id(source)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(observation.knowledge_entity_id, Some(source_entity.id));
+    }
+
+    #[tokio::test]
     async fn moving_a_member_reprojects_both_entities() {
         db_or_skip!(db);
         let left_capture = fixtures::Capture::new(&db, "k2_move_left").await;

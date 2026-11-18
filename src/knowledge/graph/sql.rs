@@ -296,6 +296,28 @@ async fn attach<C: ConnectionTrait>(
         return Ok(Outcome::NoChange);
     }
 
+    if let Some(old) = old {
+        // Moving the last member would leave a ghost. Lock the source so a concurrent attach cannot
+        // make the count stale.
+        one(
+            conn,
+            "SELECT id FROM knowledge_entities WHERE id = $1 FOR UPDATE",
+            vec![int(old)],
+        )
+        .await?;
+        let members = one(
+            conn,
+            "SELECT count(*) FROM user_observed_entities WHERE knowledge_entity_id = $1",
+            vec![int(old)],
+        )
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("count always returns one row"))?
+        .try_get_by_index::<i64>(0)?;
+        if members <= 1 {
+            return Ok(Outcome::Refused(Refusal::LastMember(observation)));
+        }
+    }
+
     let moved = execute(
         conn,
         "UPDATE user_observed_entities o \

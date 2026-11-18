@@ -128,7 +128,7 @@ no `illuminator` special case.
   - Refuses: linked to any other entity, or another entity already claims `from` as its origin.
   - Does: insert the entity with `origin_observation_id = from`, point the observation at it; upsert
     `with` if present, filtering a vetoed `(entity, key)`; project. The graph derives no identity.
-  - Logs: nothing yet. A `create` kind is open question 4.
+  - Logs: nothing; creates are derived from the origin observation.
   - Why: creation is one observation; later members arrive as `AttachObservation`.
 
 - **`AttachObservation { observation, entity, with, why }`**
@@ -136,19 +136,21 @@ no `illuminator` special case.
     earlier in this call is fine); `with`, when present, has a non-empty provider, scheme and
     external id.
   - NoChange: already linked to that entity.
-  - Refuses: the observation does not exist; the origin does not resolve.
+  - Refuses: the observation does not exist; the origin does not resolve; moving the observation
+    would leave its source entity with no members (`LastMember`).
   - Does: set `knowledge_entity_id`; upsert `with` if present, filtering a vetoed pairing; project
     the source and target. It does not move or delete the source's existing annotations; the caller
     retracts those explicitly.
-  - Logs: nothing yet. An `attach` kind is open question 7.
+  - Logs: nothing; membership is derived.
   - Why: membership and identity are independent; the caller names both.
 
 - **`DetachObservation { observation, why }`**
   - Accepts: the observation exists.
   - NoChange: already unlinked.
+  - Refuses: the observation is its entity's last member (`LastMember`).
   - Does: clear the link; project the old entity. It does not delete any annotation; the caller
     retracts it explicitly.
-  - Logs: nothing yet. A `detach` kind is open question 7.
+  - Logs: nothing; membership is derived.
 
 - **`MergeEntity { loser, winner, cause, why }`**
   - Accepts: both origins resolve to live entities; no standing `distinct` on their pair; no shared
