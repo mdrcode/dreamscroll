@@ -11,6 +11,8 @@
 //! had `Q9531` at the top of two answers and still claimed a division — the right item was
 //! excluded, not outranked.
 
+use anyhow::{bail, Result};
+
 use super::WikidataCandidate;
 use crate::fetch::Answer;
 
@@ -41,16 +43,14 @@ pub(super) fn is_disambiguation(candidate: &WikidataCandidate) -> bool {
 
 /// The candidates that are referents at all: an answered question with something left after the
 /// disambiguation pages are dropped.
-pub(crate) fn referents(
-    raw: &Answer<Vec<WikidataCandidate>>,
-) -> Result<Vec<WikidataCandidate>, &'static str> {
+pub(crate) fn referents(raw: &Answer<Vec<WikidataCandidate>>) -> Result<Vec<WikidataCandidate>> {
     if !raw.outcome.answered() {
-        return Err("the answer carried no candidate");
+        bail!("the answer carried no candidate");
     }
     let mut candidates = raw.body.clone().unwrap_or_default();
     candidates.retain(|candidate| !is_disambiguation(candidate));
     if candidates.is_empty() {
-        return Err("the answer carried only a disambiguation page");
+        bail!("the answer carried only a disambiguation page");
     }
     Ok(candidates)
 }

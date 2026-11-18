@@ -436,7 +436,10 @@ fn print_inspection(report: &knowledge::eval::inspect::Report) {
             "  → identified {} via {} ({:.3})",
             decision.qid, decision.method, decision.confidence
         ),
-        (None, _) => println!("  ✗ {}", report.refusal.unwrap_or("no candidate")),
+        (None, _) => println!(
+            "  ✗ {}",
+            report.refusal.as_deref().unwrap_or("no candidate")
+        ),
     }
 
     println!("\n-- held now --");

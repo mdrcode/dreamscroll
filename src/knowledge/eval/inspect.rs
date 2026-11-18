@@ -35,7 +35,7 @@ pub struct Report {
     /// The identity the candidate set supports, when it supports one.
     pub decision: Option<Decision>,
     /// Why it did not, when it did not — recorded by the resolver, not inferred here.
-    pub refusal: Option<&'static str>,
+    pub refusal: Option<String>,
     /// The decided identity is refused by a standing veto, so the engine would not write it.
     pub vetoed: bool,
     /// What the graph currently holds for this entity.
@@ -209,7 +209,7 @@ struct Walked {
     asked: Vec<Asked>,
     candidate_set: Vec<CandidateRow>,
     decision: Option<Decision>,
-    refusal: Option<&'static str>,
+    refusal: Option<String>,
     vetoed: bool,
 }
 
@@ -287,7 +287,7 @@ async fn walk(
                 };
                 (Some(decision), None, vetoed)
             }
-            Err(why) => (None, Some(why), false),
+            Err(why) => (None, Some(why.to_string()), false),
         }
     };
 

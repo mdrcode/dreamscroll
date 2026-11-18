@@ -4,6 +4,8 @@
 //! eligible at all, whether the best has enough evidence on its own, and whether it wins by a
 //! margin. A refusal is a first-class answer with a reason, not an empty one.
 
+use anyhow::{bail, Result};
+
 use crate::knowledge::identity::Identity;
 use crate::model;
 
@@ -26,7 +28,7 @@ const SCORE_FLOOR: f32 = 0.50;
 pub(crate) fn decide(
     entity: &model::knowledge_entity::Model,
     candidate_set: &CandidateSet,
-) -> Result<Identity, &'static str> {
+) -> Result<Identity> {
     // A profile is identified by its platform link, never by a name. Measured 2026-11-13: of 26
     // `social_media_account` entities carrying a Wikidata identity, one was right — the handle
     // match — and 25 were another bearer of the same word (`Bear` → a gay-culture term, `Blue` → a
@@ -34,7 +36,7 @@ pub(crate) fn decide(
     // so no name-based question can answer for it. The handle strategy claims before the set is
     // asked, which is why refusing here leaves exactly the handle match standing.
     if account_only(entity) {
-        return Err("a profile is identified by its platform link, not by a name");
+        bail!("a profile is identified by its platform link, not by a name");
     }
 
     let ranked = ranking::rank(entity, candidate_set);
@@ -57,15 +59,15 @@ pub(crate) fn decide(
     };
     let ranked: Vec<Ranked> = ranked.into_iter().filter(eligible).collect();
     let Some(best) = ranked.first().copied() else {
-        return Err("no candidate bears our name");
+        bail!("no candidate bears our name");
     };
     if ranking::score(&best) < SCORE_FLOOR {
-        return Err("the evidence is too thin to assert");
+        bail!("the evidence is too thin to assert");
     }
     if let Some(second) = ranked.get(1)
         && ranking::score(&best) - ranking::score(second) < MARGIN
     {
-        return Err("two candidates fit and neither wins");
+        bail!("two candidates fit and neither wins");
     }
     let candidate = &candidate_set[best.index].candidate;
     Ok(candidate.identity(
@@ -174,7 +176,7 @@ mod tests {
             candidate("Q2", "Dune", "novel by Frank Herbert"),
         ];
         assert_eq!(
-            decide(&entity, &candidate_set).unwrap_err(),
+            decide(&entity, &candidate_set).unwrap_err().to_string(),
             "two candidates fit and neither wins"
         );
     }
@@ -187,7 +189,7 @@ mod tests {
         account.entity_type = "social_media_account".to_string();
         let candidate_set = vec![candidate("Q618804", "bear", "term in gay culture")];
         assert_eq!(
-            decide(&account, &candidate_set).unwrap_err(),
+            decide(&account, &candidate_set).unwrap_err().to_string(),
             "a profile is identified by its platform link, not by a name"
         );
 
@@ -232,7 +234,9 @@ mod tests {
         let mut agreed = candidate("Q88538218", "Jake Blues", "fictional musician");
         agreed.strategies = vec![plan::Strategy::Label, plan::Strategy::SearchLabel];
 
-        let error = decide(&entity, &vec![agreed]).expect_err("search is not corroboration");
+        let error = decide(&entity, &vec![agreed])
+            .expect_err("search is not corroboration")
+            .to_string();
         assert!(error.contains("no candidate bears our name"), "{error}");
     }
 
@@ -244,7 +248,9 @@ mod tests {
         let mut lonely = candidate("Q1088", "Blue", "colour");
         lonely.strategies = vec![plan::Strategy::Label];
 
-        let error = decide(&entity, &vec![lonely]).expect_err("nothing corroborates the label");
+        let error = decide(&entity, &vec![lonely])
+            .expect_err("nothing corroborates the label")
+            .to_string();
         assert!(error.contains("no candidate bears our name"), "{error}");
     }
 
