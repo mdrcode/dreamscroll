@@ -9,6 +9,23 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 > **Out of scope today:** the **illumination entity-type overhaul** below. It stays prominent in this
 > backlog as the next design item, but do not start it in this run.
 
+> **Knowledge item ids:** stable handles for discussion. Severity is current triage, not a promise
+> that the order will not change.
+
+| id | severity | item |
+| --- | --- | --- |
+| K1 | S2 | Person vs social account |
+| K2 | S2 | `brand` vs `organization`, `product` vs `software` |
+| K3 | S2 | Illumination entity-type overhaul |
+| K4 | S2 | Unmerge |
+| K5 | S2 | Projection invariant |
+| K6 | S3 | `concept`, `organism`, `referent_form`, `wikidata_class` |
+| K7 | S3 | `Cause::Model` semantics |
+| K8 | S4 | Third-holder pairs in `proximity scan` |
+| K9 | S4 | Ghost set |
+| K10 | S4 | Normalisation watch |
+| K11 | S2 | Illumination retries append rather than replace |
+
 ### Illumination inference
 
 - [ ] **Revisit the illumination model on 2027-01-01.** Flash 3.8's introductory rate ($0.75 input /
