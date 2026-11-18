@@ -562,11 +562,19 @@ mod tests {
     #[tokio::test]
     async fn the_closed_generation_records_its_merges() {
         db_or_skip!(db);
-        let store = crate::knowledge::KnowledgeGraph::new(&db);
+        let graph = crate::knowledge2::KnowledgeGraph2::new(&db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        store
-            .merge(loser, winner, crate::knowledge::verdicts::Cause::Repair)
+        let selector = graph.selector();
+        let loser_origin = selector.origin_of(loser).await.unwrap().unwrap();
+        let winner_origin = selector.origin_of(winner).await.unwrap().unwrap();
+        graph
+            .proc(&[crate::knowledge2::GraphMutation::MergeEntity {
+                loser: loser_origin,
+                winner: winner_origin,
+                cause: crate::knowledge2::Cause::Repair,
+                why: "test merge".into(),
+            }])
             .await
             .unwrap();
         let generation = crate::knowledge2::graph::current_generation(&db.conn)

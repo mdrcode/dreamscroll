@@ -1,7 +1,7 @@
 use argh::FromArgs;
 use sea_orm::EntityTrait;
 
-use dreamscroll::{config, database, knowledge, knowledge2, model, stats, telemetry};
+use dreamscroll::{config, database, knowledge2, model, stats, telemetry};
 
 #[derive(FromArgs)]
 #[argh(description = "offline knowledge-graph tooling: observations, knowledge entities, evidence")]
@@ -1079,11 +1079,11 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Index(args) => match args.command {
             IndexCommand::Rebuild(_) => {
-                let rows = knowledge::blocker::index::rebuild(&db).await?;
+                let rows = knowledge2::blocker::index::rebuild(&db).await?;
                 println!("rebuilt {rows} index rows");
             }
             IndexCommand::Check(_) => {
-                let report = knowledge::blocker::index::check(&db).await?;
+                let report = knowledge2::blocker::index::check(&db).await?;
                 println!(
                     "indexed {} · stale {} · missing {} · orphaned {} · {}",
                     report.indexed,

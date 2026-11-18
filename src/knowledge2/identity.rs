@@ -1,9 +1,7 @@
 //! The identity vocabulary: who asserts a key, the key itself, and the assertion.
 //!
-//! This is knowledge2's own. knowledge1's [`Identity`](crate::knowledge::evidence::Identity)
-//! deliberately leaves the provider to the writer, so a resolver cannot attribute its answer to
-//! another provider. v2's caller *is* the policy, so the assertion carries its provider. They are
-//! not the same type, and the seam between them is primitive strings.
+//! The caller is the policy, so the assertion carries its provider. The identity key is the stable
+//! pair `(scheme, external_id)`; metadata belongs to the provider that answered.
 
 use serde::{Deserialize, Serialize};
 

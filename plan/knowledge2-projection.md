@@ -1,15 +1,10 @@
-# Projection after the v1 → v2 cutover
+# Projection hardening
 
-Status: Deferred — trigger: the v1 → v2 cutover is complete.
+Status: Ready — v1 is removed.
 
-The v2 graph projects natively (`src/knowledge2/graph/project.rs`, commit `5409005497`), and its
-corpus shape is byte-identical to v1's: 2,336 entities, 354 identities, 2,802 memberships, 2,336
-index rows, empty diff. This plan covers the projection changes that should wait until v1's write
-path is gone.
-
-The purity change below alters derived output. Applying it now breaks the byte-identical comparison
-that gates the cutover, so it belongs after v1's projection is deleted (or must be applied to both
-engines at once to keep the control honest).
+The v2 graph projects natively (`src/knowledge2/graph/project.rs`, commit `5409005497`); the last
+corpus check matched the old shape exactly. This plan covers the projection changes that were held
+behind the v1 comparison.
 
 ## 1. Serialize projection with a row lock
 
@@ -50,10 +45,9 @@ The impure part is the fallback to the entity's own previous values:
 
 The comment says the fallback protects a resolver-sourced description. That writer does not exist:
 
-- `insert_new` (`src/knowledge/graph/knowledge_graph.rs:246`) sets the entity description from the
-  observation at create.
-- Identity rows carry their own `description` (`src/knowledge/evidence/store.rs:286`); nothing copies
-  it onto the entity.
+- `CreateEntity` (`src/knowledge2/graph/sql.rs`) sets the entity description from the observation at
+  create.
+- Identity rows carry their own `description`; nothing copies it onto the entity.
 - Projection is the only other writer of the entity description.
 
 So the fallback preserves **the last projection**, which can be a detached or merged-away member's
@@ -78,8 +72,7 @@ This makes `reproject` a function of the durable graph rather than of its own pr
   has no description until a member supplies one.
 - **Platform presence.** Members only, an explicit identity-derived presence, or keep the current
   hint? This is the same zero-platform-coupling question as the entity columns themselves.
-- **Timing.** Apply purity to v1 and v2 together to preserve the comparison, or land it immediately
-  after v1 is deleted. The latter is preferred; the migration gate stays clean.
+- **Timing.** v1 is gone; apply purity directly to the only engine.
 
 ## Keep
 
@@ -115,6 +108,5 @@ This makes `reproject` a function of the durable graph rather than of its own pr
 
 - `src/knowledge2/graph/project.rs`
 - `src/knowledge2/graph/graph.rs` (`proc`, `reproject`)
-- `src/knowledge/blocker/index.rs` (fingerprint and write)
+- `src/knowledge2/blocker/index.rs` (fingerprint and write)
 - `src/knowledge2/canonical.rs` (verification)
-- `src/knowledge/graph/project.rs` (v1 control, until deleted)

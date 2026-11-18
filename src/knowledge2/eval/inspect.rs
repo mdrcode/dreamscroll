@@ -117,7 +117,7 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
     let blocker = SqlBlocker::new(db);
     let found = match &probe {
         Some(observation) => {
-            use crate::knowledge::blocker::Blocker;
+            use crate::knowledge2::blocker::Blocker;
             blocker.candidates(observation).await?
         }
         None => blocker.candidates_for_name(&entity.name).await?,

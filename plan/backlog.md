@@ -143,7 +143,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   back, and the `merge` row is the only record of which entities were involved.
 - [ ] **Make the tree `rustfmt`-clean, and keep it that way.** `cargo fmt --check` reports ~87
   differences and there is no `rustfmt.toml`. Worse for this codebase: formatting a module root
-  (`src/knowledge/mod.rs`) recurses into every child module, so a per-file `rustfmt` run silently
+  (`src/knowledge2/mod.rs`) recurses into every child module, so a per-file `rustfmt` run silently
   reformats hundreds of unrelated lines — twice in one session that had to be reverted by hand.
   Either adopt the formatter repo-wide in a single commit and gate it in CI, or pin a `rustfmt.toml`
   whose style matches what is there closely enough that the first run is small. Formatting only the

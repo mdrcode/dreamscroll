@@ -86,7 +86,7 @@ pub async fn make_task_master(
                     &cfg.task_queue_name_identity_resolve,
                 );
                 // Two, matching the production queue cap: each run paces at 1 s, so two is
-                // 120 req/min (see `src/knowledge/identity/wikidata/wikidata.md`).
+                // 120 req/min (see `src/knowledge2/wikidata/wikidata.md`).
                 LocalTaskQueue::connect(2, move |task: TaskRun<IdentityResolveTask>| {
                     let client = LocalWebhookClient::new();
                     let url = url.clone();

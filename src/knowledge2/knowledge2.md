@@ -251,11 +251,10 @@ batches, runs the policy in `heuristic::identification` through the gateway, rep
 and reports. The policy is `plan`, `gather`, `measure`, `classes`, `ranking` and `decide`; it
 produces `knowledge2::Identity`.
 
-The v1 `IdentityEngine` and its Wikidata adapter are gone. The live link task and CLI `link` use
-`LinkHelper`; the live identification path uses `HeuristicIdentifier`. The v1 graph/helper/evidence path
-remains for proximity, evaluation, and as the parity control until those move. Both the heuristic
-and a future agentic flow go through `knowledge2::wikidata`; only the policy half is replaceable.
-Removing `knowledge2::heuristic` leaves the core, the producer and the graph untouched.
+The live link task and CLI `link` use `LinkHelper`; the live identification path uses
+`HeuristicIdentifier`. Both the heuristic and a future agentic flow go through
+`knowledge2::wikidata`; only the policy half is replaceable. Removing `knowledge2::heuristic` leaves
+the core, the producer and the graph untouched.
 
 ## Replay
 
@@ -268,7 +267,7 @@ a guess. `distinct` itself is consultative and needs no write.
 
 ## Corpus check
 
-2026-11-17, local corpus, `link` only on both engines (2,802 observations, 732 illuminations):
+Pre-cutover, local corpus, `link` only on both engines (2,802 observations, 732 illuminations):
 
 - v1: 2,336 created · 466 attached · 0 left pending.
 - v2: 2,336 created · 466 attached · 0 left pending.
@@ -419,4 +418,3 @@ Every mutation is safe to re-apply after a committed call, because the second pa
    `distinct` needs lifting; until then it is a standing decision.
 9. Contradictory plans: reject a call that merges and marks distinct one pair, attests and vetoes one
    pairing, or attaches and detaches one observation, instead of applying in canonical order.
-10. Scoring lives in v2 (`HeuristicScorer`); the v1 re-export goes with the v1 tree.

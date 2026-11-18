@@ -156,25 +156,18 @@ pub async fn identity(
     method: Option<&str>,
     confidence: Option<f32>,
 ) {
-    crate::knowledge::evidence::Evidence::from_handle(db)
-        .add_identity(
-            &db.conn,
-            knowledge_entity_id,
-            provider,
-            &crate::knowledge::evidence::Identity {
-                scheme: scheme.to_string(),
-                external_id: external_id.to_string(),
-                method: method.map(str::to_string),
-                confidence,
-                label: None,
-                description: None,
-                classes: Vec::new(),
-                observation_id: None,
-            },
-            &Default::default(),
-        )
-        .await
-        .unwrap();
+    model::knowledge_identity::Entity::insert(model::knowledge_identity::ActiveModel {
+        knowledge_entity_id: Set(knowledge_entity_id),
+        scheme: Set(scheme.to_string()),
+        external_id: Set(external_id.to_string()),
+        provider: Set(provider.to_string()),
+        method: Set(method.map(str::to_string)),
+        confidence: Set(confidence),
+        ..Default::default()
+    })
+    .exec(&db.conn)
+    .await
+    .unwrap();
 }
 
 pub async fn knowledge_entity_with_member(db: &DbHandle, name: &str) -> i32 {

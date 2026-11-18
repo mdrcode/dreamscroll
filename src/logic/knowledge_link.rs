@@ -9,8 +9,7 @@
 //! a link costs one query per observation. `logic_state` builds it once; `exec` borrows it.
 //!
 //! The task links and stops. Its webhook chains `identity_resolve` for the entities it touched; the
-//! proximity passes remain operator commands, in the order `src/knowledge/knowledge.md` §Rebuild
-//! records. Nothing here hides either of them.
+//! proximity scan remains an operator command; see `src/knowledge2/knowledge2.md`. Nothing here hides either of them.
 
 use serde::{Deserialize, Serialize};
 

@@ -10,13 +10,11 @@ that were considered and rejected — read that before proposing a rename.
 ## The sentence
 
 > A **capture** is illuminated into **observations**; **linking** clusters observations into
-> **Naming:** outside `src/knowledge/identity/`, the thing that answers a resolution is an
-> **identity resolver**; inside that module the same actor is called *the authority*, because there it
-> is the only one and the short word reads better. Use the long name anywhere a reader may not have
-> the module open.
->
-> **knowledge entities**; **resolution** asks the identity resolvers about them and records the answers as
+> **knowledge entities**; **identification** asks Wikidata about them and records the answers as
 > **evidence**.
+>
+> **Naming:** the thing that answers an identification is an **identifier**; inside the heuristic
+> module the same actor is Wikidata. Use the long name anywhere a reader may not have the module open.
 
 Everything the graph does is a clause of that sentence. A verb that is not in it is an implementation
 detail and should not be named after one.
