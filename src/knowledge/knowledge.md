@@ -32,7 +32,7 @@ pub struct ObservationId(pub i32);
 /// observation's current membership.
 pub struct EntityOriginId(pub ObservationId);
 
-pub struct Provider(pub String);     // illuminator | wikidata | model | user | operator
+pub struct Provider(pub String);     // illuminator | platform | wikidata | model | user | operator
 
 pub struct IdentityKey { pub scheme: String, pub external_id: String }
 
@@ -171,7 +171,7 @@ no `illuminator` special case.
   - Does: insert the verdict. No graph row changes; projection is not needed. `proximity scan`
     marks the pair `[distinct]`.
   - Logs: `kind = distinct`, the origin pair, the mutation's `cause`.
-  - One-way: knowledge 1 has no inverse; a wrong `distinct` cannot be lifted yet.
+  - One-way: there is no inverse; a wrong `distinct` cannot be lifted yet.
 
 - **`Identify { subject, identity }`**
   - Accepts: the subject resolves to a live entity; non-empty provider, scheme and external id;
@@ -279,9 +279,10 @@ new verdict rows; the table is a decision log, not replay history. It reads them
 no longer map are reported as gone; a standing `distinct` or shared illumination is a refusal, never
 a guess. `distinct` itself is consultative and needs no write.
 
-## Corpus check
+## Historical corpus check (pre-cutover)
 
-Pre-cutover, local corpus, `link` only on both engines (2,802 observations, 732 illuminations):
+Pre-cutover, local corpus, `link` only on both engines (2,802 observations, 732 illuminations).
+Current counts live in `knowledge stats`, not here:
 
 - v1: 2,336 created · 466 attached · 0 left pending.
 - v2: 2,336 created · 466 attached · 0 left pending.
@@ -318,7 +319,7 @@ rules without the graph growing a switch. Why not projection: the graph would ne
 `illuminator`, and a policy function — exactly the coupling this removes.
 
 One coupling remains: projection still reads member `platform_*` columns to fill the entity's
-`platform_*` presence. That is a separate decision (open question 5); the identity path is clean.
+`platform_*` presence. That is a separate projection-policy decision; the identity path is clean.
 
 ## Provenance, not authority
 
@@ -367,8 +368,8 @@ What the code paths build:
   and accepts an origin that an earlier `CreateEntity` in the call will establish; the transaction's
   guards are authoritative.
 - **Projection set** is the union of: the new entity (create); source and target (attach); source
-  (detach); winner (merge); subject (attest, retract, veto, unveto). Distinct mutations touch none.
-  Dedup, project once.
+  (detach); winner (merge); subject (attest, retract, veto). `UnvetoIdentity` and `MarkDistinct`
+  touch no graph rows. Dedup, project once.
 - **Projection derives no identities.** The call recomputes name, `alt_*`, descriptions, search,
   platform presence, status and confidence from the members and the evidence, and writes the
   entity's blocking-index row. A merge forgets the loser's row. The index is retrieval material, not
@@ -421,4 +422,3 @@ Every mutation is safe to re-apply after a committed call, because the second pa
 - **`Provider` stays an open string newtype.** Validation at boundaries, not a closed enum.
 - **`MarkDistinct` stays one-way.** Add an inverse only when a wrong distinct occurs.
 - **Contradictory plans are rejected** by the preflight in `graph::validate`.
-- **Model-caused verdict replay is deferred** until a model actually writes verdicts.

@@ -94,7 +94,7 @@ decision.
 | Table | Is | Written by |
 | --- | --- | --- |
 | `knowledge_identities` | the canonical document a provider holds for this entity: `(scheme, external_id)`. One document may cover several distinct referents (an album and its songs, a film and its characters) | `link` (a capture's handle), `resolve` (an identity resolver's complete answer) |
-| `knowledge_verdicts` | a mutation of our data: one thing folded into another (`kind` = `merge`), an annotation declared not evidence (`veto_identity`), or two origins declared separate despite a shared canonical document (`distinct`) — what decided it (`repair`, `model`), and which generation; a log, keyed by origin so it survives a rebuild | `merge`, the veto commands, and `verdicts replay` |
+| `knowledge_verdicts` | a mutation of our data: one thing folded into another (`kind` = `merge`), an annotation declared not evidence (`veto_identity`), or two origins declared separate despite a shared canonical document (`distinct`) — what decided it (`repair`), and which generation; a log, keyed by origin so it survives a rebuild | `merge`, the veto commands, and `verdicts replay` |
 
 `enrichment` and `rejection` remain reserved kinds in the vocabulary, not tables: enrichment is the
 identity resolver's answer about an identity — its `label`, `description`, and `classes` — and it lives on
