@@ -36,8 +36,8 @@ impl std::fmt::Display for Kind {
 }
 
 /// What decided a merge. The distinction is the point of keeping the log: a person's instruction is
-/// replayed in every later generation, the automatic pass's opinion is re-derived, and a replay
-/// records that an older repair was applied again.
+/// replayed in every later generation, while the automatic pass's opinion is re-derived. `replayed`
+/// is historical: newer replay applies decisions without appending another row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::None)")]
 pub enum Cause {
@@ -96,8 +96,8 @@ pub struct Model {
     /// The generation the merge happened in.
     pub generation: i32,
 
-    /// `repair` (a person), `proximity_auto` (the automatic pass) or `replayed` (an older repair
-    /// applied again).
+    /// `repair` (a person), `proximity_auto` (the automatic pass), or historical `replayed`
+    /// rows from an older replay implementation.
     #[sea_orm(default_value = "repair")]
     pub cause: Cause,
 

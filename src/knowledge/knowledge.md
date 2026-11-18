@@ -80,6 +80,7 @@ pub enum GraphMutation {
         winner: EntityOriginId,
         cause: Cause,
         why: String,
+        record_verdict: bool,                      // replay-only false; not serialized
     },
     MarkDistinct {
         a: EntityOriginId,
@@ -101,6 +102,7 @@ pub enum GraphMutation {
         key: IdentityKey,
         cause: Cause,
         why: String,
+        record_verdict: bool,                      // replay-only false; not serialized
     },
     UnvetoIdentity {
         subject: EntityOriginId,
@@ -152,15 +154,16 @@ no `illuminator` special case.
     retracts it explicitly.
   - Logs: nothing; membership is derived.
 
-- **`MergeEntity { loser, winner, cause, why }`**
+- **`MergeEntity { loser, winner, cause, why, record_verdict }`**
   - Accepts: both origins resolve to live entities; no standing `distinct` on their pair; no shared
     illumination.
   - NoChange: the two origins resolve to the same live entity.
   - Refuses: a standing `distinct`; a shared illumination.
   - Does: move observations, move identities (dropping duplicates), tombstone the loser, forget its
-    block index row, log, project the winner. A folded origin resolves to its survivor, so a merge
-    that names it folds the survivor.
-  - Logs: `kind = merge`, the pair's canonical origins, `why` in `note`, the mutation's `cause`.
+    block index row, log when `record_verdict`, project the winner. A folded origin resolves to its
+    survivor, so a merge that names it folds the survivor.
+  - Logs: when `record_verdict`, `kind = merge`, the pair's canonical origins, `why` in `note`, the
+    mutation's `cause`. Replay passes `false` and applies the existing decision.
 
 - **`MarkDistinct { a, b, cause, why }`**
   - Accepts: both origins resolve to live entities and are distinct; no pending repair merge on the
@@ -187,12 +190,13 @@ no `illuminator` special case.
   - Does: delete that provider's row for the key; project the subject.
   - Logs: nothing. Distinct from `VetoIdentity`: no standing decision is recorded.
 
-- **`VetoIdentity { subject, key, cause, why }`**
+- **`VetoIdentity { subject, key, cause, why, record_verdict }`**
   - Accepts: the subject resolves to a live entity.
   - NoChange: already vetoed on that origin and key.
-  - Does: insert the verdict, delete every provider's row for `(entity, key)`, project the subject.
-  - Logs: `kind = veto_identity`, subject origin, `identity_scheme`, `identity_external_id`, the
-    mutation's `cause` and `why`.
+  - Does: insert the verdict when `record_verdict`, delete every provider's row for `(entity, key)`,
+    project the subject.
+  - Logs: when `record_verdict`, `kind = veto_identity`, subject origin, `identity_scheme`,
+    `identity_external_id`, the mutation's `cause` and `why`. Replay passes `false`.
 
 - **`UnvetoIdentity { subject, key, cause }`**
   - Accepts: the subject resolves; no veto row for the origin and key has a `cause` above this one.
@@ -264,7 +268,8 @@ and the graph untouched.
 ## Replay
 
 `knowledge::replay::replay` applies only durable repairs: the latest repair merge per unordered
-origin pair, logged as `replayed`, then repair vetoes through `VetoIdentity`. It reads them through
+origin pair, then repair vetoes through `VetoIdentity`. It applies those decisions without appending
+new verdict rows; the table is a decision log, not replay history. It reads them through
 `graph.selector().verdicts()` — `merges()` and `vetoes()` are repair-only, oldest first;
 `vetoed_keys()` is every live veto keyed by the live entity, for admission and dry runs. Sides that
 no longer map are reported as gone; a standing `distinct` or shared illumination is a refusal, never
@@ -333,9 +338,9 @@ What the code paths build:
   `Identity` its policy admits. The graph never sees the platform link.
 - **Identify**: `Identify`, `RetractIdentity`, chunked per entity. That is how a provider
   replaces its set without a set-shaped mutation.
-- **Replay**: `CreateEntity`, `AttachObservation`, `DetachObservation`, `MergeEntity`,
-  `VetoIdentity`, with the recorded `cause`. It resolves origins to entities through the rebuilt
-  graph and never re-emits identities.
+- **Replay**: `MergeEntity` and `VetoIdentity`, with the recorded `cause`; both pass
+  `record_verdict = false`, because the decision already exists. It resolves origins to entities
+  through the rebuilt graph and never re-emits identities.
 - **Agent / User / Operator**: whatever the edge authorizes.
 
 ## Call rules

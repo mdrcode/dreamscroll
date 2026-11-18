@@ -33,7 +33,8 @@ pub(super) async fn apply<C: ConnectionTrait>(
             winner,
             cause,
             why,
-        } => merge(conn, *loser, *winner, *cause, why).await,
+            record_verdict,
+        } => merge(conn, *loser, *winner, *cause, why, *record_verdict).await,
         GraphMutation::MarkDistinct { a, b, cause, why } => {
             distinct(conn, *a, *b, *cause, why).await
         }
@@ -50,7 +51,8 @@ pub(super) async fn apply<C: ConnectionTrait>(
             key,
             cause,
             why,
-        } => veto(conn, *subject, key, *cause, why).await,
+            record_verdict,
+        } => veto(conn, *subject, key, *cause, why, *record_verdict).await,
         GraphMutation::UnvetoIdentity {
             subject,
             key,
@@ -432,6 +434,7 @@ async fn merge<C: ConnectionTrait>(
     winner: EntityOriginId,
     cause: Cause,
     why: &str,
+    record_verdict: bool,
 ) -> anyhow::Result<Outcome> {
     let loser_id = match resolve(conn, loser).await? {
         Ok(id) => id,
@@ -500,18 +503,20 @@ async fn merge<C: ConnectionTrait>(
     );
     blocker::index::forget(conn, loser_id).await?;
 
-    execute(
-        conn,
-        INSERT_MERGE,
-        vec![
-            int(generation(conn).await?),
-            text(cause.as_str()),
-            int(winner_origin),
-            int(loser_origin),
-            text(why),
-        ],
-    )
-    .await?;
+    if record_verdict {
+        execute(
+            conn,
+            INSERT_MERGE,
+            vec![
+                int(generation(conn).await?),
+                text(cause.as_str()),
+                int(winner_origin),
+                int(loser_origin),
+                text(why),
+            ],
+        )
+        .await?;
+    }
 
     Ok(Outcome::Applied(vec![winner_id]))
 }
@@ -731,6 +736,7 @@ async fn veto<C: ConnectionTrait>(
     key: &IdentityKey,
     cause: Cause,
     why: &str,
+    record_verdict: bool,
 ) -> anyhow::Result<Outcome> {
     let entity = match resolve(conn, subject).await? {
         Ok(id) => id,
@@ -740,19 +746,23 @@ async fn veto<C: ConnectionTrait>(
         .await?
         .ok_or_else(|| anyhow::anyhow!("entity {entity} has no origin"))?;
 
-    let inserted = execute(
-        conn,
-        INSERT_VETO,
-        vec![
-            int(generation(conn).await?),
-            text(cause.as_str()),
-            int(origin),
-            text(&key.scheme),
-            text(&key.external_id),
-            text(why),
-        ],
-    )
-    .await?;
+    let inserted = if record_verdict {
+        execute(
+            conn,
+            INSERT_VETO,
+            vec![
+                int(generation(conn).await?),
+                text(cause.as_str()),
+                int(origin),
+                text(&key.scheme),
+                text(&key.external_id),
+                text(why),
+            ],
+        )
+        .await?
+    } else {
+        0
+    };
 
     let removed = execute(
         conn,

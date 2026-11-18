@@ -273,6 +273,7 @@ mod tests {
                     winner: EntityOriginId(ObservationId(2)),
                     cause: Cause::Repair,
                     why: "same".into(),
+                    record_verdict: true,
                 },
                 GraphMutation::MarkDistinct {
                     a: EntityOriginId(ObservationId(2)),
@@ -394,6 +395,7 @@ mod tests {
                 winner: EntityOriginId(ObservationId(right)),
                 cause: Cause::Model,
                 why: "the same film".into(),
+                record_verdict: true,
             }])
             .await
             .unwrap();
@@ -663,6 +665,7 @@ mod tests {
                 winner: EntityOriginId(ObservationId(right)),
                 cause: Cause::Model,
                 why: "same thing".into(),
+                record_verdict: true,
             }])
             .await
             .unwrap();
@@ -874,6 +877,7 @@ mod tests {
                 key: key.clone(),
                 cause: Cause::Repair,
                 why: "not this item".into(),
+                record_verdict: true,
             }])
             .await
             .unwrap();
@@ -931,6 +935,7 @@ mod tests {
                 winner: b,
                 cause: Cause::Model,
                 why: "same thing".into(),
+                record_verdict: true,
             }])
             .await
             .unwrap();

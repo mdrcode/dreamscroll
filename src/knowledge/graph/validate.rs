@@ -146,6 +146,7 @@ mod tests {
             winner: origin(2),
             cause: Cause::Repair,
             why: "same".into(),
+            record_verdict: true,
         };
         let distinct = GraphMutation::MarkDistinct {
             a: origin(2),
@@ -172,6 +173,7 @@ mod tests {
             },
             cause: Cause::Repair,
             why: "wrong".into(),
+            record_verdict: true,
         };
 
         assert!(contradiction(&[identify, veto]).is_some());
@@ -219,6 +221,7 @@ mod tests {
                 winner: origin(2),
                 cause: Cause::Repair,
                 why: "same".into(),
+                record_verdict: true,
             },
             GraphMutation::Identify {
                 subject: origin(3),

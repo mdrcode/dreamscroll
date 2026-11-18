@@ -823,6 +823,7 @@ async fn main() -> anyhow::Result<()> {
                     winner,
                     cause: knowledge::Cause::Repair,
                     why: args.note.clone().unwrap_or_default(),
+                    record_verdict: true,
                 }])
                 .await?;
 
@@ -1135,6 +1136,7 @@ async fn main() -> anyhow::Result<()> {
                         key,
                         cause: knowledge::Cause::Repair,
                         why: args.note.clone().unwrap_or_default(),
+                        record_verdict: true,
                     }])
                     .await?;
                 if let Some(refusal) = &outcome.refused {

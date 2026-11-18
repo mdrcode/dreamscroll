@@ -240,6 +240,7 @@ mod tests {
                 winner: EntityOriginId(ObservationId(fixtures::origin(db, winner).await)),
                 cause: Cause::Repair,
                 why: "test".into(),
+                record_verdict: true,
             }])
             .await
             .unwrap();

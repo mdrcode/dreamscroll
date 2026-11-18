@@ -1,8 +1,8 @@
 //! Apply the recorded decisions to the v2 graph.
 //!
 //! Only durable repairs are replayed: `repair` merges, newest verdict per pair first, then
-//! `repair` vetoes. A merge is logged as `replayed`; a veto is applied through the same
-//! `VetoIdentity` mutation as an operator would use. `distinct` is consultative and needs no write.
+//! `repair` vetoes. Replay applies the decision without appending another verdict row; the log is
+//! decisions, not history. `distinct` is consultative and needs no write.
 
 use std::collections::BTreeMap;
 
@@ -54,8 +54,9 @@ pub async fn replay(graph: &KnowledgeGraph) -> anyhow::Result<ReplayReport> {
             .proc(&[GraphMutation::MergeEntity {
                 loser: EntityOriginId(ObservationId(loser)),
                 winner: EntityOriginId(ObservationId(winner)),
-                cause: Cause::Replayed,
+                cause: Cause::Repair,
                 why: verdict.note.unwrap_or_default(),
+                record_verdict: false,
             }])
             .await?;
 
@@ -102,6 +103,7 @@ pub async fn replay(graph: &KnowledgeGraph) -> anyhow::Result<ReplayReport> {
                 key,
                 cause: Cause::Repair,
                 why: verdict.note.unwrap_or_default(),
+                record_verdict: false,
             }])
             .await?;
 
@@ -185,7 +187,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_repair_merge_is_replayed_and_logged_as_replayed() {
+    async fn a_repair_merge_is_replayed_without_appending_a_verdict() {
         db_or_skip!(db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Winner").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Loser").await;
@@ -202,11 +204,7 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(loser.merged_into_id, Some(winner));
-        let replayed = model::knowledge_verdicts::Entity::find()
-            .filter(
-                model::knowledge_verdicts::Column::Cause
-                    .eq(model::knowledge_verdicts::Cause::Replayed.as_str()),
-            )
+        let verdicts = model::knowledge_verdicts::Entity::find()
             .filter(
                 model::knowledge_verdicts::Column::Kind
                     .eq(model::knowledge_verdicts::Kind::Merge.as_str()),
@@ -214,7 +212,7 @@ mod tests {
             .count(&db.conn)
             .await
             .unwrap();
-        assert_eq!(replayed, 1);
+        assert_eq!(verdicts, 1, "replay must not append a merge decision");
     }
 
     #[tokio::test]
@@ -235,6 +233,15 @@ mod tests {
         let report = replay(&graph).await.unwrap();
 
         assert_eq!(report.withdrawn, 1, "{report:?}");
+        let verdicts = model::knowledge_verdicts::Entity::find()
+            .filter(
+                model::knowledge_verdicts::Column::Kind
+                    .eq(model::knowledge_verdicts::Kind::VetoIdentity.as_str()),
+            )
+            .count(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(verdicts, 1, "replay must not append a veto decision");
         let held = model::knowledge_identity::Entity::find()
             .filter(model::knowledge_identity::Column::KnowledgeEntityId.eq(entity))
             .count(&db.conn)

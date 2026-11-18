@@ -15,7 +15,7 @@ use super::ids::{EntityOriginId, ObservationId};
 pub enum Cause {
     Repair,
     Model,
-    /// An older repair applied to this generation by replay.
+    /// Historical marker from an older replay implementation. New replay does not append rows.
     Replayed,
 }
 
@@ -27,6 +27,10 @@ impl Cause {
             Self::Replayed => "replayed",
         }
     }
+}
+
+fn record_verdict_default() -> bool {
+    true
 }
 
 /// Everything a caller may ask of the graph.
@@ -60,6 +64,9 @@ pub enum GraphMutation {
         winner: EntityOriginId,
         cause: Cause,
         why: String,
+        /// Replay applies an existing decision without appending a copy. Never serialized.
+        #[serde(skip, default = "record_verdict_default")]
+        record_verdict: bool,
     },
     /// Record that two entities are deliberately separate.
     MarkDistinct {
@@ -85,6 +92,9 @@ pub enum GraphMutation {
         key: IdentityKey,
         cause: Cause,
         why: String,
+        /// Replay applies an existing decision without appending a copy. Never serialized.
+        #[serde(skip, default = "record_verdict_default")]
+        record_verdict: bool,
     },
     /// Lift a standing veto.
     UnvetoIdentity {
@@ -92,4 +102,28 @@ pub enum GraphMutation {
         key: IdentityKey,
         cause: Cause,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn record_verdict_is_not_serialized_and_defaults_true() {
+        let mutation = GraphMutation::MergeEntity {
+            loser: EntityOriginId(ObservationId(1)),
+            winner: EntityOriginId(ObservationId(2)),
+            cause: Cause::Repair,
+            why: "test".into(),
+            record_verdict: false,
+        };
+        let json = serde_json::to_value(&mutation).unwrap();
+        assert!(json.get("record_verdict").is_none());
+
+        let parsed: GraphMutation = serde_json::from_value(json).unwrap();
+        match parsed {
+            GraphMutation::MergeEntity { record_verdict, .. } => assert!(record_verdict),
+            other => panic!("expected a merge, got {other:?}"),
+        }
+    }
 }

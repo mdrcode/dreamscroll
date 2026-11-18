@@ -590,6 +590,7 @@ mod tests {
                 },
                 cause: Cause::Repair,
                 why: "test veto".into(),
+                record_verdict: true,
             }])
             .await
             .unwrap();

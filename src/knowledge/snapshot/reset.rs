@@ -575,6 +575,7 @@ mod tests {
                 winner: winner_origin,
                 cause: crate::knowledge::Cause::Repair,
                 why: "test merge".into(),
+                record_verdict: true,
             }])
             .await
             .unwrap();
