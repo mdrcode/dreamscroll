@@ -325,6 +325,10 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
 
 #[cfg(test)]
 mod tests {
+    use sea_orm::EntityTrait;
+
+    use crate::knowledge::{EntityOriginId, GraphMutation, KnowledgeGraph, ObservationId};
+    use crate::model;
     use crate::test_support::{db_or_skip, fixtures};
 
     #[tokio::test]
@@ -525,6 +529,60 @@ mod tests {
         assert_eq!(
             stats.with_platform, stats.platform_from_members,
             "projection lost presence a member had"
+        );
+    }
+
+    /// Presence can arrive on a member that is not the origin: the entity is created from a bare
+    /// observation, then a later reading with a handle joins it. Projection must take the first
+    /// member that showed one, not only the origin.
+    #[tokio::test]
+    async fn projected_platform_presence_matches_the_members_when_a_later_member_carries_it() {
+        db_or_skip!(db);
+
+        let entity = fixtures::knowledge_entity_with_member(&db, "Bare Origin").await;
+        let origin = fixtures::origin(&db, entity).await;
+        let capture = fixtures::Capture::new(&db, "later_platform").await;
+        let member = fixtures::observe(
+            &db,
+            &capture,
+            0,
+            "Some Person",
+            None,
+            "real_person",
+            Some("instagram"),
+            Some("@some_person"),
+        )
+        .await;
+
+        KnowledgeGraph::new(&db)
+            .proc(&[GraphMutation::AttachObservation {
+                observation: ObservationId(member),
+                entity: EntityOriginId(ObservationId(origin)),
+                with: None,
+                why: None,
+            }])
+            .await
+            .expect("attach should succeed");
+
+        let projected = model::knowledge_entity::Entity::find_by_id(entity)
+            .one(&db.conn)
+            .await
+            .expect("query should succeed")
+            .expect("the entity should exist");
+        assert_eq!(projected.platform.as_deref(), Some("instagram"));
+        assert_eq!(
+            projected.platform_handle.as_deref(),
+            Some("@some_person"),
+            "projection should wear the later member's handle"
+        );
+
+        let stats = super::knowledge_stats(&db)
+            .await
+            .expect("stats should succeed");
+        assert_eq!(stats.with_platform, 1);
+        assert_eq!(
+            stats.with_platform, stats.platform_from_members,
+            "projection lost presence only a later member had"
         );
     }
 }
