@@ -222,15 +222,16 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   3. ~~**Two orderings for "most substantiated".**~~ **Fixed by construction** (2026-11-04): the SQL
      `ORDER BY` is gone, `holders_of_identity` sorts with `Worth::order`, and `merge_open` asks the same
      function — one comparator, no NULL rule to keep in sync.
-  4. **The third holder's pair is never asked.** With three or more holders `scan` pairs every other
-     holder against `holders.first()`, so `(h2, h3)` never becomes a proximity and that question is
-     invisible in `proximity scan`. The corpus never exceeds two holders, so nothing is missing yet.
 
   1 is ranker policy and belongs with the resolver, not the linker. Full statement, options and the
   rebuild recipe: [wikidata-cleanup-20261112.md](archive/wikidata-cleanup-20261112.md). Note that the scoring
   split (`scorer.rs` verbs, `identification/measure.rs` policy) makes it cheaper to state:
   `parse_search` builds `Weights` itself instead of asking the policy, which is the visible oddity
   rather than a hidden one.
+
+- [ ] **Pair every holder in `proximity scan`.** With three or more holders `scan` pairs every other
+  holder against `holders.first()`, so `(h2, h3)` never becomes a proximity and that question is
+  invisible. The corpus never exceeds two holders, so nothing is missing yet.
 
 - [x] **Destructive DB tests are racy under parallel execution.** Reproduced 2026-11-16, and the two
   snapshot failures were one test poisoning a pooled schema:
@@ -290,13 +291,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   whole class, and the typing rule (not the decider) is what has to change. If they are two, the split
   stays, and `alt_types` is where "this person's item also covers their account" should be recorded.
   Do not special-case the link decider for one handle — that is the hack this item exists to avoid.
-
-- [ ] **`cargo fmt` the world, then gate it.** 47 files are dirty under `cargo fmt --check`, so every
-  change carries formatter noise next to its real diff and a reviewer cannot tell them apart. Nothing
-  enforces it — not CI, not a pre-push hook — so each commit can leave a hunk behind and the backlog
-  only grows. Do it as one behaviourless commit: `cargo fmt` and nothing else, so `git diff -w` against
-  the parent is empty and `cargo test --lib` proves it. Then add `cargo fmt --check` to whatever runs
-  before a merge, or the same drift starts again the next day.
 
 - [ ] **Make illumination retries append rather than replace.** `insert_illumination` upserts by
   `task_run_id`, then deletes and re-inserts its observations, so a retry of one run discards the
