@@ -143,9 +143,6 @@ impl LinkHelper {
     }
 }
 
-/// Transport calls a plain identification is allowed to make when the caller does not choose a budget.
-pub const DEFAULT_MAX_REQUESTS: usize = 200;
-
 #[derive(Debug, Clone, Default)]
 pub struct IdentificationOptions {
     /// Ask Wikidata again even when it already annotated the entity. `--entity` sets this;

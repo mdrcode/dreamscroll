@@ -291,6 +291,9 @@ struct CompareArgs {
     after: String,
 }
 
+/// Transport calls a bare `resolve` run may make when `--max-requests` is omitted.
+const DEFAULT_MAX_REQUESTS: usize = 200;
+
 #[derive(FromArgs)]
 #[argh(subcommand, name = "resolve")]
 #[argh(
@@ -520,7 +523,7 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
     let max_requests = match (args.offline, args.max_requests) {
         (true, _) => 0,
         (false, Some(n)) => n,
-        (false, None) => knowledge::DEFAULT_MAX_REQUESTS,
+        (false, None) => DEFAULT_MAX_REQUESTS,
     };
     let options = knowledge::IdentificationOptions {
         include_already_annotated: args.entity.is_some(),

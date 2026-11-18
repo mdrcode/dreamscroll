@@ -28,7 +28,7 @@ pub use graph::{
     GraphSelector, KnowledgeGraph, MergePreview, Refusal, ReprojectScope, Report, VerdictSelector,
 };
 pub use helper::{
-    DEFAULT_MAX_REQUESTS, IdentifyHelper, LinkAllReport, LinkHelper, LinkReport, IdentificationOptions,
+    IdentifyHelper, IdentificationOptions, LinkAllReport, LinkHelper, LinkReport,
 };
 pub use identity::{Identity, IdentityKey, Provider};
 pub use ids::{EntityOriginId, ObservationId};
