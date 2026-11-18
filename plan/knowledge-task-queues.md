@@ -1,13 +1,13 @@
 # Knowledge task queues — the online resolve
 
 **Status:** Active — the online task is built 2026-11-14; production queue provisioning is the
-remaining step. The nightly drain is split out and tabled:
+remaining step. The nightly drain is abandoned for now (not tabled):
 `plan/knowledge-batch-job.md`. The `knowledge-link` queue defect in §1 is live and blocks
 the next production deploy, so it is fixed first.
 
 **Purpose:** a capture that has been linked gets its entities identified without an operator. The
-online task resolves exactly what one illumination touched; everything it misses waits for the batch
-job (tabled), or for `knowledge identity resolve` meanwhile.
+online task resolves exactly what one illumination touched; everything it misses waits for
+`knowledge identity resolve` for now.
 
 **See also:** `src/knowledge/knowledge.md` §Identification; `src/logic/knowledge_link.rs`
 and `src/logic/beacon.rs` (the chain this copies); `src/task/task_def.rs` (the `Task`/`TaskRun`
@@ -208,7 +208,8 @@ flowchart LR
 
 ## Non-goals
 
-- The nightly drain and its advisory lock — `plan/knowledge-batch-job.md`.
+- The nightly drain and its advisory lock — abandoned for now
+  (`plan/knowledge-batch-job.md`).
 - Continuous resolution on every entity mutation.
 - Proximity scan/auto-merge tasks; they stay operator commands.
 - Re-resolution of old annotations; unmerge; resolving a tombstone.

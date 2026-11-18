@@ -29,9 +29,7 @@ rather than rewriting it; history is the point.
 | [testing.md](testing.md) | Living | Two-tier test model, and what deliberately goes untested. |
 | [smoke.md](smoke.md) | Living | Manual smoke procedure against the persistent local instance (`smoke-agent` account). |
 | [lexicon.md](lexicon.md) | Authoritative — names | The vocabulary: observations, knowledge entities, evidence; the verbs; the rename map and the names considered and rejected. Read before renaming anything in the graph. |
-| [knowledge-entity-attestations.md](knowledge-entity-attestations.md) | Proposed — not committed | Entity-level references and a three-state status (`identified` / `attested` / `provisional`): web-search results document an entity without pretending an article is its identity. Design only. |
 | [knowledge-task-queues.md](knowledge-task-queues.md) | Active — being built | The online resolve: fix the `knowledge-link` queue (required config; missing in prod), add an `identity_resolve` task chained from the link webhook. |
-| [knowledge-batch-job.md](knowledge-batch-job.md) | Proposed — tabled | The nightly drain as a Cloud Run Job (`dreamscroll_knowledge identity resolve`), the selection that doubles as its checkpoint, and the advisory lock the two levels share. Design only. |
 | [knowledge-projection.md](knowledge-projection.md) | Landed — watch items remain | Projection purity, entity locking, and write-if-changed. |
 | [knowledge-snapshot-redesign.md](knowledge-snapshot-redesign.md) | Active — Phase 1 implemented; Phase 2 deferred | Snapshot tooling moved into `knowledge`; next replace table-name discovery with the generation register, validation, and configurable retention. |
 | [media-serving.md](media-serving.md) | Partly implemented | Immutable-object cache policy shipped; private URL delivery waits on load-balancer/CDN work. |
@@ -40,6 +38,11 @@ rather than rewriting it; history is the point.
 | [vertex-throughput.md](vertex-throughput.md) | Research — active | Vertex Gemini tail latency: evidence, hypotheses, experiments, mitigations. |
 | [upload-formats.md](upload-formats.md) | Partly implemented | Upload format policy: blocklist at the single ingest point, 415s, client `accept` steering shipped 2026-10-29. Client re-encode and server HEIC normalize deferred. |
 | [task-abandoned-status.md](task-abandoned-status.md) | Deferred — trigger-gated | A seventh terminal status for operator-closed runs, so intent stops living in `last_error_message` prose. Design only. |
+
+### Abandoned for now
+
+- [knowledge-entity-attestations.md](knowledge-entity-attestations.md) — entity-level references and a three-state status. Not pursuing.
+- [knowledge-batch-job.md](knowledge-batch-job.md) — nightly identity drain. Not pursuing; `knowledge identity resolve` remains the catch-up.
 
 ## archive/ — inactive records (default: ignore)
 

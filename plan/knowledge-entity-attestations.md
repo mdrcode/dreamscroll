@@ -1,7 +1,6 @@
 # Entity attestations — references, not identities
 
-**Status:** Proposed 2026-11-11. Design only; no schema or code change. Not scheduled, not
-committed. This doc records a model worth keeping even if implementation waits. It predates schema
+**Status:** Abandoned 2026-11-18 — not pursuing. Design only; no schema or code change. This doc records a model worth keeping if the product need returns. It predates schema
 39; read "claim" below as an identity annotation on an entity, and `Claim` in the resolver sketch as
 `Identity` — see [knowledge-identity-annotations.md](archive/knowledge-identity-annotations.md).
 

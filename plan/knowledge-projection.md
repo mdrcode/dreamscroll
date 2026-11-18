@@ -86,7 +86,7 @@ This makes `reproject` a function of the durable graph rather than of its own pr
   `identify_all_pending` because it builds one mutation list and one `proc` transaction. Accepted
   until measurement shows it matters; a batched projector is the optimization if it does.
 - **Status semantics — accepted.** `identified` means “any identity row,” including an illuminator
-  handle. The attestation model may refine this; not worth changing in projection now.
+  handle. Refining it would require a separate attestation model, which is abandoned for now.
 
 ## Verification
 

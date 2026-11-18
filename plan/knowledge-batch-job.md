@@ -1,6 +1,6 @@
 # Knowledge batch job — the nightly drain
 
-**Status:** Proposed — **tabled 2026-11-14**. Design captured from the session that split it from
+**Status:** Abandoned 2026-11-18 — not pursuing. Design captured from the session that split it from
 `plan/knowledge-task-queues.md` (the online piece, which is being built). Nothing here is started.
 
 **Purpose:** a scheduled, bounded drain that resolves every knowledge entity no identity resolver has

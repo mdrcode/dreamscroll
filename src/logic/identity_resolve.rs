@@ -7,8 +7,8 @@
 //!
 //! The run is bounded: one attempt may make [`AllowanceConfig::max_calls`] transport calls at
 //! [`AllowanceConfig::min_interval`]. A refusal (budget spent, provider rate limit) is a completed run with a
-//! report, not an error: the entity stays pending, and the batch job
-//! (`plan/knowledge-batch-job.md`) is the floor that reads it again.
+//! report, not an error: the entity stays pending. There is no scheduled drain for now; the
+//! batch job plan is abandoned.
 
 use serde::{Deserialize, Serialize};
 
