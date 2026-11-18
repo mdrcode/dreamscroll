@@ -8,8 +8,8 @@
 
 use sea_orm::sea_query::{Expr, ExprTrait, Query};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, PaginatorTrait,
-    QueryFilter, QueryOrder, QuerySelect, Statement, Value,
+    ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
 };
 
 use crate::knowledge::identity::IdentityKey;
@@ -64,30 +64,6 @@ impl<'a> GraphSelector<'a> {
         identified_by(self.conn, provider, entity_ids).await
     }
 
-    /// The live entity carrying `(scheme, external_id)`, most substantiated first.
-    pub async fn holder(
-        &self,
-        scheme: &str,
-        external_id: &str,
-    ) -> anyhow::Result<Option<EntityOriginId>> {
-        let row = self
-            .conn
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                HOLDER,
-                vec![
-                    Value::String(Some(scheme.to_string())),
-                    Value::String(Some(external_id.to_string())),
-                ],
-            ))
-            .await?;
-        let Some(row) = row else {
-            return Ok(None);
-        };
-        let origin: Option<i32> = row.try_get_by_index(0)?;
-        Ok(origin.map(|id| EntityOriginId(ObservationId(id))))
-    }
-
     /// Follow an origin through tombstones to the live entity id.
     pub async fn live_entity(&self, origin: EntityOriginId) -> anyhow::Result<Option<i32>> {
         resolve_live_entity(self.conn, origin.0.0).await
@@ -131,17 +107,6 @@ impl<'a> GraphSelector<'a> {
         super::VerdictSelector::new(self.conn)
     }
 }
-
-const HOLDER: &str = r#"
-SELECT e.origin_observation_id
-  FROM knowledge_identities i
-  JOIN knowledge_entities e ON e.id = i.knowledge_entity_id
- WHERE e.merged_into_id IS NULL
-   AND i.scheme = $1
-   AND i.external_id = $2
- ORDER BY e.confidence DESC NULLS LAST, e.id
- LIMIT 1
-"#;
 
 /// Follow the tombstone chain from an origin to the live entity id.
 pub(super) async fn resolve_live_entity(

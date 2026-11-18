@@ -544,8 +544,8 @@ mod tests {
         assert!(ranked.iter().all(|(index, _)| *index != 2));
     }
 
-    /// A handle is settled *before* measuring; folding it into the name is how a handle and a real
-    /// name become two entities.
+    /// A handle is a blocker probe, not evidence in the score. A handle-only mismatch must create a
+    /// separate entity for proximity review rather than bypassing the ranking.
     #[test]
     fn a_handle_does_not_move_the_score() {
         let plain = fixtures::stub_observation(1, "Alex Lei", "real_person");

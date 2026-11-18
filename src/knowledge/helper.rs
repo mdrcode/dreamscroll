@@ -83,8 +83,7 @@ impl LinkHelper {
             .collect();
         let already_linked = considered - pending.len();
 
-        let selector = self.graph.selector();
-        let mutations = self.linker.plan(&self.blocker, &selector, &pending).await?;
+        let mutations = self.linker.plan(&self.blocker, &pending).await?;
         let created = mutations
             .iter()
             .filter(|mutation| matches!(mutation, GraphMutation::CreateEntity { .. }))

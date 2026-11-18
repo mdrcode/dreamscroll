@@ -212,11 +212,11 @@ The v2 planner is a policy: the pending batch in, one `GraphMutation` per observ
 
 - `Blocker` is recall: live entities only, ordered by id. An error is not an empty set; empty means
   "nothing matched, create," and a failed probe stops the link.
-- `GraphSelector::holder` is the one evidence read: which live entity already carries
-  `(scheme, external_id)`, named by origin.
-- `heuristic::HeuristicLinker` is today's policy: a held identity wins; else the best qualifying
-  blocker candidate; else create. The target is an `EntityOriginId`, never an entity id, so a
-  decision made against an older corpus follows tombstones when it is applied.
+- `heuristic::HeuristicLinker` is today's policy: the best qualifying blocker candidate; else create.
+  A handle on the observation is carried as an identity but does not bypass the ranking, so a
+  mismatch creates a separate entity that `proximity scan` can surface. The target is an
+  `EntityOriginId`, never an entity id, so a decision made against an older corpus follows
+  tombstones when it is applied.
 
 The caller selects the batch. Already-linked observations are not the planner's problem; the helper
 filters them before planning.

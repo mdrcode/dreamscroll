@@ -1,16 +1,17 @@
-//! Today's link policy: a held identity wins; else the best qualifying candidate; else create.
+//! Today's link policy: the best qualifying blocker candidate, else create. A handle is carried as
+//! an identity but does not bypass the ranking.
 
 use crate::illumination::v2::PlatformLink;
 use crate::model;
 
 use super::HeuristicScorer;
 use crate::knowledge::blocker::Blocker;
-use crate::knowledge::graph::GraphSelector;
 use crate::knowledge::identity::Identity;
 use crate::knowledge::ids::{EntityOriginId, ObservationId};
 use crate::knowledge::mutation::GraphMutation;
 
-/// Today's link policy: a held identity wins; else the best qualifying candidate; else create.
+/// Today's link policy: the best qualifying blocker candidate, else create. A handle does not
+/// bypass the ranking; it is carried on the resulting attach/create.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct HeuristicLinker {
     scorer: HeuristicScorer,
@@ -24,7 +25,6 @@ impl HeuristicLinker {
     pub async fn plan(
         &self,
         blocker: &dyn Blocker,
-        selector: &GraphSelector<'_>,
         observations: &[model::user_observed_entity::Model],
     ) -> anyhow::Result<Vec<GraphMutation>> {
         // The order the capture emitted them, which decides who wins a contested entity.
@@ -43,22 +43,6 @@ impl HeuristicLinker {
                 identity.observation_id = Some(ObservationId(observation.id));
                 identity
             });
-
-            // A held identity settles it before any scoring. The capture's handle is the observation's
-            // own evidence; the entity carrying it is the thing.
-            if let Some(identity) = &with
-                && let Some(entity) = selector
-                    .holder(&identity.scheme, &identity.external_id)
-                    .await?
-            {
-                mutations.push(GraphMutation::AttachObservation {
-                    observation: ObservationId(observation.id),
-                    entity,
-                    with,
-                    why: Some("identity holder".into()),
-                });
-                continue;
-            }
 
             let candidates = blocker.candidates(&observation).await?;
             let ranked = self.scorer.link(&observation, &candidates);

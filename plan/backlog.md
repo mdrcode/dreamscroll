@@ -131,30 +131,12 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   one design question first: observations are the source of truth for membership, so re-pointing them
   by the ids the merge moved is probably enough, but the evidence rows that moved need their old owner
   back, and the `merge` row is the only record of which entities were involved.
-- [ ] **Make the tree `rustfmt`-clean, and keep it that way.** `cargo fmt --check` reports ~87
-  differences and there is no `rustfmt.toml`. Worse for this codebase: formatting a module root
-  (`src/knowledge/mod.rs`) recurses into every child module, so a per-file `rustfmt` run silently
-  reformats hundreds of unrelated lines — twice in one session that had to be reverted by hand.
-  Either adopt the formatter repo-wide in a single commit and gate it in CI, or pin a `rustfmt.toml`
-  whose style matches what is there closely enough that the first run is small. Formatting only the
-  files you touched is the current workaround: it keeps diffs honest and leaves the drift in place.
-- [ ] **Decide whether a handle match can be refused.** A platform link proves the link is the same;
-  it says nothing about the thing behind it. Two captures naming `X/@elonmusk` as
-  "technologist and inventor" and as "random bullshitter" are today merged silently — the second is
-  absorbed as corroboration, `project` picks one description, and nothing records the disagreement.
-  The proximity record is the machinery; what is missing is a corroboration bar inside the linker
-  for handle matches, and a decision about what the executor does with a refused match (link and
-  note a proximity, or leave unlinked and re-evaluate next run). Needs a real case before designing
-  thresholds — a report-only count of handle matches that would fail a corroboration test is the
-  first step. Measured local 2026-11-18: **39 / 393** platform observations (9.9%) are later
-  carriers of an existing handle identity, across **38 / 739** illuminations and **34 / 353**
-  platform-key entities. Of those 39, **38** carried a different description and **16** a different
-  name than the first carrier. That is trigger frequency, not an error rate; merges account for at
-  most a small part of it. Shape is settled: a refused match needs no new decision variant — it is
-  `Create` with the identity withheld and `best` naming the entity declined, which `project` then
-  leaves `provisional` for free. Deferred with it: whether a refusal also writes a proximity (which would
-  flag the established entity for a look); today "shares an identity" is a proximity, and diluting
-  it is a separate decision.
+- [x] **Make the tree `rustfmt`-clean, and keep it that way.** `cargo fmt` was applied across the
+  tree; `cargo fmt --check` passes, and `AGENTS.md` now requires formatting before commit.
+- [x] **Remove the unconditional handle attach.** The linker now uses the blocker and scorer for
+  every observation; a handle is carried as an identity but does not bypass ranking. Measured on the
+  local rebuild: **35 / 39** cases still attached through scoring; **4** split into new entities and
+  all four appear in `proximity scan`. The dead `GraphSelector::holder` query was removed.
 - [ ] **Define `brand` vs `organization`, `product` vs `software`.** These two
   undefined type pairs account for 111 of 179 collision pairs.
 - [ ] **Add `concept` and `organism` entity types, plus `referent_form` and
