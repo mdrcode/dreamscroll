@@ -196,7 +196,7 @@ struct EntityShowArgs {
 #[derive(FromArgs)]
 #[argh(subcommand, name = "proximity")]
 #[argh(
-    description = "entities sharing an identity; scan is read-only, distinct records a decision"
+    description = "entities sharing any identity; scan is read-only, distinct records a decision"
 )]
 struct ProximityArgs {
     #[argh(subcommand)]
@@ -212,7 +212,9 @@ enum ProximityCommand {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "scan")]
-#[argh(description = "list every pair that shares an identity; writes nothing")]
+#[argh(
+    description = "list every pair that shares any identity, with all shared identities; writes nothing"
+)]
 struct ProximityScanArgs {}
 
 #[derive(FromArgs)]
@@ -938,15 +940,20 @@ async fn main() -> anyhow::Result<()> {
                         println!("no proximity candidates");
                     }
                     for candidate in candidates {
+                        let identities = candidate
+                            .identities
+                            .iter()
+                            .map(|identity| format!("{}:{}", identity.scheme, identity.external_id))
+                            .collect::<Vec<_>>()
+                            .join(", ");
                         println!(
-                            "{:.3}  {} [{}] \u{21c4} {} [{}]  {}:{}",
+                            "{:.3}  {} [{}] \u{21c4} {} [{}]  {}",
                             candidate.score,
                             candidate.holder_name,
                             candidate.holder_id,
                             candidate.counterpart_name,
                             candidate.counterpart_id,
-                            candidate.scheme,
-                            candidate.external_id
+                            identities
                         );
                     }
                 }

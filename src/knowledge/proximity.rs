@@ -1,19 +1,20 @@
-//! Transient proximity candidates: entities the graph currently holds under one identity.
+//! Transient proximity candidates: entities the graph currently holds under an identity.
 //!
 //! There is no batch table and no automatic pass. A scan is a query: sharing an identity is a
 //! question, not a persisted fact. One Wikidata item can name an album and cover its songs, so a
 //! pair here is a candidate for review, never a verdict.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
 use crate::database::DbHandle;
 use crate::knowledge::heuristic::HeuristicScorer;
+use crate::knowledge::identity::IdentityKey;
 use crate::model;
 
-/// One pair that shares an identity in the current graph.
+/// One pair that shares at least one identity in the current graph.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProximityCandidate {
     /// The more substantiated side, used as the reading order.
@@ -21,14 +22,13 @@ pub struct ProximityCandidate {
     pub holder_name: String,
     pub counterpart_id: i32,
     pub counterpart_name: String,
-    /// The identity the two entities share.
-    pub scheme: String,
-    pub external_id: String,
+    /// Every identity the two entities share, in scan order.
+    pub identities: Vec<IdentityKey>,
     /// The scorer's pair score; a reading aid, not a decision.
     pub score: f32,
 }
 
-/// Return every live pair that shares an identity, best-scored first.
+/// Return every live pair that shares an identity, with all shared identities, best-scored first.
 pub async fn scan(db: &DbHandle) -> anyhow::Result<Vec<ProximityCandidate>> {
     let entities = model::knowledge_entity::Entity::find()
         .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
@@ -53,8 +53,7 @@ pub async fn scan(db: &DbHandle) -> anyhow::Result<Vec<ProximityCandidate>> {
     }
 
     let scorer = HeuristicScorer;
-    let mut seen = HashSet::new();
-    let mut candidates = Vec::new();
+    let mut pairs: HashMap<(i32, i32), ProximityCandidate> = HashMap::new();
     for ((scheme, external_id), mut ids) in holders {
         ids.sort_by(|a, b| {
             let a = &entities[a];
@@ -71,22 +70,23 @@ pub async fn scan(db: &DbHandle) -> anyhow::Result<Vec<ProximityCandidate>> {
         let holder = &entities[&holder_id];
         for counterpart_id in ids.iter().skip(1).copied() {
             let pair = (holder_id.min(counterpart_id), holder_id.max(counterpart_id));
-            if !seen.insert(pair) {
-                continue;
-            }
             let counterpart = &entities[&counterpart_id];
-            candidates.push(ProximityCandidate {
+            let candidate = pairs.entry(pair).or_insert_with(|| ProximityCandidate {
                 holder_id,
                 holder_name: holder.name.clone(),
                 counterpart_id,
                 counterpart_name: counterpart.name.clone(),
+                identities: Vec::new(),
+                score: scorer.pair(counterpart, holder),
+            });
+            candidate.identities.push(IdentityKey {
                 scheme: scheme.clone(),
                 external_id: external_id.clone(),
-                score: scorer.pair(counterpart, holder),
             });
         }
     }
 
+    let mut candidates: Vec<_> = pairs.into_values().collect();
     candidates.sort_by(|a, b| {
         b.score
             .partial_cmp(&a.score)
@@ -103,7 +103,7 @@ mod tests {
     use crate::test_support::{db_or_skip, fixtures};
 
     #[tokio::test]
-    async fn scan_returns_a_shared_identity_once() {
+    async fn scan_returns_one_candidate_with_all_shared_identities() {
         db_or_skip!(db);
         let left = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let right = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
@@ -114,8 +114,19 @@ mod tests {
 
         let candidates = scan(&db).await.unwrap();
         assert_eq!(candidates.len(), 1);
-        assert_eq!(candidates[0].scheme, "wikidata");
-        assert_eq!(candidates[0].external_id, "Q1");
+        assert_eq!(
+            candidates[0].identities,
+            vec![
+                IdentityKey {
+                    scheme: "wikidata".into(),
+                    external_id: "Q1".into(),
+                },
+                IdentityKey {
+                    scheme: "wikidata".into(),
+                    external_id: "Q2".into(),
+                },
+            ]
+        );
         assert_eq!(
             (candidates[0].holder_id, candidates[0].counterpart_id),
             (left, right)
