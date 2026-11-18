@@ -213,7 +213,7 @@ enum ProximityCommand {
 #[derive(FromArgs)]
 #[argh(subcommand, name = "scan")]
 #[argh(
-    description = "list every pair that shares any identity, with all shared identities; writes nothing"
+    description = "list every pair that shares any identity, with all shared identities and a distinct marker; writes nothing"
 )]
 struct ProximityScanArgs {}
 
@@ -947,13 +947,18 @@ async fn main() -> anyhow::Result<()> {
                             .collect::<Vec<_>>()
                             .join(", ");
                         println!(
-                            "{:.3}  {} [{}] \u{21c4} {} [{}]  {}",
+                            "{:.3}  {} [{}] \u{21c4} {} [{}]  {}{}",
                             candidate.score,
                             candidate.holder_name,
                             candidate.holder_id,
                             candidate.counterpart_name,
                             candidate.counterpart_id,
-                            identities
+                            identities,
+                            if candidate.distinct {
+                                "  [distinct]"
+                            } else {
+                                ""
+                            }
                         );
                     }
                 }

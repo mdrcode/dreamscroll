@@ -169,7 +169,8 @@ no `illuminator` special case.
   - Accepts: both origins resolve to live entities and are distinct; no pending repair merge on the
     pair.
   - NoChange: already distinct.
-  - Does: insert the verdict. No graph row changes; projection is not needed.
+  - Does: insert the verdict. No graph row changes; projection is not needed. `proximity scan`
+    marks the pair `[distinct]`.
   - Logs: `kind = distinct`, the origin pair, the mutation's `cause`.
   - One-way: knowledge 1 has no inverse; a wrong `distinct` cannot be lifted yet.
 

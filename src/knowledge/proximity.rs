@@ -2,10 +2,11 @@
 //!
 //! There is no batch table and no automatic pass. A scan is a query: sharing an identity is a
 //! question, not a persisted fact. One Wikidata item can name an album and cover its songs, so a
-//! pair here is a candidate for review, never a verdict.
+//! pair here is a candidate for review, never a verdict. A standing `distinct` verdict marks the
+//! pair; it does not remove it from the scan.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
@@ -24,11 +25,14 @@ pub struct ProximityCandidate {
     pub counterpart_name: String,
     /// Every identity the two entities share, in scan order.
     pub identities: Vec<IdentityKey>,
+    /// A standing `distinct` verdict names this pair.
+    pub distinct: bool,
     /// The scorer's pair score; a reading aid, not a decision.
     pub score: f32,
 }
 
 /// Return every live pair that shares an identity, with all shared identities, best-scored first.
+/// A standing `distinct` verdict is marked on the pair.
 pub async fn scan(db: &DbHandle) -> anyhow::Result<Vec<ProximityCandidate>> {
     let entities = model::knowledge_entity::Entity::find()
         .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
@@ -42,6 +46,20 @@ pub async fn scan(db: &DbHandle) -> anyhow::Result<Vec<ProximityCandidate>> {
     let identities = model::knowledge_identity::Entity::find()
         .all(&db.conn)
         .await?;
+    let distinct_pairs: HashSet<(i32, i32)> = model::knowledge_verdicts::Entity::find()
+        .filter(
+            model::knowledge_verdicts::Column::Kind
+                .eq(model::knowledge_verdicts::Kind::Distinct.as_str()),
+        )
+        .all(&db.conn)
+        .await?
+        .into_iter()
+        .filter_map(|verdict| {
+            let a = verdict.winner_origin?;
+            let b = verdict.loser_origin?;
+            Some((a.min(b), a.max(b)))
+        })
+        .collect();
     let mut holders: BTreeMap<(String, String), Vec<i32>> = BTreeMap::new();
     for identity in identities {
         if entities.contains_key(&identity.knowledge_entity_id) {
@@ -77,6 +95,14 @@ pub async fn scan(db: &DbHandle) -> anyhow::Result<Vec<ProximityCandidate>> {
                 counterpart_id,
                 counterpart_name: counterpart.name.clone(),
                 identities: Vec::new(),
+                distinct: distinct_pairs.contains(&(
+                    holder
+                        .origin_observation_id
+                        .min(counterpart.origin_observation_id),
+                    holder
+                        .origin_observation_id
+                        .max(counterpart.origin_observation_id),
+                )),
                 score: scorer.pair(counterpart, holder),
             });
             candidate.identities.push(IdentityKey {
@@ -131,5 +157,37 @@ mod tests {
             (candidates[0].holder_id, candidates[0].counterpart_id),
             (left, right)
         );
+        assert!(!candidates[0].distinct);
+    }
+
+    #[tokio::test]
+    async fn scan_marks_a_standing_distinct() {
+        db_or_skip!(db);
+        let left = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let right = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        fixtures::identity(&db, left, "wikidata", "Q1", "test", None, Some(0.9)).await;
+        fixtures::identity(&db, right, "wikidata", "Q1", "test", None, Some(0.8)).await;
+
+        let graph = crate::knowledge::KnowledgeGraph::new(&db);
+        let a = crate::knowledge::EntityOriginId(crate::knowledge::ObservationId(
+            fixtures::origin(&db, left).await,
+        ));
+        let b = crate::knowledge::EntityOriginId(crate::knowledge::ObservationId(
+            fixtures::origin(&db, right).await,
+        ));
+        let outcome = graph
+            .proc(&[crate::knowledge::GraphMutation::MarkDistinct {
+                a,
+                b,
+                cause: crate::knowledge::Cause::Repair,
+                why: "test".into(),
+            }])
+            .await
+            .unwrap();
+        assert!(outcome.refused.is_none());
+
+        let candidates = scan(&db).await.unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0].distinct);
     }
 }
