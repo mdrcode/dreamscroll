@@ -6,6 +6,9 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ## Next
 
+> **Out of scope today:** the **illumination entity-type overhaul** below. It stays prominent in this
+> backlog as the next design item, but do not start it in this run.
+
 ### Illumination inference
 
 - [ ] **Revisit the illumination model on 2027-01-01.** Flash 3.8's introductory rate ($0.75 input /
@@ -50,7 +53,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 - [x] **`identity inspect` truncates each answer's list to four candidates.** The decided candidate is now
   always shown and the rest are counted (`… 5 more`), in text and JSON.
 
-- [ ] **Overhaul `entity_type`, driven by data.** It is capture vocabulary — the illuminator names a type
+- [ ] **Illumination entity-type overhaul.** It is capture vocabulary — the illuminator names a type
   in free text — and it currently acts as a *veto* in three places: `classes::incompatible` (rejecting
   candidates by `P31`), the link decision (declining an attachment), and `merge`.
 
