@@ -12,8 +12,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::knowledge::IdentifyHelper;
-use crate::{api, task};
+use crate::knowledge::{self, IdentifyHelper};
+use crate::{api, fetch, task};
 
 /// The concrete task for resolving one illumination's entities.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -46,7 +46,7 @@ pub async fn exec(
     _attempt: i32,
 ) -> Result<(), api::ApiError> {
     let report = identify(
-        &state.identity_engine,
+        &state.knowledge_identifier,
         &state.cache,
         &state.service_api,
         &task_run.task,
@@ -73,12 +73,12 @@ pub async fn exec(
 /// The ownership check belongs here, where the payload is: an illumination row names its user, and
 /// the task claims to be acting for one.
 pub(crate) async fn identify(
-    engine: &IdentifyHelper,
-    cache: &crate::fetch::FetchCache,
-    service_api: &crate::api::ServiceApiClient,
+    identifier: &IdentifyHelper,
+    cache: &fetch::FetchCache,
+    service_api: &api::ServiceApiClient,
     task: &IdentityResolveTask,
-    allowance: crate::fetch::AllowanceConfig,
-) -> anyhow::Result<crate::knowledge::helper::IdentificationReport> {
+    allowance: fetch::AllowanceConfig,
+) -> anyhow::Result<knowledge::helper::IdentificationReport> {
     let illumination = service_api.illumination(task.illumination_id).await?;
     anyhow::ensure!(
         illumination.user_id == task.entity_owner_id,
@@ -92,8 +92,8 @@ pub(crate) async fn identify(
     // linked set; identifying a partial one would silently drop the unlinked observations.
     let entities = service_api.illumination_entities(task.illumination_id).await?;
 
-    let allowance = crate::fetch::Allowance::configured(allowance);
-    engine.identify(&entities, cache, Some(&allowance)).await
+    let allowance = fetch::Allowance::configured(allowance);
+    identifier.identify(&entities, cache, Some(&allowance)).await
 }
 
 #[cfg(test)]

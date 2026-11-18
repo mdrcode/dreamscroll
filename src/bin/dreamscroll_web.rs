@@ -183,8 +183,8 @@ async fn initialize()
                 logic: logic::LogicState {
                     service_api,
                     cache: dreamscroll::fetch::FetchCache::new(&db.conn),
-                    knowledge,
-                    identity_engine,
+                    knowledge_linker: knowledge,
+                    knowledge_identifier: identity_engine,
                     wikidata_allowance: dreamscroll::fetch::AllowanceConfig {
                         max_calls: cfg.task_wikidata_max_requests,
                         min_interval: std::time::Duration::from_millis(

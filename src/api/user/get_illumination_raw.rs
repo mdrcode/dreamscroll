@@ -124,19 +124,19 @@ mod tests {
                 .build()
                 .unwrap(),
         );
-        let knowledge = crate::knowledge::LinkHelper::new(&db);
-        let identity_engine =
+        let knowledge_linker = crate::knowledge::LinkHelper::new(&db);
+        let knowledge_identifier =
             crate::knowledge::IdentifyHelper::new(&db, Default::default()).unwrap();
         let state = std::sync::Arc::new(crate::webhook::WebhookState {
             logic: logic::LogicState {
                 cache: crate::fetch::FetchCache::new(&db.conn),
-                identity_engine,
+                knowledge_identifier,
                 wikidata_allowance: crate::fetch::AllowanceConfig {
                     max_calls: 0,
                     min_interval: std::time::Duration::ZERO,
                 },
                 service_api,
-                knowledge,
+                knowledge_linker,
                 storage: Box::new(TestStorageProvider),
                 inference_client: Box::new(TestInferenceClient::new(vec![
                     serde_json::json!({"summary": "missing required fields"}),

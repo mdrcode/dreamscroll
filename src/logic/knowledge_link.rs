@@ -13,7 +13,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{api, task};
+use crate::{
+    api::{self, ServiceApiClient},
+    knowledge, task,
+};
 
 /// The concrete task for linking one illumination's observations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,7 +48,7 @@ pub async fn exec(
     task_run: &task::TaskRun<KnowledgeLinkTask>,
     _attempt: i32,
 ) -> Result<(), api::ApiError> {
-    let stats = link(&state.knowledge, &state.service_api, &task_run.task)
+    let stats = link(&state.knowledge_linker, &state.service_api, &task_run.task)
         .await
         .map_err(api::ApiError::internal)?;
 
@@ -60,10 +63,10 @@ pub async fn exec(
 
 /// Factored out so it can be exercised without a `LogicState` for test.
 pub(crate) async fn link(
-    graph: &crate::knowledge::LinkHelper,
-    service_api: &crate::api::ServiceApiClient,
+    linker: &knowledge::LinkHelper,
+    service_api: &ServiceApiClient,
     task: &KnowledgeLinkTask,
-) -> anyhow::Result<crate::knowledge::LinkReport> {
+) -> anyhow::Result<knowledge::LinkReport> {
     // The read belongs to the service layer, which is the worker's door to the app; the ownership
     // check belongs here, where the payload is. The store is not involved in either.
     let illumination = service_api.illumination(task.illumination_id).await?;
@@ -75,7 +78,7 @@ pub(crate) async fn link(
         task.entity_owner_id
     );
 
-    graph.link_illumination(&illumination).await
+    linker.link_illumination(&illumination).await
 }
 
 #[cfg(test)]
