@@ -16,14 +16,13 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 | --- | --- | --- |
 | K1 | S2 | Person vs social account |
 | K3 | S2 | Provider-neutral entity types (boundaries, coverage, mechanism) |
-| K4 | S2 | Unmerge |
-| K5 | S2 | Projection invariant |
 | K7 | S3 | `Cause::Model` semantics |
 | K10 | S4 | Normalisation watch |
 | K11 | S2 | Illumination retries append rather than replace |
 
-> Former K2 and K6 are folded into K3; their ids are retired. K8 shipped 2026-11-18; its id is
-> retired. K9 is accepted in `plan/pragmatism.md`; its id is retired.
+> Former K2 and K6 are folded into K3; their ids are retired. K4 is retired; the incomplete mutation
+> grammar is documented in `src/knowledge/knowledge.md`. K5 shipped 2026-11-18. K8 shipped
+> 2026-11-18. K9 is accepted in `plan/pragmatism.md`.
 
 ### Illumination inference
 
@@ -134,23 +133,10 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `graph::link::unit::a_refused_decision_rolls_the_whole_reading_back`, which fails the second
   decision of a batch on a tombstone and asserts the first decision's entity and both attaches are
   gone — the retry therefore finds the whole reading pending.
-- [ ] **Assert the projection invariant.** `knowledge_stats` prints `platform_from_members` beside
-  `with_platform`, and the field is documented as always equal: a divergence means `project` lost a
-  presence that some member still carries. Nothing asserts it — a lost presence currently shows up
-  only as two numbers a human has to compare. The cheap version is an assertion in the stats test;
-  the useful one is a test that projects an entity whose *second* member carries a platform and
-  asserts the column survives, since that is the order in which the blocker lag used to lose it.
 - [x] **Make `origin_observation_id` required.** Schema 42 sets the column `NOT NULL`; the model
   field is `i32`. The null branch is gone from projection. A detached origin still selects another
   current member, because membership can change after creation; stubs that are never inserted use
   `0` as an explicit no-observation sentinel.
-- [ ] **Unmerge.** A merge tombstones the loser and records `kind = 'merge'` with `child` and
-  `method`, so reversing one is a pointer away — `merge`'s own doc says the decision is "one pointer
-  away from being undone". Nothing implements it. `plan/archive/knowledge-canonical-entities.md` §Repair
-  describes `retire` and `relink`, and the CLI that drives a repair by hand is still "later". Settle
-  one design question first: observations are the source of truth for membership, so re-pointing them
-  by the ids the merge moved is probably enough, but the evidence rows that moved need their old owner
-  back, and the `merge` row is the only record of which entities were involved.
 - [x] **Make the tree `rustfmt`-clean, and keep it that way.** `cargo fmt` was applied across the
   tree; `cargo fmt --check` passes, and `AGENTS.md` now requires formatting before commit.
 - [x] **Remove the unconditional handle attach.** The linker now uses the blocker and scorer for

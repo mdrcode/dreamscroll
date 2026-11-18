@@ -207,6 +207,12 @@ no `illuminator` special case.
   - Lifting rule: `Model` cannot lift a `Cause::Repair` row. The mutation states its own cause; the
     edge is responsible for not letting a model claim `Repair`.
 
+## Open mutation grammar
+
+TBD graph mutation actions: `unmerge` (the inverse of `MergeEntity`) and `retract_distinct` (the
+inverse of `MarkDistinct`). Neither is modeled today; add an inverse only when an operator workflow
+needs it.
+
 ## The planner
 
 The v2 planner is a policy: the pending batch in, one `GraphMutation` per observation out.
