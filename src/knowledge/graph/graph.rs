@@ -16,7 +16,7 @@ use crate::knowledge::mutation::GraphMutation;
 use crate::model;
 
 use super::report::{Outcome, Report};
-use super::{project, sql};
+use super::{project, sql, validate};
 
 /// The graph, as the outside world sees it.
 #[derive(Clone)]
@@ -47,6 +47,12 @@ impl KnowledgeGraph {
     /// Mutations run in canonical order, not caller order. A refusal rolls the whole call back:
     /// nothing is half-applied. `NoChange` is success.
     pub async fn proc(&self, mutations: &[GraphMutation]) -> anyhow::Result<Report> {
+        if let Some(refusal) = validate::contradiction(mutations) {
+            return Ok(Report {
+                refused: Some(refusal),
+                ..Report::default()
+            });
+        }
         let ordered = order(mutations);
         let txn = self.conn.begin().await?;
         let mut report = Report::default();
@@ -255,6 +261,31 @@ mod tests {
             .unwrap()
             .expect("one identity");
         assert_eq!(annotation.classes, vec!["film"]);
+    }
+
+    #[tokio::test]
+    async fn contradictory_plan_is_refused_before_any_write() {
+        db_or_skip!(db);
+        let report = KnowledgeGraph::new(&db)
+            .proc(&[
+                GraphMutation::MergeEntity {
+                    loser: EntityOriginId(ObservationId(1)),
+                    winner: EntityOriginId(ObservationId(2)),
+                    cause: Cause::Repair,
+                    why: "same".into(),
+                },
+                GraphMutation::MarkDistinct {
+                    a: EntityOriginId(ObservationId(2)),
+                    b: EntityOriginId(ObservationId(1)),
+                    cause: Cause::Repair,
+                    why: "different".into(),
+                },
+            ])
+            .await
+            .unwrap();
+
+        assert!(matches!(report.refused, Some(Refusal::Contradiction(_))));
+        assert_eq!(report.applied, 0);
     }
 
     #[tokio::test]

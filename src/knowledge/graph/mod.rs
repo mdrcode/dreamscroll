@@ -7,6 +7,7 @@ mod project;
 mod report;
 mod selection;
 mod sql;
+mod validate;
 mod verdicts;
 
 pub use graph::{KnowledgeGraph, MergePreview};

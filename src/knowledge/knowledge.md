@@ -351,9 +351,9 @@ What the code paths build:
   4. `MergeEntity` — membership is final before the shared-illumination check
   5. `Identify`, `RetractIdentity` — lands on the survivor after a fold
   6. `VetoIdentity`, `MarkDistinct` — assert a standing denial last
-- **Contradictory plans are not yet detected.** Canonical order decides the outcome; a call that
-  asserts and denies one pairing applies both in order. A validation pass is a follow-up (open
-  question 9), not a rule the executor pretends to have.
+- **Contradictory plans are refused before execution.** `graph::validate` rejects direct conflicts
+  (merge/distinct one pair, identify/veto one key, attach/detach or two targets one observation)
+  before the transaction opens. Canonical order remains the rule for independent mutations.
 - **Entity origins resolve during execution**, in order. Validation resolves against current state
   and accepts an origin that an earlier `CreateEntity` in the call will establish; the transaction's
   guards are authoritative.
@@ -398,23 +398,19 @@ Every mutation is safe to re-apply after a committed call, because the second pa
 - attest: upsert.
 - retract / unveto: already absent → `NoChange`.
 
-## Open questions
+## Decisions
 
-1. `Identify` for `model`: an ephemeral identity annotation, or a logged decision? The cleaner
-   split is that an agent's identities are an identification run (recompute them), and only its decisions
-   are durable.
-2. The log columns for `attach` / `detach` hold observation ids in `subject_origin`. Keep the
-   overload, or add `subject_observation`?
-3. Lifting after a rebuild: replay currently writes `Cause::Replayed`, which erases whether a person
-   or an agent decided. Either preserve the original cause (preferred), or have the rung check scan
-   the original row, which the reset keeps. Confirm before relying on provenance.
-4. `CreateEntity` durability needs a `create` kind. With a single observation there is no
-   root-plus-attaches encoding; later members log their own `attach` rows.
-5. The entity's `platform_*` columns are still projected from the members' platform fields, so the
-   graph still reads them even though identities are caller-supplied. Zero coupling means deciding
-   whether those columns stay as a presence hint, or the identifier reads identity rows instead.
-6. Is `Provider` a newtype over `String`, or the existing reserved-id constant set?
-7. `MarkDistinct` is one-way: knowledge 1 has no `UnmarkDistinct`. Add the inverse only if a wrong
-   `distinct` needs lifting; until then it is a standing decision.
-8. Contradictory plans: reject a call that merges and marks distinct one pair, attests and vetoes one
-   pairing, or attaches and detaches one observation, instead of applying in canonical order.
+- **Reset destroys derived state.** Reprojection, membership, creates and resolver identities are
+  recomputed from inputs; only non-derivable decisions survive.
+- **Model identities are ephemeral.** A model can be asked again; they are not verdicts.
+- **Membership is derived.** `attach`/`detach` stay state, not durable decisions, unless an agent
+  later makes a move that link cannot reconstruct.
+- **Creates are derived.** The origin observation is the durable fact.
+- **Replay preserves the original cause** and must apply decisions without appending new decision
+  rows. Replay/audit history is a separate concern if wanted.
+- **The identifier reads projected platform presence.** Entity `platform_*` remains a member-derived
+  hint; reading identity rows directly is a later zero-coupling option.
+- **`Provider` stays an open string newtype.** Validation at boundaries, not a closed enum.
+- **`MarkDistinct` stays one-way.** Add an inverse only when a wrong distinct occurs.
+- **Contradictory plans are rejected** by the preflight in `graph::validate`.
+- **Model-caused verdict replay is deferred** until a model actually writes verdicts.
