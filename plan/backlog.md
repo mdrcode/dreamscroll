@@ -6,7 +6,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ## Next
 
-> **Out of scope today:** the **illumination entity-type overhaul** below. It stays prominent in this
+> **Out of scope today:** **K3, provider-neutral entity types** below. It stays prominent in this
 > backlog as the next design item, but do not start it in this run.
 
 > **Knowledge item ids:** stable handles for discussion. Severity is current triage, not a promise
@@ -15,16 +15,16 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 | id | severity | item |
 | --- | --- | --- |
 | K1 | S2 | Person vs social account |
-| K2 | S2 | `brand` vs `organization`, `product` vs `software` |
-| K3 | S2 | Illumination entity-type overhaul |
+| K3 | S2 | Provider-neutral entity types (boundaries, coverage, mechanism) |
 | K4 | S2 | Unmerge |
 | K5 | S2 | Projection invariant |
-| K6 | S3 | `concept`, `organism`, `referent_form`, `wikidata_class` |
 | K7 | S3 | `Cause::Model` semantics |
 | K8 | S4 | Third-holder pairs in `proximity scan` |
 | K9 | S4 | Ghost set |
 | K10 | S4 | Normalisation watch |
 | K11 | S2 | Illumination retries append rather than replace |
+
+> Former K2 and K6 are folded into K3; their ids are retired.
 
 ### Illumination inference
 
@@ -70,7 +70,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 - [x] **`identity inspect` truncates each answer's list to four candidates.** The decided candidate is now
   always shown and the rest are counted (`… 5 more`), in text and JSON.
 
-- [ ] **Illumination entity-type overhaul.** It is capture vocabulary — the illuminator names a type
+- [ ] **Provider-neutral entity types.** It is capture vocabulary — the illuminator names a type
   in free text — and it currently acts as a *veto* in three places: `classes::incompatible` (rejecting
   candidates by `P31`), the link decision (declining an attachment), and `merge`.
 
@@ -105,6 +105,10 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   the provider's classification confidently in a disjoint family. The same rule then serves merge and
   admission without a second table. Needs design; see the merge item below, which is the same defect
   caught one layer later.
+
+  Concrete gaps folded into this design: define `brand` vs `organization` and `product` vs `software`
+  (111 of 179 collision pairs); add `concept`, `organism`, `referent_form`, and `wikidata_class`
+  (unblocks 15 of the 17 `unknown` rows and the dahlia/cultivar corpus).
 
 - [x] **Refuse a merge between incompatible types — accepted tradeoff.** Merge trusts identity
   equality; the current type vocabulary is not provider-neutral enough for a trustworthy guard.
@@ -154,13 +158,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   every observation; a handle is carried as an identity but does not bypass ranking. Measured on the
   local rebuild: **35 / 39** cases still attached through scoring; **4** split into new entities and
   all four appear in `proximity scan`. The dead `GraphSelector::holder` query was removed.
-- [ ] **Define `brand` vs `organization`, `product` vs `software`.** These two
-  undefined type pairs account for 111 of 179 collision pairs.
-- [ ] **Add `concept` and `organism` entity types, plus `referent_form` and
-  `wikidata_class`.** Settled by the 2026-10-29 audit in `plan/archive/knowledge-entity-types.md`:
-  `unknown` splits into six Wikidata classes, 3 of them taxa, and named plant cultivars are
-  currently typed `product`. Touches the v2 prompt, the type enum, and the P31 → type mapping.
-  Unblocks 15 of the 17 `unknown` rows and the dahlia/cultivar corpus.
 - [ ] Change the formatting pattern of the "commands" for both dreamscroll_api
   to use consistent - or _. Currently we use a mix.
 - [ ] Expose the archived feed navigationally and paginate it. `/archived` works
