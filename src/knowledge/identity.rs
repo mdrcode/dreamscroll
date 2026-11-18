@@ -57,10 +57,43 @@ impl Identity {
             external_id: text::comparable(handle),
             method: Some("platform_link".into()),
             confidence: None,
-            label: None,
+            label: link.display_name.clone(),
             description: None,
             classes: Vec::new(),
             observation_id: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::illumination::v2::Platform;
+
+    #[test]
+    fn a_platform_link_display_name_becomes_the_identity_label() {
+        let link = PlatformLink {
+            platform: Platform::XTwitter,
+            handle: Some("@Bandy1803".into()),
+            display_name: Some("Bandy".into()),
+            url: None,
+        };
+
+        let identity = Identity::from_platform_link(&link).expect("the link has a handle");
+        assert_eq!(identity.label.as_deref(), Some("Bandy"));
+        assert_eq!(identity.external_id, "bandy1803");
+    }
+
+    #[test]
+    fn a_platform_link_without_a_display_name_leaves_the_label_empty() {
+        let link = PlatformLink {
+            platform: Platform::XTwitter,
+            handle: Some("Bandy1803".into()),
+            display_name: None,
+            url: None,
+        };
+
+        let identity = Identity::from_platform_link(&link).expect("the link has a handle");
+        assert_eq!(identity.label, None);
     }
 }
