@@ -26,7 +26,11 @@ pub async fn get_illumination_raw(
 mod tests {
     use super::*;
     use crate::{
-        ignition::test_support::UnusedFirestarter, llms::test_support::TestInferenceClient, logic, search::test_support::{UnusedEmbedder, UnusedVectorStore}, storage::test_support::TestStorageProvider,
+        ignition::test_support::UnusedFirestarter,
+        llms::test_support::TestInferenceClient,
+        logic,
+        search::test_support::{UnusedEmbedder, UnusedVectorStore},
+        storage::test_support::TestStorageProvider,
     };
 
     #[tokio::test]

@@ -11,8 +11,8 @@ mod validate;
 mod verdicts;
 
 pub use graph::{KnowledgeGraph, MergePreview};
-pub(crate) use sql::generation as current_generation;
 pub use project::Scope as ReprojectScope;
 pub use report::{Refusal, Report};
 pub use selection::GraphSelector;
+pub(crate) use sql::generation as current_generation;
 pub use verdicts::VerdictSelector;

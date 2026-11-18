@@ -25,7 +25,6 @@ const DEVELOPER_API_URL: &str = "https://generativelanguage.googleapis.com/v1bet
 /// entities, where its 1,461-thought run named Chopin's Nocturne correctly).
 const MAX_OUTPUT_TOKENS: u32 = 8_192;
 
-
 #[derive(Clone)]
 enum Backend {
     DeveloperApi {

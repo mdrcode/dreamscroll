@@ -102,11 +102,7 @@ impl KnowledgeGraph {
     }
 
     /// What a merge would do, without doing it.
-    pub async fn merge_preview(
-        &self,
-        loser: i32,
-        winner: i32,
-    ) -> anyhow::Result<MergePreview> {
+    pub async fn merge_preview(&self, loser: i32, winner: i32) -> anyhow::Result<MergePreview> {
         let observations = model::user_observed_entity::Entity::find()
             .filter(model::user_observed_entity::Column::KnowledgeEntityId.eq(loser))
             .count(&self.conn)
@@ -118,13 +114,13 @@ impl KnowledgeGraph {
         let shared_illuminations = shared_illuminations(&self.conn, loser, winner).await?;
 
         let selector = self.selector();
-        let standing_verdict =
-            match (selector.origin_of(loser).await?, selector.origin_of(winner).await?) {
-                (Some(loser), Some(winner)) => {
-                    selector.verdicts().kept_apart(loser, winner).await?
-                }
-                _ => false,
-            };
+        let standing_verdict = match (
+            selector.origin_of(loser).await?,
+            selector.origin_of(winner).await?,
+        ) {
+            (Some(loser), Some(winner)) => selector.verdicts().kept_apart(loser, winner).await?,
+            _ => false,
+        };
 
         Ok(MergePreview {
             observations,
@@ -509,7 +505,11 @@ mod tests {
         };
 
         assert_eq!(
-            graph.proc(std::slice::from_ref(&create)).await.unwrap().applied,
+            graph
+                .proc(std::slice::from_ref(&create))
+                .await
+                .unwrap()
+                .applied,
             1
         );
         assert_eq!(
@@ -562,8 +562,7 @@ mod tests {
             Some("rich"),
         )
         .await;
-        let bare =
-            fixtures::observe(&db, &bare_capture, 0, "Bare", None, "film", None, None).await;
+        let bare = fixtures::observe(&db, &bare_capture, 0, "Bare", None, "film", None, None).await;
         let graph = KnowledgeGraph::new(&db);
         graph
             .proc(&[
@@ -582,7 +581,10 @@ mod tests {
             .unwrap();
 
         let before = by_origin(&db, rich).await;
-        assert_eq!(before.description.as_deref(), Some("the origin description"));
+        assert_eq!(
+            before.description.as_deref(),
+            Some("the origin description")
+        );
         assert_eq!(before.platform.as_deref(), Some("x_twitter"));
 
         graph
@@ -687,8 +689,7 @@ mod tests {
         let right_capture = fixtures::Capture::new(&db, "k2_concurrent_right").await;
         let origin =
             fixtures::observe(&db, &origin_capture, 0, "Origin", None, "film", None, None).await;
-        let left =
-            fixtures::observe(&db, &left_capture, 0, "Left", None, "film", None, None).await;
+        let left = fixtures::observe(&db, &left_capture, 0, "Left", None, "film", None, None).await;
         let right =
             fixtures::observe(&db, &right_capture, 0, "Right", None, "film", None, None).await;
         let graph = KnowledgeGraph::new(&db);

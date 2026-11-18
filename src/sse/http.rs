@@ -280,9 +280,9 @@ mod tests {
         let heartbeat = render_frame(HttpStreamItem::Heartbeat).await;
         assert!(heartbeat.lines().any(|line| line == "event: heartbeat"));
         assert!(
-            heartbeat.lines().any(
-                |line| line.strip_prefix("data: ").is_some_and(|data| !data.is_empty())
-            ),
+            heartbeat.lines().any(|line| line
+                .strip_prefix("data: ")
+                .is_some_and(|data| !data.is_empty())),
             "EventSource does not dispatch a data-less event"
         );
 

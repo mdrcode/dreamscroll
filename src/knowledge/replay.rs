@@ -137,8 +137,8 @@ mod tests {
     use crate::database::DbHandle;
     use crate::knowledge::graph::KnowledgeGraph;
     use crate::knowledge::identity::{Identity, Provider};
-    use crate::knowledge::mutation::GraphMutation;
     use crate::knowledge::ids::{EntityOriginId, ObservationId};
+    use crate::knowledge::mutation::GraphMutation;
     use crate::test_support::{db_or_skip, fixtures};
 
     fn identity(external_id: &str) -> Identity {

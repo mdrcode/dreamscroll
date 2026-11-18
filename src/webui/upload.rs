@@ -28,12 +28,13 @@ pub async fn insert_capture_from_multipart(
 
     // Guards the image itself should the body limit ever exceed it.
     if image_bytes > max_upload_bytes {
-        return Err(api::ApiError::upload_too_large(max_upload_bytes, Some(image_bytes as u64)));
+        return Err(api::ApiError::upload_too_large(
+            max_upload_bytes,
+            Some(image_bytes as u64),
+        ));
     }
 
-    user_api
-        .insert_capture(context, image_payload.bytes)
-        .await
+    user_api.insert_capture(context, image_payload.bytes).await
 }
 
 #[derive(Debug)]

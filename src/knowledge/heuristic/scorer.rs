@@ -21,8 +21,8 @@
 
 use crate::model;
 
-use crate::knowledge::text::{comparable, word_key};
 use super::text::{content_tokens, jaccard};
+use crate::knowledge::text::{comparable, word_key};
 
 /// The graph's own side of a comparison.
 type Entity = model::knowledge_entity::Model;
@@ -436,7 +436,8 @@ mod tests {
     #[test]
     fn article_or_word_order_alone_still_clears() {
         let candidate = entity(1, "Train Dreams", None, "book");
-        let ranked = HeuristicScorer.link(&observation("The Train Dreams", None, "book"), &[candidate]);
+        let ranked =
+            HeuristicScorer.link(&observation("The Train Dreams", None, "book"), &[candidate]);
         assert_eq!(
             ranked.len(),
             1,

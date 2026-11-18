@@ -4,7 +4,7 @@
 //! eligible at all, whether the best has enough evidence on its own, and whether it wins by a
 //! margin. A refusal is a first-class answer with a reason, not an empty one.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use crate::knowledge::identity::Identity;
 use crate::model;
@@ -86,8 +86,8 @@ fn account_only(entity: &model::knowledge_entity::Model) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::plan;
+    use super::*;
     use crate::knowledge::heuristic::identification::gather::Aggregate;
     use crate::knowledge::wikidata::WikidataCandidate;
 
@@ -260,7 +260,11 @@ mod tests {
     #[test]
     fn a_title_alias_does_not_outrank_the_exact_label() {
         let entity = entity("Swann's Way", "The first novel by Proust.", None);
-        let mut parent = candidate("Q464928", "In Search of Lost Time", "novel by Marcel Proust");
+        let mut parent = candidate(
+            "Q464928",
+            "In Search of Lost Time",
+            "novel by Marcel Proust",
+        );
         parent.strategies = vec![plan::Strategy::Title];
         parent.title_only = true;
         let mut volume = candidate("Q2700307", "Swann's Way", "novel by Marcel Proust");

@@ -71,5 +71,4 @@ Three supported topologies (ignore all others):
 - **One line per suite run:** `485 ✓ · 11 s run · 8 s rebuild`, so timing regressions stay visible.
 - **`[profile.dev] debug = 1`** is deliberate — fast links, still readable backtraces. `target/debug`
   still grows; `cargo clean` when it gets gross (and expect a full dependency rebuild after).
-- **Format only what you touched.** The tree is not rustfmt-clean; a repo-wide `cargo fmt` rewrites
-  unrelated files and buries the real diff.
+- **Format before commit:** run `cargo fmt`; the tree is rustfmt-clean and stays that way.

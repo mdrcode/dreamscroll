@@ -60,7 +60,10 @@ pub(super) fn contradiction(mutations: &[GraphMutation]) -> Option<Refusal> {
                 }
                 distincts.insert(pair);
             }
-            GraphMutation::Identify { subject, identity: id } => {
+            GraphMutation::Identify {
+                subject,
+                identity: id,
+            } => {
                 let key = identity(*subject, &id.scheme, &id.external_id);
                 if vetoed.contains(&key) {
                     return Some(Refusal::Contradiction(

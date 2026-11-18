@@ -306,8 +306,6 @@ async fn retire_claim_source_user<C: ConnectionTrait>(conn: &C) -> Result<(), Db
     Ok(())
 }
 
-
-
 /// Schema 38 removes the claim's route. Confidence is the best claim's score; nothing reads the
 /// distinction between a handle and a text claim any more.
 async fn retire_claim_basis<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
@@ -599,8 +597,7 @@ pub async fn check_schema_version(conn: &DatabaseConnection) -> anyhow::Result<(
 #[cfg(test)]
 mod tests {
     use sea_orm::{
-        ConnectionTrait, DatabaseBackend, DbErr, EntityTrait, PaginatorTrait, RuntimeErr,
-        Statement,
+        ConnectionTrait, DatabaseBackend, DbErr, EntityTrait, PaginatorTrait, RuntimeErr, Statement,
     };
 
     use crate::test_support::{db_or_skip, fixtures};

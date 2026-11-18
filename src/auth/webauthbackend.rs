@@ -86,18 +86,22 @@ mod tests {
 
         // Rejections are Ok(None), so axum-login answers 401 rather than 500 — for a wrong
         // password and an unknown user alike.
-        assert!(backend
-            .authenticate(credentials("wrong password"))
-            .await
-            .expect("a rejection is not a system error")
-            .is_none());
-        assert!(backend
-            .authenticate(Credentials {
-                username: "no_such_user".to_string(),
-                password: "x".to_string(),
-            })
-            .await
-            .expect("a rejection is not a system error")
-            .is_none());
+        assert!(
+            backend
+                .authenticate(credentials("wrong password"))
+                .await
+                .expect("a rejection is not a system error")
+                .is_none()
+        );
+        assert!(
+            backend
+                .authenticate(Credentials {
+                    username: "no_such_user".to_string(),
+                    password: "x".to_string(),
+                })
+                .await
+                .expect("a rejection is not a system error")
+                .is_none()
+        );
     }
 }

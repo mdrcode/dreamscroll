@@ -74,10 +74,7 @@ pub async fn run(db: &database::DbHandle, args: TaskArgs) -> anyhow::Result<()> 
                 Sweep {
                     command: "fail_stale",
                     note_prefix: "abandoned",
-                    statuses: &[
-                        TaskRunStatus::InProgress,
-                        TaskRunStatus::ErrorWillRetry,
-                    ],
+                    statuses: &[TaskRunStatus::InProgress, TaskRunStatus::ErrorWillRetry],
                     minutes: args.minutes,
                     dry_run: args.dry_run,
                     note: args.note.as_deref(),
@@ -160,10 +157,7 @@ async fn sweep(db: &database::DbHandle, sweep: Sweep<'_>) -> anyhow::Result<()> 
                 model::task_run::Column::StatusCode,
                 Expr::value(TaskRunStatus::CompleteFailure.as_i32()),
             )
-            .col_expr(
-                model::task_run::Column::LastErrorMessage,
-                Expr::value(note),
-            )
+            .col_expr(model::task_run::Column::LastErrorMessage, Expr::value(note))
             .col_expr(
                 model::task_run::Column::UpdatedAt,
                 Expr::current_timestamp(),
@@ -305,13 +299,7 @@ mod tests {
     #[tokio::test]
     async fn zero_minutes_drains_every_queued_run() {
         db_or_skip!(db);
-        let queued = insert_run(
-            &db,
-            "just_queued",
-            TaskRunStatus::Queued,
-            Utc::now(),
-        )
-        .await;
+        let queued = insert_run(&db, "just_queued", TaskRunStatus::Queued, Utc::now()).await;
 
         drain_queued(&db, 0, false).await;
         assert_eq!(

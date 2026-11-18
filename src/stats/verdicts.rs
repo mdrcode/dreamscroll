@@ -114,7 +114,11 @@ mod tests {
             return;
         };
         let db = test_db.handle();
-        for (generation, cause) in [(1, crate::model::knowledge_verdicts::Cause::Repair), (2, crate::model::knowledge_verdicts::Cause::Repair), (2, crate::model::knowledge_verdicts::Cause::ProximityAuto)] {
+        for (generation, cause) in [
+            (1, crate::model::knowledge_verdicts::Cause::Repair),
+            (2, crate::model::knowledge_verdicts::Cause::Repair),
+            (2, crate::model::knowledge_verdicts::Cause::ProximityAuto),
+        ] {
             crate::model::knowledge_verdicts::Entity::insert(
                 crate::model::knowledge_verdicts::ActiveModel {
                     generation: Set(generation),
@@ -136,7 +140,9 @@ mod tests {
         assert_eq!(all[0].cause, "proximity_auto", "newest first");
 
         assert_eq!(verdict_list(&db, Some(2), None, 50).await.unwrap().len(), 2);
-        let repairs = verdict_list(&db, Some(2), Some("repair"), 50).await.unwrap();
+        let repairs = verdict_list(&db, Some(2), Some("repair"), 50)
+            .await
+            .unwrap();
         assert_eq!(repairs.len(), 1, "{repairs:?}");
         assert_eq!(repairs[0].winner, "winner");
         assert_eq!(

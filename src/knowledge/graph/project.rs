@@ -83,10 +83,16 @@ pub(super) async fn project<C: ConnectionTrait>(
         str::to_string,
     );
 
-    let (name, alt_names) =
-        select(origin.map(|member| member.name.trim()), &surfaces, text::comparable);
-    let (entity_type, alt_types) =
-        select(origin.map(|member| member.entity_type.trim()), &types, str::to_string);
+    let (name, alt_names) = select(
+        origin.map(|member| member.name.trim()),
+        &surfaces,
+        text::comparable,
+    );
+    let (entity_type, alt_types) = select(
+        origin.map(|member| member.entity_type.trim()),
+        &types,
+        str::to_string,
+    );
 
     let (description, alt_descriptions) = select(
         origin.and_then(|member| member.description.as_deref()),
@@ -247,10 +253,7 @@ pub enum Scope {
 }
 
 /// Recompute the projection for a scope, and report how many entities it wrote.
-pub async fn reproject(
-    conn: &sea_orm::DatabaseConnection,
-    scope: Scope,
-) -> anyhow::Result<usize> {
+pub async fn reproject(conn: &sea_orm::DatabaseConnection, scope: Scope) -> anyhow::Result<usize> {
     use sea_orm::sea_query::{Expr, ExprTrait, Query};
 
     use crate::model::knowledge_entity as entity;

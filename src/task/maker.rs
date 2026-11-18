@@ -5,8 +5,8 @@ use google_cloud_tasks_v2::model::OidcToken;
 
 use crate::config;
 use crate::database::DbHandle;
-use crate::logic::illuminate::IlluminationTask;
 use crate::logic::identity_resolve::IdentityResolveTask;
+use crate::logic::illuminate::IlluminationTask;
 use crate::logic::knowledge_link::KnowledgeLinkTask;
 use crate::logic::search_index::SearchIndexTask;
 use crate::logic::spark::SparkTask;

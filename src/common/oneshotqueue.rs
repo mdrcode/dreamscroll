@@ -171,7 +171,10 @@ mod tests {
         assert_eq!(q.pop_next(), None);
         assert_eq!(count_for_status(q, QueueStatus::Pending), 0);
         assert_eq!(count_for_status(q, QueueStatus::Reserved), 0);
-        assert!(range.clone().all(|i| completed_contains(q, &i)), "{range:?}");
+        assert!(
+            range.clone().all(|i| completed_contains(q, &i)),
+            "{range:?}"
+        );
     }
 
     #[test]

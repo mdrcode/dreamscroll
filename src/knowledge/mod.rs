@@ -7,29 +7,27 @@
 //!
 //! Design: `knowledge.md`.
 
-pub mod mutation;
 pub mod blocker;
+pub mod canonical;
 pub mod eval;
 pub mod graph;
+pub mod helper;
+pub mod heuristic;
+pub mod identity;
+pub mod ids;
+pub mod mutation;
 pub mod proximity;
 pub mod replay;
 pub mod snapshot;
-pub mod heuristic;
-pub mod helper;
-pub mod identity;
-pub mod ids;
-pub mod canonical;
 pub mod text;
 pub mod wikidata;
 
-pub use mutation::{Cause, GraphMutation};
 pub use blocker::Blocker;
 pub use graph::{
-    GraphSelector, KnowledgeGraph, MergePreview, Refusal, ReprojectScope, Report, VerdictSelector,
+    GraphSelector, KnowledgeGraph, MergePreview, Refusal, Report, ReprojectScope, VerdictSelector,
 };
-pub use helper::{
-    IdentifyHelper, IdentificationOptions, LinkAllReport, LinkHelper, LinkReport,
-};
+pub use helper::{IdentificationOptions, IdentifyHelper, LinkAllReport, LinkHelper, LinkReport};
+pub use heuristic::{HeuristicIdentifier, HeuristicLinker};
 pub use identity::{Identity, IdentityKey, Provider};
 pub use ids::{EntityOriginId, ObservationId};
-pub use heuristic::{HeuristicLinker, HeuristicIdentifier};
+pub use mutation::{Cause, GraphMutation};

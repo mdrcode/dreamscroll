@@ -344,30 +344,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   the whole corpus only, so a regression on a specifically hard case stays invisible until it moves
   a claim count. No 100+ row labelled gold set exists in the tree.
 
-- [ ] **Fetch enrichment for an identity.** `enrichment` is reserved vocabulary on
-  `knowledge_identities` (label, description, classes) and an identity resolver fills them on the way past,
-  but nothing reads them and no pass fetches them by identity alone. Decide whether it is a request
-  kind in the resolver's plan or a separate pass over identified entities. `project` is where a
-  reader would appear.
-
-- [ ] **Lengthen the *empty* TTL for handle (and search) questions.** `fetch::cache` picks a TTL by
-  outcome alone — found 180 d, **empty 30 d**, degraded 23 h, failed 10 m — so every platform-handle
-  question that comes back empty is re-asked a month later. The motivating case: an entity identified
-  *by its handle* (`status = identified`, annotation from `illuminator`) is **not** annotated by
-  Wikidata, so the engine's `identified_by` filter does not skip it; every capture that touches it
-  re-asks the handle question after expiry. In the local corpus that is 265 of 351 platform-linked
-  entities, touched by 267 illuminations — and `search_label`/`search_hint` empties expire on the
-  same clock, at one paced call each because they cannot batch.
-  Proposal: let the empty TTL depend on the request kind — `Handle` and `Search` empties at 60–90 d,
-  `Label`/`Title` unchanged. The cache key already includes `kind`; the write path
-  (`Gateway`/`fetch::cache::ttl`) currently sees only `answer.outcome`, so it needs the kind (or a
-  provider-supplied policy). Risk: discovery of a handle or item created after we asked is delayed by
-  the chosen TTL — the same trade the 30 d value already makes, just longer.
-  *Considered and not queued:* an entity-level `identity_checked_at` + question fingerprint. It would
-  also skip search reads, but costs ~200 lines and a schema version (v40), and a wrong fingerprint
-  suppresses exactly the new-surface discovery the cache handles correctly. Gate: handle/search-empty
-  volume becomes visible in `fetch_cache` or in 429s.
-
 ### Knowledge graph v2
 
 - [ ] **Consider the addition of `Cause::Model`.** `knowledge` emits it for a model's merge,
@@ -399,6 +375,8 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 | Client pulse + `upload_attempts`                   | [upload-attempts.md](archive/upload-attempts.md)                               | A client-side upload failure goes unexplained for a second time |
 | Identity `confidence`: label or probability         | [wikidata-cleanup-20261112.md](archive/wikidata-cleanup-20261112.md)  | Anything starts sorting entities by confidence again |
 | The title step's own name-relatedness rule            | [wikidata-cleanup-20261112.md](archive/wikidata-cleanup-20261112.md)  | A second provider answers title queries                          |
+| Identity fetch enrichment                             | —                                                                       | A consumer needs provider label/description/classes by identity alone |
+| Empty handle/search cache TTL                         | —                                                                       | Handle/search-empty volume is visible in `fetch_cache` or 429s |
 | Media transcode and format policy                  | [upload-formats.md](upload-formats.md)                                 | `rejected_format` fires for a real user, uploads stay multi-MB on cellular, or a non-browser ingestion path carries originals |
 | Abandoned task-run status                          | [task-abandoned-status.md](task-abandoned-status.md)                   | Abandonment becomes a production operation                    |
 | knowledge projection purity/locking                | [knowledge-projection.md](knowledge-projection.md)                     | v1 → v2 cutover complete                                      |

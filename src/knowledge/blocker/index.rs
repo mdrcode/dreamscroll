@@ -27,9 +27,7 @@ pub(crate) struct IndexKeys {
 ///
 /// The one definition: `keys_for_entity` applies it to an entity, and `eval blocker` applies it to
 /// a probe's name and handle. Two spellings of this derivation disagreed once already.
-pub(crate) fn keys_for_surfaces<'a>(
-    surfaces: impl IntoIterator<Item = &'a str>,
-) -> IndexKeys {
+pub(crate) fn keys_for_surfaces<'a>(surfaces: impl IntoIterator<Item = &'a str>) -> IndexKeys {
     let mut seen = std::collections::BTreeSet::new();
     let surfaces: Vec<String> = surfaces
         .into_iter()
@@ -223,8 +221,8 @@ pub async fn check(db: &DbHandle) -> anyhow::Result<Report> {
 mod tests {
     use super::*;
 
-    use crate::knowledge::mutation::{Cause, GraphMutation};
     use crate::knowledge::ids::{EntityOriginId, ObservationId};
+    use crate::knowledge::mutation::{Cause, GraphMutation};
     use crate::test_support::{db_or_skip, fixtures};
     use sea_orm::{DatabaseBackend, Statement};
 

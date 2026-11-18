@@ -88,7 +88,13 @@ mod tests {
     #[test]
     fn versioned_assets_use_immutable_cache() {
         assert_eq!(asset_cache_control(Some("v=revision-123")), IMMUTABLE);
-        assert_eq!(asset_cache_control(Some("v=revision-123&preview=1")), IMMUTABLE);
-        assert_eq!(asset_cache_control(Some("preview=1&v=revision-123")), IMMUTABLE);
+        assert_eq!(
+            asset_cache_control(Some("v=revision-123&preview=1")),
+            IMMUTABLE
+        );
+        assert_eq!(
+            asset_cache_control(Some("preview=1&v=revision-123")),
+            IMMUTABLE
+        );
     }
 }

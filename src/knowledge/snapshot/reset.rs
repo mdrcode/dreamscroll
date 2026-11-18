@@ -356,10 +356,7 @@ mod tests {
                 .map(|row| row.id)
                 .collect();
             members.sort_unstable();
-            groups.push((
-                entity.origin_observation_id,
-                members,
-            ));
+            groups.push((entity.origin_observation_id, members));
         }
         groups.sort();
         groups

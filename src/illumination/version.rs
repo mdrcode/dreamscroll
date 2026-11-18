@@ -27,7 +27,13 @@ mod tests {
     fn serializes_versions_as_the_cli_and_stored_labels() {
         assert_eq!(IlluminationVersion::V1.as_str(), "v1");
         assert_eq!(IlluminationVersion::V2.as_str(), "v2");
-        assert_eq!(serde_json::to_value(IlluminationVersion::V1).unwrap(), json!("v1"));
-        assert_eq!(serde_json::to_value(IlluminationVersion::V2).unwrap(), json!("v2"));
+        assert_eq!(
+            serde_json::to_value(IlluminationVersion::V1).unwrap(),
+            json!("v1")
+        );
+        assert_eq!(
+            serde_json::to_value(IlluminationVersion::V2).unwrap(),
+            json!("v2")
+        );
     }
 }

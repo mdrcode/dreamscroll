@@ -18,7 +18,7 @@ use std::collections::HashSet;
 
 use crate::fetch::{Gateway, Outcome, Request, Transport};
 use crate::knowledge::identity::Identity;
-use crate::knowledge::wikidata::{Wire, WikidataCandidate, WikidataKind};
+use crate::knowledge::wikidata::{WikidataCandidate, WikidataKind, Wire};
 use crate::model;
 
 use super::{decide, gather, plan};

@@ -122,9 +122,6 @@ pub struct Entity {
     pub platform_link: Option<PlatformLink>,
 }
 
-
-
-
 /// A platform name: a known variant, or the raw name when it is new.
 ///
 /// Known aliases are canonicalized on the way in; anything else becomes `Other(raw)` so the name
@@ -279,10 +276,13 @@ impl PlatformLink {
     /// The key identity turns on: `(platform, handle)`, folded the same way everywhere.
     pub fn key(&self) -> Option<String> {
         let handle = self.handle()?;
-        Some(format!("{}:{}", self.platform_name(), handle.trim().to_lowercase()))
+        Some(format!(
+            "{}:{}",
+            self.platform_name(),
+            handle.trim().to_lowercase()
+        ))
     }
 }
-
 
 #[cfg(test)]
 mod tests {

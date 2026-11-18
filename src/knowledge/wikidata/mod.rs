@@ -4,8 +4,8 @@
 //! the provider id, the language, the request kinds, the SPARQL, the transport, the parsed
 //! candidate and the disambiguation filter. It does not rank, score or decide.
 
-pub(crate) mod disambiguation;
 mod candidate;
+pub(crate) mod disambiguation;
 mod kind;
 pub(crate) mod property_query;
 mod sparql;

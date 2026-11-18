@@ -134,7 +134,11 @@ pub(crate) fn rank(
             // The title question was asked with our exact name, so its answer carries that surface
             // even when the item's label is a synonym — unless an item is labelled our name, in
             // which case the label is the better surface and the alias does not compete.
-            let surface = if titled && !label_bears_name { 1.0 } else { surface };
+            let surface = if titled && !label_bears_name {
+                1.0
+            } else {
+                surface
+            };
             Ranked {
                 index,
                 tier,

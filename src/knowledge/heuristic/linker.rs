@@ -3,12 +3,12 @@
 use crate::illumination::v2::PlatformLink;
 use crate::model;
 
-use crate::knowledge::mutation::GraphMutation;
+use super::HeuristicScorer;
 use crate::knowledge::blocker::Blocker;
 use crate::knowledge::graph::GraphSelector;
 use crate::knowledge::identity::Identity;
 use crate::knowledge::ids::{EntityOriginId, ObservationId};
-use super::HeuristicScorer;
+use crate::knowledge::mutation::GraphMutation;
 
 /// Today's link policy: a held identity wins; else the best qualifying candidate; else create.
 #[derive(Debug, Default, Clone, Copy)]

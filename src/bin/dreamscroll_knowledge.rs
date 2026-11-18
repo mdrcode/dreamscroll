@@ -1098,9 +1098,7 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     knowledge::ReprojectScope::Unidentified
                 };
-                let total = knowledge::KnowledgeGraph::new(&db)
-                    .reproject(scope)
-                    .await?;
+                let total = knowledge::KnowledgeGraph::new(&db).reproject(scope).await?;
                 println!(
                     "reprojected {total} {}",
                     if args.all {

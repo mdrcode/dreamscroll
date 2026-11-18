@@ -34,10 +34,14 @@ pub async fn scan(db: &DbHandle) -> anyhow::Result<Vec<ProximityCandidate>> {
         .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
         .all(&db.conn)
         .await?;
-    let entities: HashMap<i32, model::knowledge_entity::Model> =
-        entities.into_iter().map(|entity| (entity.id, entity)).collect();
+    let entities: HashMap<i32, model::knowledge_entity::Model> = entities
+        .into_iter()
+        .map(|entity| (entity.id, entity))
+        .collect();
 
-    let identities = model::knowledge_identity::Entity::find().all(&db.conn).await?;
+    let identities = model::knowledge_identity::Entity::find()
+        .all(&db.conn)
+        .await?;
     let mut holders: BTreeMap<(String, String), Vec<i32>> = BTreeMap::new();
     for identity in identities {
         if entities.contains_key(&identity.knowledge_entity_id) {

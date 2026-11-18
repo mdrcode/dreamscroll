@@ -8,8 +8,8 @@
 
 use sea_orm::sea_query::{Expr, ExprTrait, Query};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait,
-    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Statement, Value,
+    ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, PaginatorTrait,
+    QueryFilter, QueryOrder, QuerySelect, Statement, Value,
 };
 
 use crate::knowledge::identity::IdentityKey;
@@ -169,7 +169,10 @@ pub(super) async fn resolve_live_entity(
             None => return Ok(Some(current)),
         }
     }
-    anyhow::bail!("merged_into_id chain from knowledge entity {} exceeds 8 hops", row.id)
+    anyhow::bail!(
+        "merged_into_id chain from knowledge entity {} exceeds 8 hops",
+        row.id
+    )
 }
 
 async fn count_identity_rows(

@@ -11,7 +11,7 @@
 //! had `Q9531` at the top of two answers and still claimed a division — the right item was
 //! excluded, not outranked.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use super::WikidataCandidate;
 use crate::fetch::Answer;

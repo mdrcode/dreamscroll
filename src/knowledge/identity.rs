@@ -15,7 +15,8 @@ use super::text;
 pub struct Provider(pub String);
 
 /// Provider ids that name our own pipeline, not an authority.
-pub const RESERVED_PROVIDER_IDS: &[&str] = &["illuminator", "platform", "model", "operator", "user"];
+pub const RESERVED_PROVIDER_IDS: &[&str] =
+    &["illuminator", "platform", "model", "operator", "user"];
 
 /// The durable name of an identity: `(scheme, external_id)`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

@@ -28,8 +28,14 @@ mod tests {
     #[test]
     fn maps_each_outcome_to_the_status_cloud_tasks_retries_on() {
         for (status, expected) in [
-            (TaskRunStatus::SubmissionFailed, StatusCode::INTERNAL_SERVER_ERROR),
-            (TaskRunStatus::ErrorWillRetry, StatusCode::INTERNAL_SERVER_ERROR),
+            (
+                TaskRunStatus::SubmissionFailed,
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ),
+            (
+                TaskRunStatus::ErrorWillRetry,
+                StatusCode::INTERNAL_SERVER_ERROR,
+            ),
             // A finished attempt is never left non-terminal; retry rather than
             // silently acknowledging an inconsistent outcome.
             (TaskRunStatus::Queued, StatusCode::INTERNAL_SERVER_ERROR),

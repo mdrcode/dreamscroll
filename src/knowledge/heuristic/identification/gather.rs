@@ -59,11 +59,13 @@ pub(crate) fn gather(
         };
         let title_only = *strategy == plan::Strategy::Title && candidates.len() == 1;
         for candidate in candidates {
-            let aggregate = by_id.entry(candidate.id.clone()).or_insert_with(|| Aggregate {
-                candidate,
-                strategies: Vec::new(),
-                title_only: false,
-            });
+            let aggregate = by_id
+                .entry(candidate.id.clone())
+                .or_insert_with(|| Aggregate {
+                    candidate,
+                    strategies: Vec::new(),
+                    title_only: false,
+                });
             aggregate.strategies.push(*strategy);
             if title_only {
                 aggregate.title_only = true;

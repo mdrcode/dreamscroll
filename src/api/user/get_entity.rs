@@ -1,7 +1,7 @@
 use anyhow::anyhow;
+use sea_orm::QueryOrder;
 use sea_orm::prelude::*;
 use sea_orm::sea_query::{Expr, ExprTrait};
-use sea_orm::QueryOrder;
 
 use crate::{api::*, auth, database::DbHandle, model};
 
@@ -168,13 +168,8 @@ mod tests {
         db_or_skip!(db);
         let capture = fixtures::Capture::new(&db, "entity_presence").await;
 
-        let knowledge_entity_id = knowledge_entity(
-            &db,
-            "active entity",
-            Some(("x_twitter", "tsoding")),
-            None,
-        )
-        .await;
+        let knowledge_entity_id =
+            knowledge_entity(&db, "active entity", Some(("x_twitter", "tsoding")), None).await;
         let observation_id = fixtures::attached(
             &db,
             &capture,
@@ -282,16 +277,8 @@ mod tests {
         let capture = fixtures::Capture::new(&db, "entity_merged").await;
         let survivor = knowledge_entity(&db, "survivor", None, None).await;
         let absorbed = knowledge_entity(&db, "absorbed", None, Some(survivor)).await;
-        let observation_id = fixtures::attached(
-            &db,
-            &capture,
-            0,
-            "absorbed",
-            None,
-            "unknown",
-            absorbed,
-        )
-        .await;
+        let observation_id =
+            fixtures::attached(&db, &capture, 0, "absorbed", None, "unknown", absorbed).await;
 
         let context =
             auth::Context::from(auth::DreamscrollAuthUser::new_test_session(capture.user_id));

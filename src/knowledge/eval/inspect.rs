@@ -14,8 +14,8 @@ use crate::database::DbHandle;
 use crate::fetch::cache::{FetchCache, State};
 use crate::fetch::{Answer, Outcome, Request};
 use crate::knowledge::blocker::SqlBlocker;
-use crate::knowledge::heuristic::identification::{decide, gather, plan, ranking};
 use crate::knowledge::heuristic::HeuristicScorer;
+use crate::knowledge::heuristic::identification::{decide, gather, plan, ranking};
 use crate::knowledge::text;
 use crate::knowledge::wikidata::{WikidataCandidate, WikidataKind};
 use crate::model;
@@ -469,11 +469,11 @@ mod tests {
 
     use crate::fetch::cache::FetchCache;
     use crate::fetch::{Answer, Outcome};
+    use crate::knowledge::KnowledgeGraph;
     use crate::knowledge::identity::IdentityKey;
     use crate::knowledge::ids::{EntityOriginId, ObservationId};
     use crate::knowledge::mutation::{Cause, GraphMutation};
     use crate::knowledge::wikidata::{WikidataCandidate, WikidataKind};
-    use crate::knowledge::KnowledgeGraph;
     use crate::test_support::{db_or_skip, fixtures};
     use sea_orm::EntityTrait;
 

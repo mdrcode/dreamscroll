@@ -194,7 +194,10 @@ mod tests {
             illumination.social_media_accounts[0].platform,
             Platform::XTwitter
         );
-        assert_eq!(illumination.social_media_accounts[0].handle.as_deref(), Some("@ada"));
+        assert_eq!(
+            illumination.social_media_accounts[0].handle.as_deref(),
+            Some("@ada")
+        );
         assert_eq!(
             illumination.raw_json()["future_schema_field"]["nested"]["preserved"],
             serde_json::json!(true)

@@ -344,7 +344,10 @@ mod tests {
                 "TASK_QUEUE_NAME_KNOWLEDGE_LINK".into(),
                 "knowledge-link".into(),
             ),
-            ("TASK_QUEUE_NAME_IDENTITY_RESOLVE".into(), "identity-resolve".into()),
+            (
+                "TASK_QUEUE_NAME_IDENTITY_RESOLVE".into(),
+                "identity-resolve".into(),
+            ),
         ]
     }
 
@@ -484,6 +487,10 @@ mod tests {
         let error = make_from_envy_iter(vars)
             .err()
             .expect("Cloud Tasks config should require OIDC");
-        assert!(error.to_string().contains("TASK_OIDC_SERVICE_ACCOUNT_EMAIL"));
+        assert!(
+            error
+                .to_string()
+                .contains("TASK_OIDC_SERVICE_ACCOUNT_EMAIL")
+        );
     }
 }

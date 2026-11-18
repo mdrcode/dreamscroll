@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use sea_orm::{
-    ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait,
+    ActiveValue::Set,
+    ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait,
     sea_query::{Expr, SelectStatement},
 };
 

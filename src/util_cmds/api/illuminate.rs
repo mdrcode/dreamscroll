@@ -26,9 +26,7 @@ pub struct IlluminateArgs {
     prompt_version: String,
 
     #[argh(option, long = "thinking-level")]
-    #[argh(
-        description = "reasoning effort: low, medium, or high (default: provider default)"
-    )]
+    #[argh(description = "reasoning effort: low, medium, or high (default: provider default)")]
     thinking_level: Option<crate::llms::gemini::ThinkingLevel>,
 
     #[argh(option, long = "persist-projection")]

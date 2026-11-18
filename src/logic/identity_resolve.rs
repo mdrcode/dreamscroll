@@ -90,10 +90,14 @@ pub(crate) async fn identify(
 
     // The read refuses an illumination whose link has not finished, so the batch is always the
     // linked set; identifying a partial one would silently drop the unlinked observations.
-    let entities = service_api.illumination_entities(task.illumination_id).await?;
+    let entities = service_api
+        .illumination_entities(task.illumination_id)
+        .await?;
 
     let allowance = fetch::Allowance::configured(allowance);
-    identifier.identify(&entities, cache, Some(&allowance)).await
+    identifier
+        .identify(&entities, cache, Some(&allowance))
+        .await
 }
 
 #[cfg(test)]

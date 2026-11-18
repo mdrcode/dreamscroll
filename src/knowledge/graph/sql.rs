@@ -9,9 +9,9 @@ use sea_orm::sea_query::ArrayType;
 use sea_orm::{ConnectionTrait, DatabaseBackend, QueryResult, Statement, Value};
 
 use crate::knowledge::blocker;
-use crate::knowledge::mutation::{Cause, GraphMutation};
 use crate::knowledge::identity::{Identity, IdentityKey, Provider};
 use crate::knowledge::ids::{EntityOriginId, ObservationId};
+use crate::knowledge::mutation::{Cause, GraphMutation};
 
 use super::report::{Outcome, Refusal};
 
@@ -38,9 +38,7 @@ pub(super) async fn apply<C: ConnectionTrait>(
         GraphMutation::MarkDistinct { a, b, cause, why } => {
             distinct(conn, *a, *b, *cause, why).await
         }
-        GraphMutation::Identify { subject, identity } => {
-            attest_to(conn, *subject, identity).await
-        }
+        GraphMutation::Identify { subject, identity } => attest_to(conn, *subject, identity).await,
         GraphMutation::RetractIdentity {
             subject,
             provider,
@@ -90,7 +88,10 @@ async fn execute<C: ConnectionTrait>(
     sql: &str,
     values: Vec<Value>,
 ) -> anyhow::Result<u64> {
-    Ok(conn.execute_raw(statement(sql, values)).await?.rows_affected())
+    Ok(conn
+        .execute_raw(statement(sql, values))
+        .await?
+        .rows_affected())
 }
 
 fn int(value: i32) -> Value {
@@ -782,13 +783,7 @@ async fn unveto<C: ConnectionTrait>(
        AND identity_scheme = $2
        AND identity_external_id = $3
     "#;
-    let values = || {
-        vec![
-            int(origin),
-            text(&key.scheme),
-            text(&key.external_id),
-        ]
-    };
+    let values = || vec![int(origin), text(&key.scheme), text(&key.external_id)];
     let rows = all(conn, ROWS, values()).await?;
     if rows.is_empty() {
         return Ok(Outcome::NoChange);

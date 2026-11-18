@@ -83,7 +83,9 @@ mod tests {
         let before = get_illumination_entities(&db, illumination).await;
         assert!(before.is_err(), "an unlinked observation is an error");
 
-        crate::test_support::link::link_all(&db).await.expect("link");
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("link");
 
         let after = get_illumination_entities(&db, illumination).await.unwrap();
         assert_eq!(after.len(), 1);
