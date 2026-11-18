@@ -12,7 +12,7 @@ use crate::database;
 pub struct VerdictRow {
     pub id: i32,
     pub generation: i32,
-    /// `repair`, `model` or `replayed`.
+    /// `repair` or `model`.
     pub cause: String,
     /// `merge`, `veto_identity` or `distinct`.
     pub kind: String,

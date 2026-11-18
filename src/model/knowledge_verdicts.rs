@@ -50,8 +50,7 @@ impl std::fmt::Display for Kind {
 /// keeps two origins separate despite a shared identity.
 ///
 /// `cause` is the whole point of keeping it: a `repair` is a person's instruction and replay applies
-/// it again in every later generation; a `model` decision is durable but not a person's; `replayed`
-/// records that an older repair was applied again.
+/// it again in every later generation; a `model` decision is durable but not a person's.
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "knowledge_verdicts")]
@@ -62,8 +61,7 @@ pub struct Model {
     /// The generation the merge happened in.
     pub generation: i32,
 
-    /// `repair` (a person), `model` (a model), or historical `replayed` rows from an older replay
-    /// implementation.
+    /// `repair` (a person) or `model` (a model).
     #[sea_orm(default_value = "repair")]
     pub cause: Cause,
 

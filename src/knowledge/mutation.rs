@@ -19,9 +19,6 @@ pub enum Cause {
     Repair,
     #[sea_orm(string_value = "model")]
     Model,
-    /// Historical marker from an older replay implementation. New replay does not append rows.
-    #[sea_orm(string_value = "replayed")]
-    Replayed,
 }
 
 impl Cause {
@@ -29,7 +26,6 @@ impl Cause {
         match self {
             Self::Repair => "repair",
             Self::Model => "model",
-            Self::Replayed => "replayed",
         }
     }
 }

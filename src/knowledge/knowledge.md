@@ -49,7 +49,7 @@ pub struct Identity {
 }
 
 /// Who decided. Stored on the row; the two classes lifting distinguishes.
-pub enum Cause { Repair, Model, Replayed }
+pub enum Cause { Repair, Model }
 ```
 
 An entity is named by its origin: the observation that created it. There is no `EntityId` in the

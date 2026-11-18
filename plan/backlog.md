@@ -321,7 +321,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 - [ ] **Consider the addition of `Cause::Model`.** `knowledge` emits it for a model's merge,
   distinct and veto decisions, and the shared `knowledge::Cause` keeps the row round-trippable. Decide whether it is first-class everywhere: proximity stats currently read it as
-  no decision, and lifting/replay still reason in `repair`/`replayed`. Either give it its own status
+  no decision, and replay still reasons in `repair`. Either give it its own status
   word and rung, or map model decisions to `repair` and lose the distinction.
 
 ## Deferred — already scoped
