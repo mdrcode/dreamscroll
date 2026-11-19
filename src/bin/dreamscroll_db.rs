@@ -16,6 +16,7 @@ enum Command {
     FirstUser(util_cmds::db::first_user::FirstUserArgs),
     HashPassword(util_cmds::db::hash_password::HashPasswordArgs),
     SetAdmin(util_cmds::db::set_admin::SetAdminArgs),
+    Status(util_cmds::db::status::StatusArgs),
     SyncSchema(util_cmds::db::sync_schema::SyncSchemaArgs),
     Task(util_cmds::db::task::TaskArgs),
 }
@@ -41,6 +42,7 @@ async fn run_database_command(command: Command) -> anyhow::Result<()> {
         Command::CreateUser(args) => util_cmds::db::create_user::run(&db, args).await,
         Command::FirstUser(args) => util_cmds::db::first_user::run(&db, args).await,
         Command::SetAdmin(args) => util_cmds::db::set_admin::run(&db, args).await,
+        Command::Status(args) => util_cmds::db::status::run(&db, args).await,
         Command::SyncSchema(args) => util_cmds::db::sync_schema::run(&db, args).await,
         Command::Task(args) => util_cmds::db::task::run(&db, args).await,
         Command::HashPassword(_) => {

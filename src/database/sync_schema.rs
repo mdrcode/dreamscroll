@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 43;
+pub const REQUIRED_SCHEMA_VERSION: i32 = 43;
 
 /// Schema 23 reshapes claims into an edge — entity plus identity — and keys collisions by identity.
 ///
@@ -533,10 +533,35 @@ async fn adopt_v1_observations<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr
 
 /// Reconcile the model schema, manual indexes, and applied version atomically.
 pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
+    run_schema_sync(conn, false).await?;
+    tracing::info!(
+        schema_version = REQUIRED_SCHEMA_VERSION,
+        "Synchronized Postgres schema"
+    );
+    Ok(())
+}
+
+/// Run the same reconciliation and roll it back, reporting whether it would succeed.
+///
+/// PostgreSQL DDL is transactional, so this answers "would this release's sync work?" without a
+/// dump: every step, including the marker write, is undone. The advisory lock goes with the
+/// transaction.
+pub async fn sync_schema_dry_run(conn: &DatabaseConnection) -> anyhow::Result<()> {
+    run_schema_sync(conn, true).await?;
+    tracing::info!(
+        schema_version = REQUIRED_SCHEMA_VERSION,
+        "Schema dry run succeeded; rolled back"
+    );
+    Ok(())
+}
+
+async fn run_schema_sync(conn: &DatabaseConnection, dry_run: bool) -> anyhow::Result<()> {
+    const DRY_RUN_ROLLBACK: &str = "schema dry run: rolling back";
     let registry = conn.get_schema_registry("dreamscroll::model::*");
 
-    conn.transaction::<_, (), DbErr>(|transaction| {
-        Box::pin(async move {
+    let outcome = conn
+        .transaction::<_, (), DbErr>(|transaction| {
+            Box::pin(async move {
             transaction
                 .execute_unprepared("SELECT pg_advisory_xact_lock(20261016, 1)")
                 .await?;
@@ -607,16 +632,23 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
                     [REQUIRED_SCHEMA_VERSION.into()],
                 ))
                 .await?;
+            if dry_run {
+                return Err(DbErr::Custom(DRY_RUN_ROLLBACK.to_owned()));
+            }
             Ok(())
         })
     })
-    .await?;
+    .await;
 
-    tracing::info!(
-        schema_version = REQUIRED_SCHEMA_VERSION,
-        "Synchronized Postgres schema"
-    );
-    Ok(())
+    match outcome {
+        Ok(()) => Ok(()),
+        Err(sea_orm::TransactionError::Transaction(DbErr::Custom(message)))
+            if dry_run && message == DRY_RUN_ROLLBACK =>
+        {
+            Ok(())
+        }
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// Reject an application start when its minimum required schema was not applied.
@@ -694,6 +726,36 @@ mod tests {
             .expect("column lookup")
             .expect("the column exists");
         assert_eq!(row.try_get_by_index::<String>(0).unwrap(), "NO");
+    }
+
+    #[tokio::test]
+    async fn dry_run_rolls_back_the_marker_write() {
+        db_or_skip!(db);
+        let conn = &db.conn;
+
+        conn.execute_unprepared("UPDATE dreamscroll_schema_version SET version = 0 WHERE id = 1")
+            .await
+            .expect("the test starts from a stale marker");
+
+        super::sync_schema_dry_run(conn)
+            .await
+            .expect("the dry run should succeed against a current schema");
+
+        let row = conn
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT version FROM dreamscroll_schema_version WHERE id = 1",
+            ))
+            .await
+            .expect("marker lookup")
+            .expect("the marker row exists");
+        assert_eq!(
+            row.try_get_by_index::<i32>(0).unwrap(),
+            0,
+            "the dry run's marker write must roll back"
+        );
+
+        sync_schema(conn).await.expect("restore the marker");
     }
 
     #[tokio::test]

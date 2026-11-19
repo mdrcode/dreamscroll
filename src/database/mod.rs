@@ -8,7 +8,12 @@ mod postgres;
 pub use postgres::{connect, connect_postgres_db, make_url_from_config};
 
 mod sync_schema;
-pub use sync_schema::{check_schema_version, sync_schema};
+pub use sync_schema::{
+    REQUIRED_SCHEMA_VERSION, check_schema_version, sync_schema, sync_schema_dry_run,
+};
+
+mod status;
+pub use status::{Status, status};
 
 mod indexes;
 
