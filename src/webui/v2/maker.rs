@@ -469,6 +469,10 @@ mod tests {
 
         assert!(rendered.contains("identified"), "status is shown");
         assert!(
+            rendered.contains("entity-card__badges"),
+            "status, confidence and type sit in the card caption"
+        );
+        assert!(
             rendered.contains("https://www.wikidata.org/wiki/Q7259"),
             "a Wikidata identity links out"
         );

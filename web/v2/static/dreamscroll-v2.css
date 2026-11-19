@@ -634,6 +634,15 @@ body {
     color: var(--color-text-secondary);
 }
 
+.entity-card__badges {
+    gap: 4px;
+}
+
+.entity-card__badges .pill__prefix,
+.entity-card__badges .pill__label {
+    padding: 2px 6px;
+}
+
 .pill-group {
     display: flex;
     gap: 6px;

@@ -10,21 +10,8 @@
     <header class="entity-card__header">
         <p class="metadata-subsection-title">Entity</p>
         <h2 id="entity-name" class="entity-card__name">{{ ke.name }}</h2>
+        {% if ke.platform or entity.platform_link %}
         <div class="pill-group pill-group--wrap">
-            <span class="pill">
-                <span class="pill__prefix">status</span>
-                <span class="pill__label">{{ ke.status }}</span>
-            </span>
-            {% if ke.confidence %}
-            <span class="pill">
-                <span class="pill__prefix">confidence</span>
-                <span class="pill__label">{{ ke.confidence | round(precision=2) }}</span>
-            </span>
-            {% endif %}
-            <span class="pill">
-                <span class="pill__prefix">type</span>
-                <span class="pill__label">{{ ke.entity_type }}</span>
-            </span>
             {% if ke.platform %}
             <span class="pill">
                 <span class="pill__prefix">{{ ke.platform }}</span>
@@ -37,6 +24,7 @@
             </span>
             {% endif %}
         </div>
+        {% endif %}
     </header>
 
     <div class="entity-card__body">
@@ -102,6 +90,22 @@
 
     <footer class="card-footer">
         <span class="card-timestamp">Occurrence {{ entity.id }} · {{ capture.created_at_human }}</span>
+        <div class="pill-group entity-card__badges">
+            <span class="pill">
+                <span class="pill__prefix">status</span>
+                <span class="pill__label">{{ ke.status }}</span>
+            </span>
+            {% if ke.confidence %}
+            <span class="pill">
+                <span class="pill__prefix">confidence</span>
+                <span class="pill__label">{{ ke.confidence | round(precision=2) }}</span>
+            </span>
+            {% endif %}
+            <span class="pill">
+                <span class="pill__prefix">type</span>
+                <span class="pill__label">{{ ke.entity_type }}</span>
+            </span>
+        </div>
     </footer>
 </article>
 {% else %}
