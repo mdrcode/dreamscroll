@@ -203,12 +203,17 @@ impl UserApiClient {
         id: i32,
     ) -> Result<schema::ObservedEntityInfo, ApiError> {
         let observation = super::get_knowledge_entity(&self.db, context, id).await?;
-        let linked = super::linked_knowledge_entity(&self.db, &observation).await?;
         // The lookup filters archived captures, so there is no archived flag to report.
+        let knowledge_entity = match observation.knowledge_entity_id {
+            Some(id) => super::knowledge_entity_infos(&self.db, [id])
+                .await?
+                .remove(&id),
+            None => None,
+        };
         Ok(schema::ObservedEntityInfo::new(
             observation,
             None,
-            linked.map(schema::KnowledgeEntityInfo::new),
+            knowledge_entity,
         ))
     }
 

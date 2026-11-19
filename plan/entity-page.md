@@ -1,7 +1,7 @@
 # Entity page: from observation to knowledge entity
 
-Status: **Partly implemented 2026-11-19.** Phase 1 (observations carry their entity on the wire) is
-in. Decisions in “Decisions”.
+Status: **Partly implemented 2026-11-19.** Phases 1–2 are in: observations carry their entity,
+and the entity carries its identities. Page rendering is next. Decisions in “Decisions”.
 
 The entity page is where a user's personal slice meets the shared graph. Today it shows only the
 user's own **observation** (`user_observed_entities`) and never the **knowledge entity** it was

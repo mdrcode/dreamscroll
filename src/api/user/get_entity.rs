@@ -52,26 +52,6 @@ fn current_illumination() -> sea_orm::sea_query::SelectStatement {
         .to_owned()
 }
 
-/// The knowledge entity an observation was linked to, if it has been.
-///
-/// Read through the observation rather than by id: entities are shared and have no owner, so a
-/// lookup by id alone would serve any user any entity. Walking in from a capture the caller owns is
-/// the whole access rule.
-pub async fn linked_knowledge_entity(
-    db: &DbHandle,
-    observation: &model::user_observed_entity::ModelEx,
-) -> Result<Option<model::knowledge_entity::Model>, ApiError> {
-    let Some(knowledge_entity_id) = observation.knowledge_entity_id else {
-        return Ok(None);
-    };
-    Ok(
-        model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
-            .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
-            .one(&db.conn)
-            .await?,
-    )
-}
-
 /// The live knowledge entities behind a batch of observation foreign keys.
 ///
 /// One query per page, not per occurrence: callers collect the ids from models they already hold.
@@ -89,13 +69,45 @@ pub async fn knowledge_entity_infos(
         return Ok(HashMap::new());
     }
 
-    Ok(model::knowledge_entity::Entity::find()
-        .filter(model::knowledge_entity::Column::Id.is_in(ids))
+    let entities: Vec<model::knowledge_entity::Model> = model::knowledge_entity::Entity::find()
+        .filter(model::knowledge_entity::Column::Id.is_in(ids.clone()))
         .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
         .all(&db.conn)
+        .await?;
+
+    let mut by_entity: HashMap<i32, Vec<IdentityInfo>> = HashMap::new();
+    for identity in model::knowledge_identity::Entity::find()
+        .filter(model::knowledge_identity::Column::KnowledgeEntityId.is_in(ids))
+        .all(&db.conn)
         .await?
+    {
+        by_entity
+            .entry(identity.knowledge_entity_id)
+            .or_default()
+            .push(IdentityInfo::new(identity));
+    }
+
+    // Most confident first; the tie-breaks keep a page stable across requests.
+    for identities in by_entity.values_mut() {
+        identities.sort_by(|a, b| {
+            b.confidence
+                .unwrap_or(f32::MIN)
+                .partial_cmp(&a.confidence.unwrap_or(f32::MIN))
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.scheme.cmp(&b.scheme))
+                .then_with(|| a.external_id.cmp(&b.external_id))
+        });
+    }
+
+    Ok(entities
         .into_iter()
-        .map(|entity| (entity.id, KnowledgeEntityInfo::new(entity)))
+        .map(|entity| {
+            let mut info = KnowledgeEntityInfo::new(entity);
+            if let Some(identities) = by_entity.remove(&info.id) {
+                info.identities = identities;
+            }
+            (info.id, info)
+        })
         .collect())
 }
 
@@ -215,12 +227,14 @@ mod tests {
         let observation = get_knowledge_entity(&db, &context, observation_id)
             .await
             .unwrap();
-        let linked = linked_knowledge_entity(&db, &observation)
+        let id = observation
+            .knowledge_entity_id
+            .expect("the observation is linked");
+        let info = knowledge_entity_infos(&db, [id])
             .await
             .unwrap()
+            .remove(&id)
             .expect("the observation is linked");
-
-        let info = KnowledgeEntityInfo::new(linked);
         assert_eq!(info.platform.as_deref(), Some("x_twitter"));
         assert_eq!(info.platform_handle.as_deref(), Some("tsoding"));
         assert_eq!(info.name, "active entity");
@@ -306,18 +320,14 @@ mod tests {
         let capture = fixtures::Capture::new(&db, "entity_merged").await;
         let survivor = knowledge_entity(&db, "survivor", None, None).await;
         let absorbed = knowledge_entity(&db, "absorbed", None, Some(survivor)).await;
-        let observation_id =
+        let _observation_id =
             fixtures::attached(&db, &capture, 0, "absorbed", None, "unknown", absorbed).await;
 
-        let context =
-            auth::Context::from(auth::DreamscrollAuthUser::new_test_session(capture.user_id));
-        let observation = get_knowledge_entity(&db, &context, observation_id)
-            .await
-            .unwrap();
-
-        assert_eq!(
-            linked_knowledge_entity(&db, &observation).await.unwrap(),
-            None,
+        assert!(
+            knowledge_entity_infos(&db, [absorbed])
+                .await
+                .unwrap()
+                .is_empty(),
             "a merged entity must not be served as the observation's referent"
         );
     }
@@ -342,5 +352,44 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[tokio::test]
+    async fn knowledge_infos_carry_identities() {
+        db_or_skip!(db);
+        let linked = knowledge_entity(&db, "linked", None, None).await;
+        let plain = knowledge_entity(&db, "plain", None, None).await;
+        fixtures::identity(
+            &db,
+            linked,
+            "x_twitter",
+            "handle",
+            "illuminator",
+            Some("observation"),
+            Some(0.7),
+        )
+        .await;
+        fixtures::identity(
+            &db,
+            linked,
+            "wikidata",
+            "Q42",
+            "wikidata",
+            Some("exact_label"),
+            Some(0.9),
+        )
+        .await;
+
+        let map = knowledge_entity_infos(&db, [linked, plain]).await.unwrap();
+        let identities = &map[&linked].identities;
+        assert_eq!(identities.len(), 2);
+        assert_eq!(
+            identities[0].external_id, "Q42",
+            "the most confident identity leads"
+        );
+        assert_eq!(identities[0].scheme, "wikidata");
+        assert_eq!(identities[0].method.as_deref(), Some("exact_label"));
+        assert_eq!(identities[1].external_id, "handle");
+        assert!(map[&plain].identities.is_empty());
     }
 }

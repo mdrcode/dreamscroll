@@ -37,6 +37,37 @@ pub struct KnowledgeEntityInfo {
     pub status: model::knowledge_entity::Status,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confidence: Option<f32>,
+    /// The identities resolvers and captures have asserted, most confident first.
+    #[serde(default)]
+    pub identities: Vec<IdentityInfo>,
+}
+
+/// One `(scheme, external_id)` assertion about an entity.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct IdentityInfo {
+    /// The namespace: `wikidata`, `x_twitter`, …
+    pub scheme: String,
+    /// The identifier in its comparable form — `Q104919`, `bandy1803`.
+    pub external_id: String,
+    /// Who supplied it: a resolver id, `illuminator`, or `model`.
+    pub provider: String,
+    /// How it was reached: `observation`, a Wikidata property, or a query step.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub method: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f32>,
+}
+
+impl IdentityInfo {
+    pub fn new(identity: model::knowledge_identity::Model) -> Self {
+        Self {
+            scheme: identity.scheme,
+            external_id: identity.external_id,
+            provider: identity.provider,
+            method: identity.method,
+            confidence: identity.confidence,
+        }
+    }
 }
 
 impl KnowledgeEntityInfo {
@@ -56,6 +87,7 @@ impl KnowledgeEntityInfo {
             platform_display_name: entity.platform_display_name,
             status: entity.status,
             confidence: entity.confidence,
+            identities: Vec::new(),
         }
     }
 }
