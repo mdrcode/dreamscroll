@@ -485,6 +485,10 @@ mod tests {
             "other occurrences are reachable"
         );
         assert!(
+            rendered.contains("related-captures__grid"),
+            "occurrences use the capture-detail gallery layout"
+        );
+        assert!(
             rendered.contains("aria-current=\"page\""),
             "the opened occurrence is marked"
         );

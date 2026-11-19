@@ -105,23 +105,6 @@
     <p id="entity-observation-title" class="metadata-subsection-title">This capture said</p>
     <p class="entity-card__description"><strong>{{ entity.name }}</strong> <span class="entity-card__muted">· {{ entity.type }}</span>{% if entity.description %} — {{ entity.description }}{% endif %}</p>
 </section>
-
-<section class="entity-section" aria-labelledby="entity-occurrences-title">
-    <p id="entity-occurrences-title" class="metadata-subsection-title">Appears in</p>
-    <div class="entity-occurrences">
-        {% for occurrence in occurrences %}
-        <a href="/entity/{{ occurrence.observation_id }}" class="capture-preview-item"{% if occurrence.observation_id == entity.id %} aria-current="page"{% endif %}>
-            <div class="capture-preview-thumb">
-                <img src="{{ occurrence.thumbnail_url }}" alt="capture {{ occurrence.id }}">
-            </div>
-            <div class="capture-preview-meta">
-                <p class="capture-preview-meta-summary">{{ occurrence.summary }}</p>
-                <p class="card-timestamp">{{ occurrence.created_at_human }}{% if occurrence.observation_id == entity.id %} · opened{% endif %}</p>
-            </div>
-        </a>
-        {% endfor %}
-    </div>
-</section>
 {% else %}
 {#- Cold: illuminated, not yet linked. The reading stands on its own; the page is honest about
     the gap, and a refresh picks up the linked view. -#}
@@ -179,9 +162,31 @@
 </article>
 {% endif %}
 
-{% if not entity.knowledge_entity %}
+{% if siblings | length > 0 %}
+<section class="entity-section" aria-labelledby="entity-siblings-title">
+    <p id="entity-siblings-title" class="metadata-subsection-title">Also in this capture</p>
+    <div class="pill-group pill-group--wrap">
+        {% for sibling in siblings %}
+        <a class="pill" href="/entity/{{ sibling.id }}"{% if sibling.description %} title="{{ sibling.description }}"{% endif %}>
+            <span class="pill__prefix">{{ sibling.type }}</span>
+            <span class="pill__label">{{ sibling.name }}</span>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+
 <section class="entity-section" aria-labelledby="entity-source-title">
     <p id="entity-source-title" class="metadata-subsection-title">Appears in</p>
+    {% if entity.knowledge_entity %}
+    <div class="related-captures__grid" aria-label="Related capture gallery">
+        {% for occurrence in occurrences %}
+        <a class="related-captures__item" href="/entity/{{ occurrence.observation_id }}" title="{{ occurrence.summary }} · {{ occurrence.created_at_human }}" aria-label="{{ occurrence.summary }}"{% if occurrence.observation_id == entity.id %} aria-current="page"{% endif %}>
+            <img src="{{ occurrence.thumbnail_url }}" alt="capture {{ occurrence.id }}" loading="lazy">
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
     <a href="/capture/{{ capture.id }}" class="capture-preview-item" title="Capture {{ capture.id }}">
         <div class="capture-preview-thumb">
             {% if capture.medias | length > 0 %}
@@ -198,20 +203,6 @@
             </p>
         </div>
     </a>
+    {% endif %}
 </section>
-{% endif %}
-
-{% if siblings | length > 0 %}
-<section class="entity-section" aria-labelledby="entity-siblings-title">
-    <p id="entity-siblings-title" class="metadata-subsection-title">Also in this capture</p>
-    <div class="pill-group pill-group--wrap">
-        {% for sibling in siblings %}
-        <a class="pill" href="/entity/{{ sibling.id }}"{% if sibling.description %} title="{{ sibling.description }}"{% endif %}>
-            <span class="pill__prefix">{{ sibling.type }}</span>
-            <span class="pill__label">{{ sibling.name }}</span>
-        </a>
-        {% endfor %}
-    </div>
-</section>
-{% endif %}
 {% endblock %}

@@ -977,6 +977,11 @@ body {
     border-color: var(--color-stroke);
 }
 
+.related-captures__item[aria-current="page"] {
+    border-color: var(--color-stroke);
+    box-shadow: 0 0 0 1px var(--color-stroke);
+}
+
 .related-captures__item img {
     display: block;
     width: 100%;
