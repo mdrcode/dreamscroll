@@ -4,10 +4,11 @@
 `identity-resolve` queues exist in production (created paused, ahead of the revision that submits to
 them), both names are required config, and the web revision from that release is the first to chain
 the online resolve. After the cutover rebuilt the graph by `knowledge link`, a paced in-region drain
-identified 3,746 of 5,155 entities (3,155 Wikidata identities); 1,409 remain provisional — the
-unfindable tail under the current evidence, since two consecutive slices added none. The online path
-handles new captures; the nightly batch job stays abandoned
-(`plan/archive/knowledge-batch-job.md`).
+identified 4,297 of 5,158 entities (3,742 Wikidata identities); 861 remain provisional — the
+unfindable tail under the current evidence. A first pass using `--newest --limit 1200` stopped early
+because the window re-selected the same newest entities; the full-scope sweep is the correct shape
+until attempt-time rotation lands (`plan/backlog.md`). The online path handles new captures; the
+nightly batch job stays abandoned (`plan/archive/knowledge-batch-job.md`).
 
 **Purpose:** a capture that has been linked gets its entities identified without an operator. The
 online task resolves exactly what one illumination touched; everything it misses waits for

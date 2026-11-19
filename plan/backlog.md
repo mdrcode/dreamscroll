@@ -54,12 +54,20 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ### Knowledge cutover (2026-11-18)
 
-- [x] **Drain the historical identities.** Done 2026-11-18. In-region slices (one writer, paced at
-  1.5 s then 0.8 s, queue concurrency temporarily 1) identified **3,746 of 5,155 entities**, with
-  **3,155 Wikidata identities**; the last two slices added none, so the drain stopped.
-  **1,409 remain provisional** — the unfindable tail under the current evidence (no Wikidata match,
-  or not enough evidence to search), and the natural target for agentic
-  curation (`plan/knowledge-agent-curation.md`) rather than more resolution.
+- [x] **Drain the historical identities.** Done 2026-11-18/19. In-region slices (one writer, paced
+  at 1.5 s then 0.8 s, queue concurrency temporarily 1) eventually identified **4,297 of 5,158
+  entities**, with **3,742 Wikidata identities**; **861 remain provisional** (the unfindable tail
+  under the current evidence). The first pass stopped early because it used `--newest --limit 1200`,
+  which re-selected the newest 1,200 awaiting entities and starved the older ~800; a full-scope
+  sweep (`--limit 5000`, no `--newest`) found another 584. The tail is the natural target for
+  agentic curation (`plan/knowledge-agent-curation.md`) rather than more resolution.
+- [ ] **Rotate identity resolution by attempt time.** `identity resolve --newest --limit N`
+  re-selects the newest N awaiting entities, so unfindable ones keep occupying the window and the
+  older tail is never asked (2026-11-18: ~800 entities were starved; the full-scope sweep added 584
+  identities). Add `knowledge_entities.last_attempted_at` (schema 44), stamp every entity a run
+  considered (one batched update), and order `last_attempted_at NULLS FIRST, id ASC`. Then a bounded
+  run advances by construction, new entities (NULL) sort first, and a backoff for repeated
+  no-matches becomes possible.
 - [ ] **Confirm the legacy `illuminations_20261027` table still has no reader** once the new revision
   has run for a week; it is the last pre-reset table in `public`.
 

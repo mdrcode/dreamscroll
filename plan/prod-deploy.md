@@ -173,11 +173,12 @@ finished at 5,987 observations all linked, 5,155 entities (4,375 provisional, 78
 identified), and zero illuminations awaiting link; the final 2,297 observations
 took 79 s in the one-off job, after 3,690 took roughly 40 minutes from the laptop.
 
-The historical identity drain followed the same day: 20 in-region slices (paced 1.5 s, then 0.8 s,
-one writer at a time, queue concurrency temporarily 1) identified **3,746 of 5,155 entities** and
-wrote **3,155 Wikidata identities**; two consecutive slices added none, leaving **1,409 provisional** —
-the unfindable tail. The queue was restored to 2 when the drain finished, and the throwaway job
-deleted.
+The historical identity drain followed: in-region slices at 1.5 s, then 0.8 s pacing (one writer,
+queue concurrency temporarily 1). A first pass of 20 slices identified 3,746 entities, but it used
+`--newest --limit 1200`, which re-selected the newest 1,200 awaiting entities each time and starved
+the older tail; a full-scope sweep (`--limit 5000`, no `--newest`) then identified another 584.
+Final: **4,297 of 5,158 identified**, **3,742 Wikidata identities**, **861 provisional** (the
+unfindable tail). Queue restored to 2, throwaway job deleted.
 
 ## Configuration as code
 

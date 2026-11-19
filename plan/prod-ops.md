@@ -142,3 +142,8 @@ and are documented in `prod-deploy.md`. This doc only adds what was missing arou
    says so, and P6 should enforce it.
 5. **A release is not done when the revision is ready** — it is done when the derived data is rebuilt
    (`link`) and the online chain has run once on a real capture.
+6. **A bounded `--newest` run starves the tail.** The selector was right — newest *among the awaiting*
+   — but unfindable entities never leave that set, so a fixed window re-asks the same ones and the
+   older tail is never reached. Either sweep without a limit (budget-bounded) or order by last
+   attempt; a stop condition of "a slice added nothing" is only valid when the slice covered
+   everything.
