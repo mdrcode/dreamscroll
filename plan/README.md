@@ -30,6 +30,7 @@ rather than rewriting it; history is the point.
 | [smoke.md](smoke.md) | Living | Manual smoke procedure against the persistent local instance (`smoke-agent` account). |
 | [lexicon.md](lexicon.md) | Authoritative — names | The vocabulary: observations, knowledge entities, evidence; the verbs; the rename map and the names considered and rejected. Read before renaming anything in the graph. |
 | [knowledge-task-queues.md](knowledge-task-queues.md) | Active — being built | The online resolve: fix the `knowledge-link` queue (required config; missing in prod), add an `identity_resolve` task chained from the link webhook. |
+| [knowledge-agent-curation.md](knowledge-agent-curation.md) | Research — active | Agentic curation: proposal ledger, reversible identity, deterministic verifier, evaluation, and why the agent is the last piece. |
 | [media-serving.md](media-serving.md) | Partly implemented | Immutable-object cache policy shipped; private URL delivery waits on load-balancer/CDN work. |
 | [prod-deploy.md](prod-deploy.md) | Implemented; drift-clean — approved | Whole production release path: build/push, checked-in Cloud Run manifests, `prod-apply.sh` drift/apply/lint, `dreamscroll-db-sync` schema job, rollback. Service drift is clean; manifests and job verified in production. |
 | [topology_and_throughput.md](topology_and_throughput.md) | Reference | Cloud Run / Cloud SQL connection and concurrency budgets. |
