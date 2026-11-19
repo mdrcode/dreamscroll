@@ -139,7 +139,7 @@
     {% if entity.knowledge_entity %}
     <div class="related-captures__grid" aria-label="Related capture gallery">
         {% for occurrence in occurrences %}
-        <a class="related-captures__item" href="/entity/{{ occurrence.observation_id }}" title="{{ occurrence.summary }} · {{ occurrence.created_at_human }}" aria-label="{{ occurrence.summary }}"{% if occurrence.observation_id == entity.id %} aria-current="page"{% endif %}>
+        <a class="related-captures__item" href="/capture/{{ occurrence.id }}" title="{{ occurrence.summary }} · {{ occurrence.created_at_human }}" aria-label="{{ occurrence.summary }}"{% if occurrence.observation_id == entity.id %} aria-current="page"{% endif %}>
             <img src="{{ occurrence.thumbnail_url }}" alt="capture {{ occurrence.id }}" loading="lazy">
         </a>
         {% endfor %}

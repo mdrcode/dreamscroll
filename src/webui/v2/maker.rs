@@ -507,8 +507,8 @@ mod tests {
             "the old single-line label is gone"
         );
         assert!(
-            rendered.contains("href=\"/entity/12\"") && rendered.contains("Another capture"),
-            "other occurrences are reachable"
+            rendered.contains("href=\"/capture/9\"") && rendered.contains("Another capture"),
+            "other occurrences open their capture"
         );
         assert!(
             rendered.contains("related-captures__grid"),
