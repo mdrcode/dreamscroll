@@ -477,8 +477,12 @@ mod tests {
             "alternate names are surfaced"
         );
         assert!(
-            rendered.contains("This capture said"),
-            "the observation survives as evidence"
+            !rendered.contains("This capture said"),
+            "the separate evidence section is gone"
+        );
+        assert!(
+            rendered.contains("Observation description:") && rendered.contains("Pioneer of computing"),
+            "the observation's description sits under the entity's"
         );
         assert!(
             rendered.contains("href=\"/entity/12\"") && rendered.contains("Another capture"),

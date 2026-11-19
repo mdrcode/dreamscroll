@@ -44,6 +44,10 @@
         <p class="entity-card__description">{{ ke.description }}</p>
         {% endif %}
 
+        {% if entity.description %}
+        <p class="entity-card__description"><span class="entity-card__muted">Observation description:</span> {{ entity.description }}</p>
+        {% endif %}
+
         {% if ke.alt_names | length > 0 %}
         <div class="pill-group pill-group--wrap entity-card__alt-names">
             {% for name in ke.alt_names %}
@@ -100,11 +104,6 @@
         <span class="card-timestamp">Occurrence {{ entity.id }} · {{ capture.created_at_human }}</span>
     </footer>
 </article>
-
-<section class="entity-section" aria-labelledby="entity-observation-title">
-    <p id="entity-observation-title" class="metadata-subsection-title">This capture said</p>
-    <p class="entity-card__description"><strong>{{ entity.name }}</strong> <span class="entity-card__muted">· {{ entity.type }}</span>{% if entity.description %} — {{ entity.description }}{% endif %}</p>
-</section>
 {% else %}
 {#- Cold: illuminated, not yet linked. The reading stands on its own; the page is honest about
     the gap, and a refresh picks up the linked view. -#}
