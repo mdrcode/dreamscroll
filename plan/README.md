@@ -33,6 +33,7 @@ rather than rewriting it; history is the point.
 | [knowledge-agent-curation.md](knowledge-agent-curation.md) | Research — active | Agentic curation: proposal ledger, reversible identity, deterministic verifier, evaluation, and why the agent is the last piece. |
 | [media-serving.md](media-serving.md) | Partly implemented | Immutable-object cache policy shipped; private URL delivery waits on load-balancer/CDN work. |
 | [prod-deploy.md](prod-deploy.md) | Implemented; drift-clean — approved | Whole production release path: build/push, checked-in Cloud Run manifests, `prod-apply.sh` drift/apply/lint, `dreamscroll-db-sync` schema job, rollback. Service drift is clean; manifests and job verified in production. |
+| [prod-ops.md](prod-ops.md) | Research — active | Friction log from the 2026-11-18 cutover, and the read-only tooling it should have had: `status` + dry-run sync, one release status command, queue preflight, env single-source, API error codes. |
 | [topology_and_throughput.md](topology_and_throughput.md) | Reference | Cloud Run / Cloud SQL connection and concurrency budgets. |
 | [vertex-throughput.md](vertex-throughput.md) | Research — active | Vertex Gemini tail latency: evidence, hypotheses, experiments, mitigations. |
 | [upload-formats.md](upload-formats.md) | Partly implemented | Upload format policy: blocklist at the single ingest point, 415s, client `accept` steering shipped 2026-10-29. Client re-encode and server HEIC normalize deferred. |

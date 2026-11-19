@@ -23,6 +23,23 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 > grammar is documented in `src/knowledge/knowledge.md`. K5 shipped 2026-11-18. K7 is retired;
 > nothing wrote `Cause::Model`. K8 shipped 2026-11-18. K9 is accepted in `plan/pragmatism.md`.
 
+### Production ergonomics (see `plan/prod-ops.md`)
+
+- [ ] **`dreamscroll_db status` and `sync_schema --dry-run`.** Run in-region through the existing job
+  (`gcloud run jobs execute dreamscroll-db-sync --args …`): marker vs required, guarded migrations
+  that would fire, legacy tables, graph counts; dry run = real transaction + rollback. Removes the
+  proxy/secret/dump dance for every future release.
+- [ ] **`gcloud/prod-status.sh`.** One read-only snapshot: drift, revision/digest/traffic, job
+  executions, all five queues with expected concurrency, latest backup, error count, optional DB
+  status. Exit 1 on anything unexpected.
+- [ ] **Queue preflight in `prod-apply.sh --check`.** Assert every `TASK_QUEUE_NAME_*` exists with the
+  expected concurrency, so a manifest-only queue change fails the check rather than the first capture.
+- [ ] **`Config::required_env_names()` + manifest assertion.** One source for required env, tested
+  against `prod-dreamscroll-web.yaml`, instead of `config_def.rs` + manifest + the shell list +
+  gitignored `config_prod.env` drifting apart.
+- [ ] **Stable API error codes.** A non-sensitive `code` on every `ApiError` response so the UI can
+  say "that image is too large" instead of "Upload failed", without exposing internal messages.
+
 ### Knowledge cutover (2026-11-18)
 
 - [ ] **Drain the historical identities.** The cutover adopted 5,966 v1 rows as observations and
