@@ -25,6 +25,15 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ### Production ergonomics (see `plan/prod-ops.md`)
 
+- [ ] **Survey and add the remaining production metrics**, following the pattern established for
+  provider rate limits: a structured event in `src/telemetry/prod_event_registry.rs`
+  (`provider.rate_limited`, lowercase-dotted), a log-based counter in Cloud Logging named in
+  snake_case (`provider_rate_limited`) with a `provider` label extracted from `jsonPayload`, and the
+  query + metric filter + alert condition written into `plan/prod-deploy.md` next to the event.
+  Survey first, then add one metric per operational question and keep the set small. Candidates
+  from the 2026-11-18 cutover: provider request failures (`provider.request_failed`), schema marker
+  gap (`applied` vs `required`), knowledge link/identity backlog depth, upload rejections by reason
+  (after P5's error codes), task failures by task type.
 - [ ] **`gcloud/prod-status.sh`.** One read-only snapshot: drift, revision/digest/traffic, job
   executions, all five queues with expected concurrency, latest backup, error count, optional DB
   status. Exit 1 on anything unexpected.
