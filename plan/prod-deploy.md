@@ -5,12 +5,14 @@
 knowledge v2 cutover, and a cost-ceiling change. Operating runbook, reset
 procedure, and schema audits are included below.
 
+> **Companion doc:** [`plan/prod-ops.md`](prod-ops.md) holds *open proposals* about production
+> tooling — what this runbook lacks and why. Nothing there is procedure: a proposal is real only
+> once it is written here. Read this doc to release; read that one to decide what to build next.
+
 **Start here (fresh session):** read this doc, then run
 `./gcloud/prod-apply.sh --check` to see whether production still matches the repo,
 then read `plan/backlog.md` for open work. Verify anything date-specific in the
-environment table — it is a snapshot, not a live query. Open *proposals* about
-production tooling live in `plan/prod-ops.md`; this doc is the record of what
-exists and how to run it. **Updated:** 2026-11-18.
+environment table — it is a snapshot, not a live query. **Updated:** 2026-11-18.
 
 ## Scope
 

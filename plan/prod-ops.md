@@ -9,10 +9,15 @@ that privileged DB access already exists in-region (the `dreamscroll-db-sync` jo
 proxy, a dumped secret, or ad-hoc SQL is a gap in that tooling, not a fact about Postgres.
 
 **How this relates to [`prod-deploy.md`](prod-deploy.md):** that doc is *normative* — the release path
-and runbook as they exist today, and the place a rule lives. This one is *input*: what the 2026-11-18
-session had to improvise, and the tooling it should have had. When a proposal ships, its recipe moves
-into `prod-deploy.md` (or `gcloud/`) and the proposal is deleted here; when the list is empty this doc
-goes to `plan/archive/`. Never state the same rule in both places — the runbook wins.
+and runbook as they exist today, and the place a rule lives. **This doc is not a runbook.** It is
+*input*: what the 2026-11-18 session had to improvise, and the tooling it should have had.
+
+> If you are about to touch production, read [`prod-deploy.md`](prod-deploy.md). Nothing below is
+> implemented until it appears there; do not follow a proposal as if it were procedure.
+
+When a proposal ships, its recipe moves into `prod-deploy.md` (or `gcloud/`) and the proposal is
+deleted here; when the list is empty this doc goes to `plan/archive/`. Never state the same rule in
+both places — the runbook wins.
 
 ## What the session actually required
 
