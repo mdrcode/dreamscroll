@@ -111,6 +111,34 @@ pub async fn knowledge_entity_infos(
         .collect())
 }
 
+/// The capture an observation belongs to when the observation is real but superseded.
+///
+/// The entity view only serves a capture's current illumination. After a re-read, links to the old
+/// reading land here: send the caller to the capture, which shows the updated entities, rather than
+/// guessing which new observation corresponds to the old one.
+pub async fn superseded_capture_id(
+    db: &DbHandle,
+    context: &auth::Context,
+    id: i32,
+) -> Result<Option<i32>, ApiError> {
+    let capture_id = model::user_observed_entity::Entity::find()
+        .inner_join(model::capture::Entity)
+        .select_only()
+        .column(model::user_observed_entity::Column::CaptureId)
+        .filter(model::user_observed_entity::Column::UserId.eq(context.user_id()))
+        .filter(model::user_observed_entity::Column::Id.eq(id))
+        .filter(model::capture::Column::ArchivedAt.is_null())
+        .filter(
+            Expr::col(model::user_observed_entity::Column::IlluminationId)
+                .not_in_subquery(current_illumination()),
+        )
+        .into_tuple::<i32>()
+        .one(&db.conn)
+        .await?;
+
+    Ok(capture_id)
+}
+
 /// The caller's current observations of one entity, one per capture, clicked first.
 ///
 /// Pairs rather than wire rows: the card needs a capture preview, which needs storage, so the
@@ -391,6 +419,56 @@ mod tests {
                 .await
                 .unwrap()
                 .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_superseded_observation_redirects_to_its_capture() {
+        db_or_skip!(db);
+        let user = fixtures::user(&db, "superseded_redirect").await;
+        let capture = fixtures::capture(&db, user).await;
+        let first = fixtures::illumination(&db, user, capture).await;
+        let old = fixtures::entity(&db, user, capture, first, 0, "old reading").await;
+        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user));
+
+        assert_eq!(
+            superseded_capture_id(&db, &context, old).await.unwrap(),
+            None,
+            "the only reading is current"
+        );
+
+        fixtures::illumination(&db, user, capture).await;
+        assert_eq!(
+            superseded_capture_id(&db, &context, old).await.unwrap(),
+            Some(capture),
+            "a newer reading sends the old link to the capture"
+        );
+
+        let other = fixtures::user(&db, "superseded_other").await;
+        let other_context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(other));
+        assert_eq!(
+            superseded_capture_id(&db, &other_context, old)
+                .await
+                .unwrap(),
+            None,
+            "another user's observation is not theirs to follow"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_archived_capture_does_not_redirect() {
+        db_or_skip!(db);
+        let user = fixtures::user(&db, "superseded_archived").await;
+        let capture = fixtures::archived_capture(&db, user).await;
+        let first = fixtures::illumination(&db, user, capture).await;
+        let old = fixtures::entity(&db, user, capture, first, 0, "old reading").await;
+        fixtures::illumination(&db, user, capture).await;
+        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user));
+
+        assert_eq!(
+            superseded_capture_id(&db, &context, old).await.unwrap(),
+            None,
+            "archived captures keep the existing not-found behavior"
         );
     }
 

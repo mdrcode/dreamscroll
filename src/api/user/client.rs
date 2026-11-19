@@ -217,6 +217,16 @@ impl UserApiClient {
         ))
     }
 
+    /// The capture a superseded observation belongs to, if the observation is real but old.
+    #[tracing::instrument(skip(self, context))]
+    pub async fn superseded_capture_id(
+        &self,
+        context: &auth::Context,
+        id: i32,
+    ) -> Result<Option<i32>, ApiError> {
+        super::superseded_capture_id(&self.db, context, id).await
+    }
+
     /// The caller's occurrences of one entity: one capture preview per capture, clicked first.
     #[tracing::instrument(skip(self, context))]
     pub async fn get_entity_occurrences(

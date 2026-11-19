@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, State},
-    response::{Html, IntoResponse, Response},
+    response::{Html, IntoResponse, Redirect, Response},
 };
 use axum_login::AuthSession;
 
@@ -19,7 +19,22 @@ pub async fn get(
     let user = auth.user.unwrap();
     let context_user = user.into();
 
-    let entity = state.user_api.get_entity(&context_user, id).await?;
+    let entity = match state.user_api.get_entity(&context_user, id).await {
+        Ok(entity) => entity,
+        Err(error) if error.http_status_code == axum::http::StatusCode::NOT_FOUND => {
+            match state
+                .user_api
+                .superseded_capture_id(&context_user, id)
+                .await?
+            {
+                Some(capture_id) => {
+                    return Ok(Redirect::to(&format!("/capture/{capture_id}")).into_response());
+                }
+                None => return Err(error),
+            }
+        }
+        Err(error) => return Err(error),
+    };
     // All readings of the description, the entity's current one first. The observation's own
     // wording is appended when the projection does not already carry it.
     let descriptions = match &entity.knowledge_entity {
