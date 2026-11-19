@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::anyhow;
 use sea_orm::QueryOrder;
 use sea_orm::prelude::*;
@@ -68,6 +70,33 @@ pub async fn linked_knowledge_entity(
             .one(&db.conn)
             .await?,
     )
+}
+
+/// The live knowledge entities behind a batch of observation foreign keys.
+///
+/// One query per page, not per occurrence: callers collect the ids from models they already hold.
+/// A tombstone is excluded rather than resolved — `merge` repoints observations, so a pointer at a
+/// merged row means some write bypassed the graph, and serving it would show the absorbed surface
+/// as if it were current.
+pub async fn knowledge_entity_infos(
+    db: &DbHandle,
+    ids: impl IntoIterator<Item = i32>,
+) -> Result<HashMap<i32, KnowledgeEntityInfo>, ApiError> {
+    let mut ids: Vec<i32> = ids.into_iter().collect();
+    ids.sort_unstable();
+    ids.dedup();
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    Ok(model::knowledge_entity::Entity::find()
+        .filter(model::knowledge_entity::Column::Id.is_in(ids))
+        .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
+        .all(&db.conn)
+        .await?
+        .into_iter()
+        .map(|entity| (entity.id, KnowledgeEntityInfo::new(entity)))
+        .collect())
 }
 
 /// Fetch the user's unarchived knowledge entities of the requested type.
@@ -290,6 +319,28 @@ mod tests {
             linked_knowledge_entity(&db, &observation).await.unwrap(),
             None,
             "a merged entity must not be served as the observation's referent"
+        );
+    }
+
+    #[tokio::test]
+    async fn knowledge_infos_skip_tombstones_and_empty_batches() {
+        db_or_skip!(db);
+        let live = knowledge_entity(&db, "live", None, None).await;
+        let survivor = knowledge_entity(&db, "survivor", None, None).await;
+        let absorbed = knowledge_entity(&db, "absorbed", None, Some(survivor)).await;
+
+        let map = knowledge_entity_infos(&db, [live, absorbed, live])
+            .await
+            .unwrap();
+        assert_eq!(map.len(), 1, "one live row, deduped by id");
+        assert_eq!(map[&live].name, "live");
+        assert!(!map.contains_key(&absorbed));
+
+        assert!(
+            knowledge_entity_infos(&db, Vec::<i32>::new())
+                .await
+                .unwrap()
+                .is_empty()
         );
     }
 }

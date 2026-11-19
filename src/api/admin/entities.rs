@@ -91,6 +91,7 @@ pub async fn export_entities(
             row: schema::ObservedEntityInfo::new(
                 model::user_observed_entity::ModelEx::from(entity),
                 archived_at,
+                None,
             ),
         });
     }

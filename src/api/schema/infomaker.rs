@@ -21,6 +21,16 @@ impl InfoMaker {
     }
 
     pub fn make_capture_info(&self, capture_model: model::capture::ModelEx) -> CaptureInfo {
+        self.make_capture_info_with(capture_model, &HashMap::new())
+    }
+
+    /// `knowledge` maps a knowledge-entity id to its wire form for the observations in this
+    /// capture. Callers batch-resolve it once; this builder never queries.
+    pub fn make_capture_info_with(
+        &self,
+        capture_model: model::capture::ModelEx,
+        knowledge: &HashMap<i32, KnowledgeEntityInfo>,
+    ) -> CaptureInfo {
         let medias = match capture_model.medias {
             HasMany::Unloaded => vec![],
             HasMany::Loaded(models) => models
@@ -42,7 +52,7 @@ impl InfoMaker {
             HasMany::Loaded(models) => models
                 .into_iter()
                 .max_by_key(|m| m.id)
-                .map(|m| vec![self.make_illumination_info(m, archived_at)])
+                .map(|m| vec![self.make_illumination_info_with(m, archived_at, knowledge)])
                 .unwrap_or_default(),
         };
 
@@ -104,6 +114,15 @@ impl InfoMaker {
         illumination_model: model::illumination::ModelEx,
         capture_archived_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> IlluminationInfo {
+        self.make_illumination_info_with(illumination_model, capture_archived_at, &HashMap::new())
+    }
+
+    pub fn make_illumination_info_with(
+        &self,
+        illumination_model: model::illumination::ModelEx,
+        capture_archived_at: Option<chrono::DateTime<chrono::Utc>>,
+        knowledge: &HashMap<i32, KnowledgeEntityInfo>,
+    ) -> IlluminationInfo {
         let suggested_searches = illumination_model.suggested_searches.unwrap_or_default();
 
         let observed_entities = match illumination_model.observations {
@@ -112,7 +131,13 @@ impl InfoMaker {
                 models.sort_by_key(|entity| entity.position);
                 models
                     .into_iter()
-                    .map(|entity| ObservedEntityInfo::new(entity, capture_archived_at))
+                    .map(|entity| {
+                        let knowledge_entity = entity
+                            .knowledge_entity_id
+                            .and_then(|id| knowledge.get(&id))
+                            .cloned();
+                        ObservedEntityInfo::new(entity, capture_archived_at, knowledge_entity)
+                    })
                     .collect()
             }
         };
@@ -235,5 +260,65 @@ impl InfoMaker {
             capture_previews,
             spark_links,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::{
+        api::user::{get_capture, knowledge_entity_infos},
+        auth,
+        test_support::{db_or_skip, fixtures},
+    };
+
+    /// A linked and an unlinked observation in one illumination: each must carry its own answer.
+    #[tokio::test]
+    async fn observations_carry_the_entity_they_were_linked_to() {
+        db_or_skip!(db);
+        let capture = fixtures::Capture::new(&db, "infomaker_entity").await;
+        let entity_id = fixtures::knowledge_entity_with_member(&db, "linked entity").await;
+        fixtures::attached(
+            &db,
+            &capture,
+            0,
+            "linked entity",
+            None,
+            "real_person",
+            entity_id,
+        )
+        .await;
+        fixtures::observe(
+            &db,
+            &capture,
+            1,
+            "unlinked entity",
+            None,
+            "unknown",
+            None,
+            None,
+        )
+        .await;
+
+        let context =
+            auth::Context::from(auth::DreamscrollAuthUser::new_test_session(capture.user_id));
+        let model = get_capture(&db, &context, capture.capture_id)
+            .await
+            .unwrap();
+        let knowledge = knowledge_entity_infos(&db, [entity_id]).await.unwrap();
+        let maker = InfoMaker::new(storage::UrlMaker::for_tests());
+
+        let info = maker.make_capture_info_with(model, &knowledge);
+        let observations = &info.illuminations[0].observed_entities;
+        assert_eq!(
+            observations[0].knowledge_entity.as_ref().map(|ke| ke.id),
+            Some(entity_id),
+            "the linked observation carries its entity"
+        );
+        assert!(
+            observations[1].knowledge_entity.is_none(),
+            "the unlinked observation stays cold"
+        );
     }
 }

@@ -3,9 +3,9 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use sea_orm::prelude::HasOne;
+use sea_orm::prelude::{HasMany, HasOne};
 
-use crate::{api::*, auth, database, illumination, llms, logic, search, storage, task};
+use crate::{api::*, auth, database, illumination, llms, logic, model, search, storage, task};
 
 #[derive(Clone)]
 pub struct UserApiClient {
@@ -17,6 +17,33 @@ pub struct UserApiClient {
     beacon: logic::Beacon,
     default_illumination_model_id: Option<String>,
     capture_searcher: search::CaptureSearcher,
+}
+
+/// The knowledge-entity ids carried by every observation in these captures.
+fn capture_knowledge_ids(captures: &[model::capture::ModelEx]) -> Vec<i32> {
+    observation_knowledge_ids(
+        captures
+            .iter()
+            .flat_map(|capture| match &capture.illuminations {
+                HasMany::Unloaded => Vec::new(),
+                HasMany::Loaded(illuminations) => illuminations.iter().collect(),
+            }),
+    )
+}
+
+/// The same, for illuminations whose observations are loaded.
+fn observation_knowledge_ids<'a>(
+    illuminations: impl Iterator<Item = &'a model::illumination::ModelEx>,
+) -> Vec<i32> {
+    illuminations
+        .flat_map(|illumination| match &illumination.observations {
+            HasMany::Unloaded => Vec::new(),
+            HasMany::Loaded(observations) => observations
+                .iter()
+                .filter_map(|observation| observation.knowledge_entity_id)
+                .collect(),
+        })
+        .collect()
 }
 
 impl UserApiClient {
@@ -46,12 +73,12 @@ impl UserApiClient {
         context: &auth::Context,
         ids: Vec<i32>,
     ) -> Result<Vec<CaptureInfo>, ApiError> {
-        let captures = super::get_captures(&self.db, context, ids).await;
+        let captures = super::get_captures(&self.db, context, ids).await?;
+        let knowledge = self.knowledge_infos(&captures).await?;
 
-        // TODO probably more efficient way here?
-        Ok(captures?
+        Ok(captures
             .into_iter()
-            .map(|m| self.info_maker.make_capture_info(m))
+            .map(|m| self.info_maker.make_capture_info_with(m, &knowledge))
             .collect())
     }
 
@@ -64,7 +91,8 @@ impl UserApiClient {
         id: i32,
     ) -> Result<CaptureInfo, ApiError> {
         let capture = super::get_capture(&self.db, context, id).await?;
-        Ok(self.info_maker.make_capture_info(capture))
+        let knowledge = self.knowledge_infos(std::slice::from_ref(&capture)).await?;
+        Ok(self.info_maker.make_capture_info_with(capture, &knowledge))
     }
 
     #[tracing::instrument(skip(self, context))]
@@ -74,6 +102,11 @@ impl UserApiClient {
         illumination_ids: Vec<i32>,
     ) -> Result<Vec<schema::IlluminationInfo>, ApiError> {
         let illuminations = super::get_illuminations(&self.db, context, illumination_ids).await?;
+        let knowledge = super::knowledge_entity_infos(
+            &self.db,
+            observation_knowledge_ids(illuminations.iter()),
+        )
+        .await?;
 
         Ok(illuminations
             .into_iter()
@@ -82,7 +115,8 @@ impl UserApiClient {
                     HasOne::Loaded(Some(capture)) => capture.archived_at,
                     _ => None,
                 };
-                self.info_maker.make_illumination_info(m, archived_at)
+                self.info_maker
+                    .make_illumination_info_with(m, archived_at, &knowledge)
             })
             .collect())
     }
@@ -171,9 +205,11 @@ impl UserApiClient {
         let observation = super::get_knowledge_entity(&self.db, context, id).await?;
         let linked = super::linked_knowledge_entity(&self.db, &observation).await?;
         // The lookup filters archived captures, so there is no archived flag to report.
-        let mut info = schema::ObservedEntityInfo::new(observation, None);
-        info.knowledge_entity = linked.map(schema::KnowledgeEntityInfo::new);
-        Ok(info)
+        Ok(schema::ObservedEntityInfo::new(
+            observation,
+            None,
+            linked.map(schema::KnowledgeEntityInfo::new),
+        ))
     }
 
     #[tracing::instrument(skip(self, context))]
@@ -182,16 +218,26 @@ impl UserApiClient {
         context: &auth::Context,
         entity_type: &str,
     ) -> Result<Vec<schema::ObservedEntityInfo>, ApiError> {
-        Ok(
-            super::get_knowledge_entities_by_type(&self.db, context, entity_type)
-                .await?
-                .into_iter()
-                .map(|entity| {
-                    let entity: crate::model::user_observed_entity::ModelEx = entity.into();
-                    schema::ObservedEntityInfo::new(entity, None)
-                })
-                .collect(),
+        let observations =
+            super::get_knowledge_entities_by_type(&self.db, context, entity_type).await?;
+        let knowledge = super::knowledge_entity_infos(
+            &self.db,
+            observations
+                .iter()
+                .filter_map(|observation| observation.knowledge_entity_id),
         )
+        .await?;
+
+        Ok(observations
+            .into_iter()
+            .map(|entity| {
+                let knowledge_entity = entity
+                    .knowledge_entity_id
+                    .and_then(|id| knowledge.get(&id))
+                    .cloned();
+                schema::ObservedEntityInfo::new(entity.into(), None, knowledge_entity)
+            })
+            .collect())
     }
 
     #[tracing::instrument(skip(self, context))]
@@ -200,11 +246,12 @@ impl UserApiClient {
         context: &auth::Context,
         limit: u64,
     ) -> Result<Vec<schema::CaptureInfo>, ApiError> {
-        let captures = super::get_timeline_captures(&self.db, context, limit).await;
+        let captures = super::get_timeline_captures(&self.db, context, limit).await?;
+        let knowledge = self.knowledge_infos(&captures).await?;
 
-        Ok(captures?
+        Ok(captures
             .into_iter()
-            .map(|m| self.info_maker.make_capture_info(m))
+            .map(|m| self.info_maker.make_capture_info_with(m, &knowledge))
             .collect())
     }
 
@@ -214,12 +261,21 @@ impl UserApiClient {
         context: &auth::Context,
         limit: u64,
     ) -> Result<Vec<schema::CaptureInfo>, ApiError> {
-        let captures = super::get_captures_archived(&self.db, context, limit).await;
+        let captures = super::get_captures_archived(&self.db, context, limit).await?;
+        let knowledge = self.knowledge_infos(&captures).await?;
 
-        Ok(captures?
+        Ok(captures
             .into_iter()
-            .map(|m| self.info_maker.make_capture_info(m))
+            .map(|m| self.info_maker.make_capture_info_with(m, &knowledge))
             .collect())
+    }
+
+    /// The wire form of every knowledge entity these captures' observations point at.
+    async fn knowledge_infos(
+        &self,
+        captures: &[model::capture::ModelEx],
+    ) -> Result<HashMap<i32, schema::KnowledgeEntityInfo>, ApiError> {
+        super::knowledge_entity_infos(&self.db, capture_knowledge_ids(captures)).await
     }
 
     #[tracing::instrument(skip(self, context, capture_ids))]
@@ -525,10 +581,11 @@ impl UserApiClient {
         }
 
         let capture_models = super::get_captures(&self.db, context, capture_ids).await?;
+        let knowledge = self.knowledge_infos(&capture_models).await?;
 
         Ok(capture_models
             .into_iter()
-            .map(|m| self.info_maker.make_capture_info(m))
+            .map(|m| self.info_maker.make_capture_info_with(m, &knowledge))
             .collect())
     }
 
@@ -548,10 +605,11 @@ impl UserApiClient {
         }
 
         let capture_models = super::get_captures(&self.db, context, capture_ids).await?;
+        let knowledge = self.knowledge_infos(&capture_models).await?;
 
         Ok(capture_models
             .into_iter()
-            .map(|m| self.info_maker.make_capture_info(m))
+            .map(|m| self.info_maker.make_capture_info_with(m, &knowledge))
             .collect())
     }
 

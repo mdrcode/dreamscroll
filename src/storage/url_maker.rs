@@ -79,3 +79,14 @@ impl UrlMaker {
         }
     }
 }
+
+#[cfg(test)]
+impl UrlMaker {
+    /// A maker that never resolves a URL: for tests that build info without media.
+    pub(crate) fn for_tests() -> Self {
+        Self {
+            local_url_prefix: None,
+            gcloud_emulator_endpoint: None,
+        }
+    }
+}

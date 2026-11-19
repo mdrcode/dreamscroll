@@ -46,9 +46,13 @@ impl ObservedEntityInfo {
     /// `capture_archived_at` is a capture fact, so it is passed in rather than
     /// read from the entity model; callers that filter archived captures pass
     /// `None` because they would not return the row otherwise.
+    ///
+    /// `knowledge_entity` is resolved by the caller because that resolution is a
+    /// batch over a whole capture, not a query per occurrence.
     pub fn new(
         entity: model::user_observed_entity::ModelEx,
         capture_archived_at: Option<DateTime<Utc>>,
+        knowledge_entity: Option<KnowledgeEntityInfo>,
     ) -> Self {
         let platform_link = match (entity.platform, entity.platform_handle) {
             (Some(platform), Some(handle)) => Some(PlatformLinkInfo {
@@ -69,7 +73,7 @@ impl ObservedEntityInfo {
             description: entity.description,
             search_query: entity.search_query,
             platform_link,
-            knowledge_entity: None,
+            knowledge_entity,
         }
     }
 }
