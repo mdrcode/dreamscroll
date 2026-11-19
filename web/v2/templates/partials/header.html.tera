@@ -5,7 +5,8 @@
     <form id="file-upload-form"
         action="/upload"
         method="post"
-        enctype="multipart/form-data">
+        enctype="multipart/form-data"
+        data-max-upload-bytes="{{ max_upload_bytes }}">
         <input id="file-picker" type="file" name="image" accept="image/jpeg,image/png" style="display: none;" required>
         <label id="file-picker-label" for="file-picker">
             <span class="file-picker-text">Upload</span>

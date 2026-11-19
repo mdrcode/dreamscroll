@@ -1,8 +1,9 @@
 # Upload image formats
 
 **Status:** policy implemented and deployed 2026-10-29 (blocklist, 415s, client
-`accept` steering). Media transcode and client-side re-encode deferred.
-**Last updated:** 2026-10-29.
+`accept` steering); client-side size guard shipped 2026-11-18. Media transcode and
+client-side re-encode deferred.
+**Last updated:** 2026-11-18.
 
 > **See also:**
 > - `plan/archive/upload-attempts.md` — attempt tracking and the `upload_attempt` log events.
@@ -219,6 +220,38 @@ here, not started:
 6. If HEIC refusals start appearing (`jsonPayload.status_code=415`), is the demand
    real (a user blocked) or theoretical (a one-off)? That count is the trigger
    for option C.
+
+## 2026-11-18 — the client guard, and paste is the loudest case
+
+One production upload of 16,834,138 bytes hit the 12 MiB cap and produced nothing
+useful for the person doing it:
+
+- the server rejected it from `Content-Length` before reading the body, which is
+  correct, but an early response while the client is still streaming reaches the
+  browser as a Cloud Run **503** ("response malformed or connection had an
+  error"), not the 413 the code returned;
+- the UI discarded the reason and showed "Upload failed. Please try again.";
+- the same image saved to disk was **1.7 MB**. It had been pasted, and macOS
+  handed the browser an uncompressed bitmap — roughly a 10× inflation, on top of
+  the ~5× iOS HEIC→PNG expansion measured above. Pasting is a first-class upload
+  path, so the source format is not the only way a small picture becomes a large
+  body.
+
+Shipped: `Config::max_upload_bytes` is rendered onto the upload form
+(`data-max-upload-bytes`, via `WebState::template_context`), the client refuses a
+file over it with both numbers in the notice, and a 413/over-limit response shows
+the same message instead of the generic failure. Nothing changes on the wire for
+a file that fits.
+
+Still deferred, and the real fix for paste and phone photos: client-side
+downscale/re-encode (option C's neighbourhood). It changes the bytes and the
+fidelity trade-off, so it needs its own design — a screenshot should stay PNG;
+a photo can become JPEG.
+
+Known artifact, accepted: the server's early 413 can still be seen by a
+non-browser client as a Cloud Run 503, because answering before draining an
+over-limit body is what keeps the cap cheap. API error bodies stay opaque by
+policy, so the browser derives the message from the status and the file it holds.
 
 ## References
 

@@ -18,6 +18,7 @@ impl WebState {
     pub fn template_context(&self) -> Context {
         let mut context = Context::new();
         context.insert("static_asset_version", &self.static_asset_version);
+        context.insert("max_upload_bytes", &self.max_upload_bytes);
         context
     }
 

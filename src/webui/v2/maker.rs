@@ -244,18 +244,21 @@ mod tests {
 
         let mut feed = tera::Context::new();
         feed.insert("static_asset_version", &"test");
+        feed.insert("max_upload_bytes", &12_582_912usize);
         feed.insert("page_kind", &"feed");
         feed.insert("feed_content_mode", &"timeline");
         feed.insert("query", &"");
         feed.insert("cards", &serde_json::json!([]));
         let feed = tera.render("index.html.tera", &feed).unwrap();
         assert!(feed.contains("data-page-kind=\"feed\""));
+        assert!(feed.contains("data-max-upload-bytes=\"12582912\""));
         assert!(feed.contains("hx-get=\"/feed\""));
         assert!(feed.contains("id=\"file-upload-form\""));
         assert!(feed.contains("aria-label=\"Search captures\""));
 
         let mut detail = tera::Context::new();
         detail.insert("static_asset_version", &"test");
+        detail.insert("max_upload_bytes", &12_582_912usize);
         detail.insert("page_kind", &"capture_detail");
         detail.insert("feed_content_mode", &"detail");
         detail.insert("page_snapshot_at", &"2026-10-22T12:00:00Z");
@@ -280,6 +283,7 @@ mod tests {
 
         let mut account = tera::Context::new();
         account.insert("static_asset_version", &"test");
+        account.insert("max_upload_bytes", &12_582_912usize);
         account.insert("page_kind", &"account");
         account.insert("csrf_token", &"token");
         account.insert("already_logged_in", &false);
@@ -295,6 +299,7 @@ mod tests {
         let tera = load_templates().expect("all v2 templates should load");
         let mut context = tera::Context::new();
         context.insert("static_asset_version", &"test");
+        context.insert("max_upload_bytes", &12_582_912usize);
         context.insert("page_kind", &"feed");
         context.insert("page_title", &"dreamscroll - archived");
         context.insert("feed_heading", &"Archived");
@@ -328,6 +333,7 @@ mod tests {
 
         let mut empty = tera::Context::new();
         empty.insert("static_asset_version", &"test");
+        empty.insert("max_upload_bytes", &12_582_912usize);
         empty.insert("page_kind", &"feed");
         empty.insert("feed_content_mode", &"archived");
         empty.insert("feed_empty_message", &"No archived captures.");
@@ -342,6 +348,7 @@ mod tests {
         let tera = load_templates().expect("all v2 templates should load");
         let mut context = tera::Context::new();
         context.insert("static_asset_version", &"test");
+        context.insert("max_upload_bytes", &12_582_912usize);
         context.insert("page_kind", &"entity_detail");
         context.insert(
             "entity",

@@ -1038,6 +1038,8 @@ function setupUploadInteractions() {
         return;
     }
 
+    const uploadLimitBytes = Number(uploadForm.dataset.maxUploadBytes) || 0;
+
     let isUploading = false;
     let hideNoticeTimer = null;
     let hideNoticeAnimationTimer = null;
@@ -1144,6 +1146,23 @@ function setupUploadInteractions() {
             || name.endsWith('.heif');
     }
 
+    function formatUploadSize(bytes) {
+        const mb = bytes / (1024 * 1024);
+        if (mb >= 1) {
+            return mb.toFixed(1) + ' MB';
+        }
+        return Math.max(1, Math.round(bytes / 1024)) + ' KB';
+    }
+
+    // The server answers 413 without its reason (its error bodies are opaque by policy), and an
+    // early 413 can even reach the browser as a Cloud Run 503 while the body is still uploading.
+    // The browser knows the file and the limit, so it can say exactly what is wrong.
+    function tooLargeNotice(file) {
+        return 'That image is ' + formatUploadSize(file.size)
+            + '; the limit is ' + formatUploadSize(uploadLimitBytes)
+            + '. Save it as a smaller file (JPEG) and upload that.';
+    }
+
     function submitManagedUpload(file) {
         if (!file || isUploading) {
             return;
@@ -1154,6 +1173,11 @@ function setupUploadInteractions() {
                 null,
                 'HEIC/HEIF images are not supported. Export as PNG or JPEG and try again.'
             );
+            return;
+        }
+
+        if (uploadLimitBytes > 0 && file.size > uploadLimitBytes) {
+            showUploadNotice(null, tooLargeNotice(file));
             return;
         }
 
@@ -1204,6 +1228,10 @@ function setupUploadInteractions() {
             }
 
             setUploadInFlight(false);
+            if (xhr.status === 413 || (uploadLimitBytes > 0 && file.size > uploadLimitBytes)) {
+                showUploadNotice(null, tooLargeNotice(file));
+                return;
+            }
             showUploadNotice(null);
         });
 
