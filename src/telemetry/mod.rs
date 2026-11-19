@@ -17,6 +17,8 @@
 mod axum;
 pub use axum::*;
 
+pub mod events;
+
 mod gcloud_logging_format;
 
 mod init;

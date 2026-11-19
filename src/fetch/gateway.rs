@@ -220,6 +220,15 @@ impl<'a> Gateway<'a> {
                     // allowance for this provider, so no later batch or stage asks it again. Other
                     // providers are independent services and keep their own permission.
                     allowance.rate_limited(provider, retry_after_secs);
+                    // Structured for a log-based metric: `jsonPayload.event` is the contract, and
+                    // `retry_after_secs` is 0 when the provider gave no `Retry-After`.
+                    tracing::warn!(
+                        event = crate::telemetry::events::PROVIDER_RATE_LIMITED,
+                        provider,
+                        kind = %kind,
+                        retry_after_secs = retry_after_secs.unwrap_or_default(),
+                        "provider rate limited"
+                    );
                     return Err(Refusal::RateLimited { retry_after_secs });
                 }
                 Err(FetchError::Failed(_)) => {
