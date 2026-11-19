@@ -41,6 +41,9 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   gitignored `config_prod.env` drifting apart.
 - [ ] **Stable API error codes.** A non-sensitive `code` on every `ApiError` response so the UI can
   say "that image is too large" instead of "Upload failed", without exposing internal messages.
+- [ ] **Provider health visibility.** Log a warning on a provider `429` (today it latches silently),
+  include fetch counters and the refusal reason in the online resolve log, and add a per-provider
+  `found`/`empty`/`failed`/`degraded` report to `status`. Then decide on a log-based alert.
 
 ### Knowledge cutover (2026-11-18)
 

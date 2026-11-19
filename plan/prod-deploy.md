@@ -680,6 +680,26 @@ Verification after any change:
 - `gcloud logging read 'resource.type="cloud_run_revision" AND severity>=ERROR' --freshness=10m`
   for the new revision.
 
+Provider health (Wikidata) — two read-only checks, both pull-based:
+
+```bash
+# Online resolves: one line per run. `refused=true` means a provider 429 or a spent budget.
+gcloud logging read 'resource.type="cloud_run_revision" AND jsonPayload.message="KnowledgeGraph identity identification completed"' \
+  --freshness=1h --format='value(timestamp,jsonPayload.considered,jsonPayload.identified,jsonPayload.refused)'
+```
+
+```sql
+-- Transport outcomes per provider. `found`/`empty` are answers; failed/degraded are provider trouble.
+SELECT provider, outcome, count(*), max(fetched_at)
+FROM fetch_cache
+WHERE fetched_at > now() - interval '1 hour'
+GROUP BY 1, 2 ORDER BY 1, 3 DESC;
+```
+
+A **429 does not show up in the cache** — it is never cached; it latches the run and appears only as
+`refused=true` in the log line above. `dreamscroll_knowledge stats` prints the same outcome counts,
+plus candidates/no-match.
+
 Troubleshooting:
 
 - Revision fails startup with `constraint "idx-task_runs-backfill_task" … does not

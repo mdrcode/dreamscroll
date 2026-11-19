@@ -111,6 +111,28 @@ hand, with a digest to pin and a one-writer rule to remember. `gcloud/operator-j
 scheduler or slice bookkeeping. Decide manual slices vs Cloud Scheduler (new infra), and have the CLI
 print the remaining `awaiting identification` count so a slice is self-describing.
 
+### P8 — provider health visibility
+
+There is no live view of provider errors, and a **429 is not logged**. The gateway latches it
+silently, so the only trace is `refused=true` on that run's log line — no provider, no status, no
+`Retry-After`, no time series. `fetch_cache` records per-query outcomes, but a 429 is never cached, so
+it cannot be counted there either.
+
+Measured 2026-11-18, a three-hour window that included the drain: 2,898 `found` + 1,143 `empty`,
+**no `failed` or `degraded`**, zero `refused=true` across five online resolves, cache 4,041 rows and
+0 expired. Healthy — but provable only by pulling two ad-hoc queries.
+
+Proposal:
+
+- `tracing::warn!(provider, retry_after_secs, "provider rate limited")` in the gateway's
+  `RateLimited` arm, so Cloud Logging can see and alert on it.
+- Put the fetch counters and the refusal reason on the online resolve log line (the CLI report
+  already has them; the task log does not).
+- A `provider_health` block in P1's `status`: per provider, last hour/day, `found` / `empty` /
+  `failed` / `degraded` and refusals.
+- A log-based metric + alert policy on `rate_limited` (or `failed > 0` in a run report). New infra;
+  decide alongside P7's cadence.
+
 ## What not to build
 
 - **An arbitrary-SQL HTTP route.** It concentrates a credential and a query surface for convenience.
