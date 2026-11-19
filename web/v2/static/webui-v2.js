@@ -190,19 +190,6 @@ function setupTaskStatusEvents() {
         return Date.now() - lastActivityAt < activeWindowMs;
     }
 
-    const statusIndicator = document.getElementById('sse-status-indicator');
-
-    function setDisconnected(disconnected, reason) {
-        if (!statusIndicator) return;
-        const wasDisconnected = !statusIndicator.hidden;
-        if (wasDisconnected === disconnected) return;
-        statusIndicator.hidden = !disconnected;
-        console.info('Dreamscroll SSE state changed.', {
-            state: disconnected ? 'disconnected' : 'connected',
-            reason
-        });
-    }
-
     function clearHeartbeatTimer() {
         if (heartbeatTimer !== null) {
             window.clearTimeout(heartbeatTimer);
@@ -214,13 +201,12 @@ function setupTaskStatusEvents() {
         return lastHeartbeatAt !== null && Date.now() - lastHeartbeatAt >= heartbeatTimeoutMs;
     }
 
-    function closeSource(reason) {
+    function closeSource() {
         if (!source) return;
         const oldSource = source;
         source = null;
         clearHeartbeatTimer();
         lastHeartbeatAt = null;
-        setDisconnected(true, reason);
         oldSource.close();
     }
 
@@ -231,7 +217,6 @@ function setupTaskStatusEvents() {
         const currentSource = source;
         currentSource.addEventListener('open', function () {
             if (source !== currentSource) return;
-            setDisconnected(false, 'open');
             lastHeartbeatAt = Date.now();
             armHeartbeatTimeout(currentSource);
             armIdleClose();
@@ -239,9 +224,6 @@ function setupTaskStatusEvents() {
         currentSource.addEventListener('heartbeat', function () {
             if (source !== currentSource) return;
             lastHeartbeatAt = Date.now();
-            if (currentSource.readyState === EventSource.OPEN) {
-                setDisconnected(false, 'heartbeat');
-            }
             armHeartbeatTimeout(currentSource);
         });
         currentSource.addEventListener('task-status', function (event) {
@@ -258,10 +240,8 @@ function setupTaskStatusEvents() {
         currentSource.onerror = function () {
             if (source !== currentSource) return;
             if (currentSource.readyState === EventSource.CLOSED) {
-                closeSource('EventSource closed');
-                return;
+                closeSource();
             }
-            setDisconnected(true, 'transport error');
         };
     }
 
@@ -275,7 +255,7 @@ function setupTaskStatusEvents() {
                 armHeartbeatTimeout(currentSource);
                 return;
             }
-            closeSource('heartbeat timeout');
+            closeSource();
             connectNow();
         }, remainingMs);
     }
@@ -305,19 +285,15 @@ function setupTaskStatusEvents() {
                 armIdleClose();
                 return;
             }
-            closeSource('inactivity timeout');
+            closeSource();
         }, idleRemainingMs);
     }
 
     function recordActivity(reason = 'user activity') {
         lastActivityAt = Date.now();
         armIdleClose();
-        if (source && source.readyState === EventSource.OPEN) {
-            if (heartbeatIsStale()) {
-                closeSource('stale heartbeat after ' + reason);
-            } else {
-                setDisconnected(false, reason);
-            }
+        if (source && source.readyState === EventSource.OPEN && heartbeatIsStale()) {
+            closeSource();
         }
         if (!source) {
             console.debug('Dreamscroll SSE reconnect requested by activity.', { reason });

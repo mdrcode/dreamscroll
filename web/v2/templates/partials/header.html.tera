@@ -1,5 +1,5 @@
 <div id="header-row">
-    <h1 id="page-title"><a href="/" class="header-title-link">dreamscroll</a>{% if page_kind != "account" %}<sup id="sse-status-indicator" class="sse-status-indicator" role="status" hidden aria-label="Live updates disconnected" title="Live updates disconnected">≠</sup>{% endif %}</h1>
+    <h1 id="page-title"><a href="/" class="header-title-link">dreamscroll</a></h1>
 
     {% if page_kind != "account" %}
     <form id="file-upload-form"
