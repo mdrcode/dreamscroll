@@ -1,15 +1,19 @@
-//! Stable names for structured log events.
+//! The production event registry: the stable names behind Cloud Logging metrics and alerts.
 //!
-//! A log-based metric filters on an event name, so the name is a contract: rename it and the
-//! metric silently stops matching. Names are lowercase, dotted and specific; the variable data
-//! lives in sibling fields, never in the message text.
+//! This file is an operational contract, not plumbing. A log-based metric filters on an event name,
+//! so renaming a constant here silently stops the metric matching; changing the *shape* of its
+//! fields silently breaks a label extractor or an alert condition. Treat edits here the way you
+//! treat the runbook (`plan/prod-deploy.md`) and the metric definitions it documents.
+//!
+//! Names are lowercase, dotted and specific; the variable data lives in sibling fields, never in the
+//! message text.
 //!
 //! ```ignore
 //! tracing::warn!(
-//!     event = crate::telemetry::events::PROVIDER_RATE_LIMITED,
+//!     event = crate::telemetry::prod_event_registry::PROVIDER_RATE_LIMITED,
 //!     provider,
 //!     kind = %kind,
-//!     retry_after_secs = ?retry_after_secs,
+//!     retry_after_secs = retry_after_secs.unwrap_or_default(),
 //!     "provider rate limited"
 //! );
 //! ```

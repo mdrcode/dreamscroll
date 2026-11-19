@@ -223,7 +223,7 @@ impl<'a> Gateway<'a> {
                     // Structured for a log-based metric: `jsonPayload.event` is the contract, and
                     // `retry_after_secs` is 0 when the provider gave no `Retry-After`.
                     tracing::warn!(
-                        event = crate::telemetry::events::PROVIDER_RATE_LIMITED,
+                        event = crate::telemetry::prod_event_registry::PROVIDER_RATE_LIMITED,
                         provider,
                         kind = %kind,
                         retry_after_secs = retry_after_secs.unwrap_or_default(),

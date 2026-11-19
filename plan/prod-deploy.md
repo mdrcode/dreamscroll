@@ -722,6 +722,10 @@ WHERE fetched_at > now() - interval '1 hour'
 GROUP BY 1, 2 ORDER BY 1, 3 DESC;
 ```
 
+The event vocabulary lives in **`src/telemetry/prod_event_registry.rs`** — treat it as part of this
+runbook: renaming a constant there silently stops the metric matching, and changing its fields breaks
+a label extractor or an alert condition.
+
 A **429 never appears in the cache** — it is not cached; it latches the run. Since 2026-11-18 it is
 also a structured log event: `jsonPayload.event="provider.rate_limited"`, with `provider`, `kind` and
 `retry_after_secs` (0 when the provider sent no `Retry-After`). Query it, and build the metric on the
@@ -736,7 +740,21 @@ gcloud logging metrics create provider_rate_limited \
   --log-filter='resource.type="cloud_run_revision" AND jsonPayload.event="provider.rate_limited"'
 ```
 
-An alerting policy on that metric is the remaining step; it needs a notification channel. The metric
+The metric carries a **`provider` label** (`EXTRACT(jsonPayload.provider)`), so one metric covers
+every provider and an alert is scoped to one of them:
+
+```bash
+# logs, Wikidata only
+gcloud logging read 'resource.type="cloud_run_revision" AND jsonPayload.event="provider.rate_limited" AND jsonPayload.provider="wikidata"' \
+  --freshness=24h --format='value(timestamp,jsonPayload.kind,jsonPayload.retry_after_secs)'
+
+# an alerting condition, Wikidata only
+metric.type="logging.googleapis.com/user/provider_rate_limited" AND metric.labels.provider="wikidata"
+```
+
+The extractor is `EXTRACT(jsonPayload.provider)`; `provider` is the transport's own id
+(`wikidata`, `x_twitter`, …), the same value the `fetch_cache` rows carry. An alerting policy on that
+metric is the remaining step; it needs a notification channel. The metric
 `provider_rate_limited` exists (created 2026-11-18), so only the policy is missing.
 `dreamscroll_knowledge stats` prints the same outcome counts, plus candidates/no-match.
 

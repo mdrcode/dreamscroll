@@ -37,7 +37,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   gitignored `config_prod.env` drifting apart.
 - [ ] **Stable API error codes.** A non-sensitive `code` on every `ApiError` response so the UI can
   say "that image is too large" instead of "Upload failed", without exposing internal messages.
-- [ ] **Provider health visibility (the rest).** The `provider.rate_limited` event, `telemetry::events`
+- [ ] **Provider health visibility (the rest).** The `provider.rate_limited` event, `prod_event_registry.rs`
   and the `provider_rate_limited` log metric shipped 2026-11-18. Remaining: fetch counters and the
   refusal reason on the online resolve log, a per-provider
   `found`/`empty`/`failed`/`degraded` block in `status`, and the alerting policy (needs a
