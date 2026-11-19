@@ -1,9 +1,11 @@
 # Knowledge task queues — the online resolve
 
-**Status:** Active — the online task is built 2026-11-14; production queue provisioning is the
-remaining step. The nightly drain is abandoned for now (not tabled):
-`plan/archive/knowledge-batch-job.md`. The `knowledge-link` queue defect in §1 is live and blocks
-the next production deploy, so it is fixed first.
+**Status:** Shipped 2026-11-18. The `knowledge-link` and `identity-resolve` queues exist in
+production (created paused, ahead of the revision that submits to them), both names are required
+config, and the web revision from that release is the first to chain the online resolve. What remains
+is not plumbing: the 2026-11-18 cutover rebuilt the graph by `knowledge link`, so ~5,100 historical
+entities are `awaiting identification` and only the online path + manual `knowledge identity resolve`
+can drain them. The nightly drain stays abandoned (`plan/archive/knowledge-batch-job.md`).
 
 **Purpose:** a capture that has been linked gets its entities identified without an operator. The
 online task resolves exactly what one illumination touched; everything it misses waits for
@@ -13,27 +15,27 @@ online task resolves exactly what one illumination touched; everything it misses
 and `src/logic/beacon.rs` (the chain this copies); `src/task/task_def.rs` (the `Task`/`TaskRun`
 contract); `gcloud/cloud_task_queue.md`; `ServiceApiClient::illumination_entities` (the join).
 
-## 1. The queue defect (fixed first, independently shippable)
+## 1. The queue defect (fixed 2026-11-18)
 
-The app names four queues; production has three.
+The app named four queues; production had three. The table is the state at the time of the fix, kept
+because it is the checklist any new queue needs:
 
 | where | illuminate | search-index | spark | knowledge-link |
 | --- | --- | --- | --- | --- |
-| `config_local.env` / `config_prod.env` | set | set | set | **absent** (serde default) |
-| `config_def.rs` | required | required | required | `#[serde(default)]` → `knowledge-link` |
+| `config_local.env` / `config_prod.env` | set | set | set | **was absent** (serde default) |
+| `config_def.rs` | required | required | required | **was** `#[serde(default)]` → `knowledge-link` |
 | `docker-compose.yaml` | set | set | set | set |
-| `prod-dreamscroll-web.yaml` (manifest) | set | set | set | **absent** |
-| `gcloud/cloud_task_queue.md` | documented | documented | documented | **absent** |
-| Cloud Tasks (us-central1) | running | running | running | **does not exist** |
+| `prod-dreamscroll-web.yaml` (manifest) | set | set | set | **was absent** |
+| `gcloud/cloud_task_queue.md` | documented | documented | documented | **was absent** |
+| Cloud Tasks (us-central1) | running | running | running | **did not exist** |
 
-The deployed revision (`dreamscroll-webui-api-00112-7tt`, 2026-10-30) predates the task
-(`d07ff2d`, 2026-11-03), so nothing has failed yet. The first deploy that includes main would submit
-a `knowledge_link` task to a queue that does not exist, and the submit error propagates out of
-`beacon` (it uses `?`).
+The revision deployed 2026-10-30 (`dreamscroll-webui-api-00112-7tt`) predated the task, so nothing
+failed until the cutover: the first deploy that included main would have submitted a `knowledge_link`
+task to a queue that did not exist, and the submit error propagates out of `beacon` (it uses `?`).
 
-**Fix:** make `TASK_QUEUE_NAME_KNOWLEDGE_LINK` required (no serde default), add it to both env files,
-the manifest and `gcloud/cloud_task_queue.md`, and create the queue in Cloud Tasks. Same treatment for
-the new `TASK_QUEUE_NAME_IDENTITY_RESOLVE`.
+**Fixed by** making both names required (no serde default), adding them to both env files, the
+manifest, `gcloud/cloud_task_queue.md` and `prod-apply.sh`'s required-env lint, and creating both
+queues in Cloud Tasks before the web revision shipped.
 
 **Validate names at boot, not in prose.** `Config::task_queue_names()` must be checked against the
 route suffixes `webhook::make_webhook_router` registers; a typo is otherwise a 404 per delivery,

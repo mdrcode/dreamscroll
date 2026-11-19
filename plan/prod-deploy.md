@@ -73,7 +73,7 @@ manifests structurally.
 | Service shape | 30 env vars, 3 secret refs, 1 vCPU / 512 MiB, concurrency 80, port 8080, `timeoutSeconds 300`, startup probe `tcpSocket 8080` with `periodSeconds 240` |
 | Max instances | 4, declared by both `run.googleapis.com/maxScale` (service) and `autoscaling.knative.dev/maxScale` (template). Deliberate cost ceiling set 2026-10-27 through the manifest (was 20). |
 | Public access | annotation `run.googleapis.com/invoker-iam-disabled: 'true'` (no `allUsers` binding) |
-| Schema marker | `dreamscroll_schema_version`; current binary requires `33`; production last re-synced 2026-11-10 |
+| Schema marker | `dreamscroll_schema_version`; the current binary requires `43`; production was at `8` until the 2026-11-18 cutover (the deployed service had been frozen on the 2026-10-30 image) |
 
 Because the instance has a public IP and the binary connects over the
 `/cloudsql/...` socket, the job needs only `--set-cloudsql-instances`; no VPC
@@ -129,7 +129,33 @@ remaining manual surface is Cloud Tasks queue settings (see below).
 
 **2026-11-10:** the `dreamscroll-db-sync` job was deployed and executed against
 production; `sync_schema` completed and the illuminate backfill was pumped
-without incident. No rollback was needed.
+without incident. No rollback was needed. (The marker did not move: production
+was still at `8` on 2026-11-18, so treat that note as a job deployment, not a
+schema advance.)
+
+**2026-11-18 — knowledge v2 cutover.** The first release since 2026-10-30, and
+the first carrying main's v2 knowledge graph. Preflight found production at
+schema marker **8** with the v1 `knowledge_entities` shape — one row per captured
+mention, keyed by capture and position. The registry can only add columns, and
+the v2 columns are `NOT NULL` with no default, so a populated v1 table cannot
+become the v2 one; syncing without a fix fails on `alt_types contains null
+values`. Schema 43 is that fix: rename the v1 table aside, then adopt its rows as
+`user_observed_entities` (the columns are identical) and drop the source. The
+rows are the capture history, so `link` rebuilds 5,125 entities from them; no
+re-illumination is needed.
+
+Rehearsal, before touching production: restore a `pg_dump` of prod into a scratch
+database and run the release commit's `sync_schema` against it. That is where the
+v1-table failure surfaced; after the migration, the copy reached marker 43 with
+5,953 observations, and `knowledge link` built 5,125 entities (4,364 provisional,
+761 identified by the captures' own platform links).
+
+Release order: on-demand backup; create `knowledge-link` and `identity-resolve`
+paused; ingress `internal` and pause all five queues; `--apply --db` (the job at
+the new image executes `sync_schema`); `--apply --web`; restore ingress, then
+resume queues. Historical illuminations predate observations, so the existing
+graph is rebuilt with the operator CLI (`dreamscroll_knowledge link`) against
+production through the Cloud SQL proxy, not by the online path.
 
 ## Configuration as code
 
@@ -566,12 +592,12 @@ Stop / start the service:
 
 ```bash
 gcloud run services update dreamscroll-webui-api --region us-central1 --ingress internal
-for q in illuminate spark search-index; do
+for q in illuminate spark search-index knowledge-link identity-resolve; do
   gcloud tasks queues pause "$q" --location us-central1
 done
 # ... work ...
 gcloud run services update dreamscroll-webui-api --region us-central1 --ingress all
-for q in illuminate spark search-index; do
+for q in illuminate spark search-index knowledge-link identity-resolve; do
   gcloud tasks queues resume "$q" --location us-central1
 done
 ```
@@ -596,6 +622,10 @@ Troubleshooting:
 - Uploads succeed but nothing illuminates: look for
   `null value in column … violates not-null constraint` — a retired NOT NULL
   column on a surviving table. Audit (above) and drop/relax it.
+- Sync fails with `column "alt_types" of relation "knowledge_entities" contains
+  null values`: the database still has the capture-scoped v1 entity table. A
+  binary at schema 43 renames it aside and adopts the rows; a binary below 43
+  cannot.
 - `--check --db` exits 2 with "does not exist yet": the job is not created;
   `--apply --db --no-execute` configures it without touching the database.
 - `--apply` refuses with "worktree is dirty": commit first; an image must
@@ -604,11 +634,21 @@ Troubleshooting:
 ## Cloud Tasks queues
 
 Queues are deliberately outside the manifests and `--check`, so they can drift
-silently. Names must match the webhook route suffixes: `illuminate`, `spark`,
-`search-index`. All three are RUNNING with `maxAttempts 3`,
-`maxDispatchesPerSecond 2`, burst 10; `illuminate` is pinned to **one** concurrent
-dispatch since 2026-10-27 so Gemini inference is serialized. Commands and
-rationale: `gcloud/cloud_task_queue.md`.
+silently. Names must match the webhook route suffixes, and all five exist in
+production since 2026-11-18: `illuminate`, `spark`, `search-index`,
+`knowledge-link`, `identity-resolve`. Every queue has `maxAttempts 3`,
+`maxDispatchesPerSecond 2`, burst 10; concurrency differs:
+
+| Queue | Concurrent dispatch | Why |
+| --- | --- | --- |
+| `illuminate` | 1 | serializes Gemini inference (2026-10-27) |
+| `spark`, `search-index` | 5 | the API default |
+| `knowledge-link` | 1 | one graph writer at a time; link is DB-bound |
+| `identity-resolve` | 2 | two 1 s-paced runs = 120 of Wikidata's 200 req/min, leaving 80 for an operator run |
+
+`knowledge-link` and `identity-resolve` were created 2026-11-18, before the web
+revision that submits to them, and created paused so nothing dispatched against
+the old schema. Commands and rationale: `gcloud/cloud_task_queue.md`.
 
 ## Deferred
 

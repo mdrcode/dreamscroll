@@ -29,7 +29,7 @@ rather than rewriting it; history is the point.
 | [testing.md](testing.md) | Living | Two-tier test model, and what deliberately goes untested. |
 | [smoke.md](smoke.md) | Living | Manual smoke procedure against the persistent local instance (`smoke-agent` account). |
 | [lexicon.md](lexicon.md) | Authoritative — names | The vocabulary: observations, knowledge entities, evidence; the verbs; the rename map and the names considered and rejected. Read before renaming anything in the graph. |
-| [knowledge-task-queues.md](knowledge-task-queues.md) | Active — being built | The online resolve: fix the `knowledge-link` queue (required config; missing in prod), add an `identity_resolve` task chained from the link webhook. |
+| [knowledge-task-queues.md](knowledge-task-queues.md) | Shipped 2026-11-18 | The online resolve: `knowledge-link` and `identity-resolve` queues exist, both names are required config, the link webhook chains the resolve. Open: draining ~4,400 provisional entities. |
 | [knowledge-agent-curation.md](knowledge-agent-curation.md) | Research — active | Agentic curation: proposal ledger, reversible identity, deterministic verifier, evaluation, and why the agent is the last piece. |
 | [media-serving.md](media-serving.md) | Partly implemented | Immutable-object cache policy shipped; private URL delivery waits on load-balancer/CDN work. |
 | [prod-deploy.md](prod-deploy.md) | Implemented; drift-clean — approved | Whole production release path: build/push, checked-in Cloud Run manifests, `prod-apply.sh` drift/apply/lint, `dreamscroll-db-sync` schema job, rollback. Service drift is clean; manifests and job verified in production. |

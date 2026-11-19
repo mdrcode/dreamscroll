@@ -23,6 +23,15 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 > grammar is documented in `src/knowledge/knowledge.md`. K5 shipped 2026-11-18. K7 is retired;
 > nothing wrote `Cause::Model`. K8 shipped 2026-11-18. K9 is accepted in `plan/pragmatism.md`.
 
+### Knowledge cutover (2026-11-18)
+
+- [ ] **Drain the historical identities.** The cutover adopted 5,953 v1 rows as observations and
+  `knowledge link` built 5,125 entities, 4,364 of them provisional. Online `identity_resolve` only
+  names what new captures touch; the backlog needs a paced `knowledge identity resolve` run
+  (80 requests per attempt, 1 s pace) or a replacement batch job. Decide the rate before starting.
+- [ ] **Confirm the legacy `illuminations_20261027` table still has no reader** once the new revision
+  has run for a week; it is the last pre-reset table in `public`.
+
 ### Illumination inference
 
 - [ ] **Revisit the illumination model on 2027-01-01.** Flash 3.8's introductory rate ($0.75 input /
