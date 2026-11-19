@@ -477,12 +477,12 @@ mod tests {
             "the type sits beside the name"
         );
         assert!(
-            rendered.contains("pill--search"),
-            "canonical search is a pill with an icon"
+            rendered.contains("pill--search") && rendered.contains("entity-card__links"),
+            "canonical search leads the single links row"
         );
         assert!(
-            rendered.contains("entity-card__meta-caption"),
-            "status and confidence are plain captions"
+            rendered.contains("identified") && rendered.contains("confidence 0.9"),
+            "status and confidence sit in the footer caption"
         );
         assert!(
             rendered.contains("https://www.wikidata.org/wiki/Q7259"),

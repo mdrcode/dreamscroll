@@ -634,13 +634,8 @@ body {
     color: var(--color-text-secondary);
 }
 
-.entity-card__identities {
+.entity-card__links {
     margin-bottom: 10px;
-}
-
-.entity-card__meta-caption {
-    font-size: var(--font-size-capture-timestamp);
-    color: var(--color-text-secondary);
 }
 
 .pill-group {
@@ -814,18 +809,6 @@ body {
     line-height: 1.15;
     letter-spacing: -0.01em;
     overflow-wrap: anywhere;
-}
-
-.entity-card__title-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin: 2px 0 8px;
-}
-
-.entity-card__title-row .entity-card__name {
-    margin: 0;
 }
 
 .entity-card__type {
