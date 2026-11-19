@@ -61,13 +61,18 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   which re-selected the newest 1,200 awaiting entities and starved the older ~800; a full-scope
   sweep (`--limit 5000`, no `--newest`) found another 584. The tail is the natural target for
   agentic curation (`plan/knowledge-agent-curation.md`) rather than more resolution.
-- [ ] **Rotate identity resolution by attempt time.** `identity resolve --newest --limit N`
-  re-selects the newest N awaiting entities, so unfindable ones keep occupying the window and the
-  older tail is never asked (2026-11-18: ~800 entities were starved; the full-scope sweep added 584
-  identities). Add `knowledge_entities.last_attempted_at` (schema 44), stamp every entity a run
-  considered (one batched update), and order `last_attempted_at NULLS FIRST, id ASC`. Then a bounded
-  run advances by construction, new entities (NULL) sort first, and a backoff for repeated
-  no-matches becomes possible.
+- [ ] **Rotate identity resolution per provider by attempt time.** `identity resolve --newest
+  --limit N` re-selects the newest N awaiting entities, so unfindable ones keep the window and the
+  older tail is never asked (2026-11-18: ~800 entities were starved; a full-scope sweep added 584
+  identities). A single `last_attempted_at` column is not enough once a second provider exists: one
+  provider's no-match would push an entity back for every provider. Add a per-provider attempt table
+  — `knowledge_identity_attempts (knowledge_entity_id, provider, last_attempted_at, attempts,
+  last_outcome)` with unique `(knowledge_entity_id, provider)` — stamp every `(entity, provider)`
+  pair a run considered with one batched upsert, and order awaiting entities by the joined
+  `last_attempted_at NULLS FIRST, id ASC` (earliest-due provider when a run covers several). Outcome
+  enables backoff: retry `failed` soon, retry `no_match` only after its cached negative expires.
+  Selection is already provider-scoped (`awaiting_identity(&[provider])`), so the change is
+  localized to the schema, the call site and the ordering.
 - [ ] **Confirm the legacy `illuminations_20261027` table still has no reader** once the new revision
   has run for a week; it is the last pre-reset table in `public`.
 
