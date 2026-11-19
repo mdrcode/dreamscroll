@@ -1,8 +1,113 @@
 {% extends "base.html.tera" %}
 
-{% block title %}dreamscroll - {{ entity.name }}{% endblock %}
+{% block title %}dreamscroll - {% if entity.knowledge_entity %}{{ entity.knowledge_entity.name }}{% else %}{{ entity.name }}{% endif %}{% endblock %}
 
 {% block content %}
+{% if entity.knowledge_entity %}
+{#- Warm: the shared entity is the subject; the observation is its evidence. -#}
+{% set ke = entity.knowledge_entity %}
+<article class="feed-card entity-card" aria-labelledby="entity-name">
+    <header class="entity-card__header">
+        <p class="metadata-subsection-title">Entity</p>
+        <h2 id="entity-name" class="entity-card__name">{{ ke.name }}</h2>
+        <div class="pill-group pill-group--wrap">
+            <span class="pill">
+                <span class="pill__prefix">status</span>
+                <span class="pill__label">{{ ke.status }}</span>
+            </span>
+            {% if ke.confidence %}
+            <span class="pill">
+                <span class="pill__prefix">confidence</span>
+                <span class="pill__label">{{ ke.confidence | round(precision=2) }}</span>
+            </span>
+            {% endif %}
+            <span class="pill">
+                <span class="pill__prefix">type</span>
+                <span class="pill__label">{{ ke.entity_type }}</span>
+            </span>
+            {% if ke.platform %}
+            <span class="pill">
+                <span class="pill__prefix">{{ ke.platform }}</span>
+                <span class="pill__label">{{ ke.platform_handle }}{% if ke.platform_display_name %} · {{ ke.platform_display_name }}{% endif %}</span>
+            </span>
+            {% elif entity.platform_link %}
+            <span class="pill">
+                <span class="pill__prefix">{{ entity.platform_link.platform }}</span>
+                <span class="pill__label">{{ entity.platform_link.handle }}</span>
+            </span>
+            {% endif %}
+        </div>
+    </header>
+
+    <div class="entity-card__body">
+        {% if ke.description %}
+        <p class="entity-card__description">{{ ke.description }}</p>
+        {% endif %}
+
+        {% if ke.alt_names | length > 0 %}
+        <div class="pill-group pill-group--wrap entity-card__alt-names">
+            {% for name in ke.alt_names %}
+            <span class="pill">
+                <span class="pill__prefix">also</span>
+                <span class="pill__label">{{ name }}</span>
+            </span>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if ke.identities | length > 0 %}
+        <dl class="metadata-dict-list entity-card__meta">
+            <dt>Identities</dt>
+            <dd class="pill-group pill-group--wrap">
+                {% for identity in ke.identities %}
+                {% if identity.scheme == "wikidata" %}
+                <a class="pill" href="https://www.wikidata.org/wiki/{{ identity.external_id }}"
+                    target="_blank" rel="noopener noreferrer"
+                    {% if identity.method %}title="{{ identity.method }} · {{ identity.provider }}"{% endif %}>
+                    <span class="pill__prefix">{{ identity.scheme }}</span>
+                    <span class="pill__label">{{ identity.external_id }}</span>
+                </a>
+                {% else %}
+                <span class="pill"
+                    {% if identity.method %}title="{{ identity.method }} · {{ identity.provider }}"{% endif %}>
+                    <span class="pill__prefix">{{ identity.scheme }}</span>
+                    <span class="pill__label">{{ identity.external_id }}</span>
+                </span>
+                {% endif %}
+                {% endfor %}
+            </dd>
+        </dl>
+        {% endif %}
+
+        <dl class="metadata-dict-list entity-card__meta">
+            {% if ke.search_query %}
+            <dt>Canonical search</dt>
+            <dd>
+                <a href="https://www.google.com/search?q={{ ke.search_query | urlencode }}"
+                    target="_blank" rel="noopener noreferrer">{{ ke.search_query }}</a>
+            </dd>
+            {% elif entity.search_query %}
+            <dt>Canonical search</dt>
+            <dd>
+                <a href="https://www.google.com/search?q={{ entity.search_query | urlencode }}"
+                    target="_blank" rel="noopener noreferrer">{{ entity.search_query }}</a>
+            </dd>
+            {% endif %}
+        </dl>
+    </div>
+
+    <footer class="card-footer">
+        <span class="card-timestamp">Occurrence {{ entity.id }} · {{ capture.created_at_human }}</span>
+    </footer>
+</article>
+
+<section class="entity-section" aria-labelledby="entity-observation-title">
+    <p id="entity-observation-title" class="metadata-subsection-title">This capture said</p>
+    <p class="entity-card__description"><strong>{{ entity.name }}</strong> <span class="entity-card__muted">· {{ entity.type }}</span>{% if entity.description %} — {{ entity.description }}{% endif %}</p>
+</section>
+{% else %}
+{#- Cold: illuminated, not yet linked. The reading stands on its own; the page is honest about
+    the gap, and a refresh picks up the linked view. -#}
 <article class="feed-card entity-card" aria-labelledby="entity-name">
     <header class="entity-card__header">
         <p class="metadata-subsection-title">Entity occurrence</p>
@@ -25,6 +130,10 @@
         {% if entity.description %}
         <p class="entity-card__description">{{ entity.description }}</p>
         {% endif %}
+
+        <p class="entity-card__muted" role="status">
+            Not linked to the graph yet. Refresh once linking finishes.
+        </p>
 
         <dl class="metadata-dict-list entity-card__meta">
             {% if entity.platform_link %}
@@ -51,6 +160,7 @@
         <span class="card-timestamp">Occurrence {{ entity.id }} · {{ capture.created_at_human }}</span>
     </footer>
 </article>
+{% endif %}
 
 <section class="entity-section" aria-labelledby="entity-source-title">
     <p id="entity-source-title" class="metadata-subsection-title">Appears in</p>

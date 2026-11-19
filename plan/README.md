@@ -28,7 +28,7 @@ rather than rewriting it; history is the point.
 | [pragmatism.md](pragmatism.md) | Living — ledger | Tolerated trade-offs, each with a revisit trigger. The default answer to "should we fix this now?" |
 | [testing.md](testing.md) | Living | Two-tier test model, and what deliberately goes untested. |
 | [smoke.md](smoke.md) | Living | Manual smoke procedure against the persistent local instance (`smoke-agent` account). |
-| [entity-page.md](entity-page.md) | Partly implemented 2026-11-19 | The entity page as observation + knowledge entity: cold/warm rendering, stable observation-id addressing, occurrences, identity chips. Phases 1–2 done (wire + identities). |
+| [entity-page.md](entity-page.md) | Partly implemented 2026-11-19 | The entity page as observation + knowledge entity: cold/warm rendering, stable observation-id addressing, occurrences, identity chips. Phases 1–3 done; occurrences next. |
 | [lexicon.md](lexicon.md) | Authoritative — names | The vocabulary: observations, knowledge entities, evidence; the verbs; the rename map and the names considered and rejected. Read before renaming anything in the graph. |
 | [knowledge-task-queues.md](knowledge-task-queues.md) | Shipped 2026-11-18 | The online resolve: `knowledge-link` and `identity-resolve` queues exist, both names are required config, the link webhook chains the resolve. Historical drain done: 4,297 of 5,158 identified; 861 unfindable provisional remain for curation. |
 | [knowledge-agent-curation.md](knowledge-agent-curation.md) | Research — active | Agentic curation: proposal ledger, reversible identity, deterministic verifier, evaluation, and why the agent is the last piece. |

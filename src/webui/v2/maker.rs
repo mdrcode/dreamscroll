@@ -389,6 +389,7 @@ mod tests {
 
         assert!(rendered.contains("data-page-kind=\"entity_detail\""));
         assert!(rendered.contains("Entity occurrence"));
+        assert!(rendered.contains("Not linked to the graph yet"));
         assert!(rendered.contains("Ada Lovelace"));
         assert!(rendered.contains("Pioneer of computing"));
         assert!(
@@ -399,6 +400,71 @@ mod tests {
         assert!(rendered.contains("href=\"/entity/12\""));
         assert!(rendered.contains("Charles Babbage"));
         assert!(!rendered.contains("annotation-block"));
+    }
+
+    #[test]
+    fn entity_page_renders_the_linked_entity_as_the_subject() {
+        let tera = load_templates().expect("all v2 templates should load");
+        let mut context = tera::Context::new();
+        context.insert("static_asset_version", &"test");
+        context.insert("max_upload_bytes", &12_582_912usize);
+        context.insert("page_kind", &"entity_detail");
+        context.insert(
+            "entity",
+            &serde_json::json!({
+                "id": 11,
+                "capture_id": 7,
+                "name": "Ada Lovelace",
+                "type": "real_person",
+                "description": "Pioneer of computing",
+                "search_query": "Ada Lovelace mathematician",
+                "knowledge_entity": {
+                    "id": 3,
+                    "name": "Ada Lovelace",
+                    "entity_type": "real_person",
+                    "status": "identified",
+                    "confidence": 0.93,
+                    "alt_names": ["Augusta Ada King"],
+                    "identities": [{
+                        "scheme": "wikidata",
+                        "external_id": "Q7259",
+                        "provider": "wikidata",
+                        "method": "exact_label",
+                        "confidence": 0.93
+                    }]
+                }
+            }),
+        );
+        context.insert(
+            "capture",
+            &serde_json::json!({
+                "id": 7,
+                "medias": [{ "url": "https://example.com/image.jpg" }],
+                "illuminations": [{ "summary": "Source capture summary" }],
+                "created_at_human": "just now"
+            }),
+        );
+        context.insert("siblings", &serde_json::json!([]));
+
+        let rendered = tera.render("entity.html.tera", &context).unwrap();
+
+        assert!(rendered.contains("identified"), "status is shown");
+        assert!(
+            rendered.contains("https://www.wikidata.org/wiki/Q7259"),
+            "a Wikidata identity links out"
+        );
+        assert!(
+            rendered.contains("Augusta Ada King"),
+            "alternate names are surfaced"
+        );
+        assert!(
+            rendered.contains("This capture said"),
+            "the observation survives as evidence"
+        );
+        assert!(
+            !rendered.contains("Not linked to the graph yet"),
+            "a linked page is never cold"
+        );
     }
 
     #[test]
