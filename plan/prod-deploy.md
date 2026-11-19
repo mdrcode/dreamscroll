@@ -537,6 +537,24 @@ clone` sat in `PENDING_CREATE` for over 20 minutes (COPY operation, uncancellabl
 and had to be deleted. The transactional sync is the safer rehearsal — a failure
 rolls back with no partial schema.
 
+## Rehearsing a schema jump without a clone
+
+`gcloud sql instances clone` stalls on this instance (2026-10-27), so a rehearsal is a **logical**
+copy:
+
+1. Take the on-demand backup first; the rehearsal does not replace it.
+2. `pg_dump` production into a file (read-only; through the Cloud SQL proxy container is enough).
+3. Restore the dump into a scratch database — a local Postgres 18 is fastest, since the sync issues
+   hundreds of catalog round-trips and the proxy multiplies them by your RTT.
+4. Run the **release commit's** `dreamscroll_db sync_schema` against the copy, then the graph
+   command the release needs (`knowledge link`). Iterate on the migration in code, not by hand.
+5. Drop the scratch copy.
+
+The 2026-11-18 cutover was rehearsed exactly this way: the first run failed on
+`knowledge_entities.alt_types`, which is how schema 43 was found. The image ships `dreamscroll_web`
+and `dreamscroll_db` only, so operator graph commands (`dreamscroll_knowledge`) run from the repo
+against the production database through the proxy.
+
 ## Schema audits
 
 `sync_schema` is additive: it never drops or relaxes columns. So a table that
