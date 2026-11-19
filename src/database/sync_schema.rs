@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 42;
+const REQUIRED_SCHEMA_VERSION: i32 = 43;
 
 /// Schema 23 reshapes claims into an edge — entity plus identity — and keys collisions by identity.
 ///
@@ -71,6 +71,36 @@ async fn retire_proximities<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(
         "DROP TABLE IF EXISTS knowledge_proximities CASCADE; \
          ALTER TABLE IF EXISTS knowledge_generations DROP COLUMN IF EXISTS proximities;",
+    )
+    .await?;
+    Ok(())
+}
+
+/// Schema 43 retires the v1 `knowledge_entities` shape: one row per captured mention, keyed by
+/// capture and position, rather than the shared entity v2 projects from observations.
+///
+/// The registry can only add columns, and the v2 ones (`alt_types`, `status`, …) are `NOT NULL`
+/// with no default, so a populated v1 table cannot become the v2 one. Rename it aside and let the
+/// registry create the current shape. The rows are precisely the observation columns, so
+/// [`adopt_v1_observations`] moves them into `user_observed_entities` afterwards and `link` builds
+/// the entities from them. The primary-key index is renamed with the table so the new one gets the
+/// expected name. Guarded on the v1-only column, so a synced database is untouched.
+async fn retire_capture_scoped_entities<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $sync$ BEGIN \
+           IF EXISTS (SELECT 1 FROM information_schema.columns \
+                       WHERE table_schema = current_schema() \
+                         AND table_name = 'knowledge_entities' \
+                         AND column_name = 'capture_id') THEN \
+             ALTER TABLE knowledge_entities RENAME TO knowledge_entities_v1; \
+             IF EXISTS (SELECT 1 FROM pg_constraint \
+                         WHERE conrelid = 'knowledge_entities_v1'::regclass \
+                           AND conname = 'knowledge_entities_pkey') THEN \
+               ALTER TABLE knowledge_entities_v1 \
+                 RENAME CONSTRAINT knowledge_entities_pkey TO knowledge_entities_v1_pkey; \
+             END IF; \
+           END IF; \
+         END $sync$",
     )
     .await?;
     Ok(())
@@ -469,6 +499,38 @@ $sync$;
     Ok(())
 }
 
+/// Schema 43 moves the rows of the renamed v1 entity table into `user_observed_entities`.
+///
+/// The v1 table held one row per captured mention with exactly the observation columns, so the
+/// rows carry over verbatim and keep their ids. Runs after the registry, which creates the target;
+/// the source is dropped once adopted, as schema 16 did for `knowledge_user`.
+async fn adopt_v1_observations<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $sync$ BEGIN \
+           IF to_regclass('knowledge_entities_v1') IS NOT NULL THEN \
+             INSERT INTO user_observed_entities \
+               (id, user_id, capture_id, illumination_id, position, created_at, name, \
+                entity_type, description, search_query, platform, platform_handle, \
+                platform_display_name) \
+             SELECT id, user_id, capture_id, illumination_id, position, created_at, name, \
+                    entity_type, description, search_query, platform, platform_handle, \
+                    platform_display_name \
+             FROM knowledge_entities_v1 \
+             ON CONFLICT (id) DO NOTHING; \
+             IF pg_get_serial_sequence('user_observed_entities', 'id') IS NOT NULL THEN \
+               PERFORM setval( \
+                 pg_get_serial_sequence('user_observed_entities', 'id'), \
+                 (SELECT COALESCE(MAX(id), 1) FROM user_observed_entities) \
+               ); \
+             END IF; \
+             DROP TABLE knowledge_entities_v1; \
+           END IF; \
+         END $sync$",
+    )
+    .await?;
+    Ok(())
+}
+
 /// Reconcile the model schema, manual indexes, and applied version atomically.
 pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
     let registry = conn.get_schema_registry("dreamscroll::model::*");
@@ -505,6 +567,7 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
             retire_reshaped_claim_tables(transaction).await?;
             retire_proximities(transaction).await?;
             retire_merge_audit(transaction).await?;
+            retire_capture_scoped_entities(transaction).await?;
             require_origin_observation(transaction).await?;
             relax_verdict_columns(transaction).await?;
             rename_identity_asserted_by(transaction).await?;
@@ -524,6 +587,7 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
             // After the registry has created the new tables: the observations move across before the
             // old ones are dropped. `link` rebuilds the entities from them.
             retire_legacy_observation_tables(transaction).await?;
+            adopt_v1_observations(transaction).await?;
             indexes::task_run::after_schema_sync(transaction).await?;
             indexes::inference_meta::after_schema_sync(transaction).await?;
             indexes::knowledge::after_schema_sync(transaction).await?;
