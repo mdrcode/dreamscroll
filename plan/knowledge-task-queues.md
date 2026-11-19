@@ -72,10 +72,14 @@ submissions inherit `backfill_id`; at-least-once delivery is handled by
 ### D1 — one queue, `identity-resolve`, concurrency ≤2, one task type
 
 The online path is the only producer. `identity_resolve` is the only task on it. Cloud Tasks
-The cap is **2 concurrent dispatches**, and it is arithmetic rather than taste: a run paces at 1 s ⇒
+The ceiling is **2 concurrent dispatches**, and it is arithmetic rather than taste: a run paces at 1 s ⇒
 60 requests/min, two runs = 120/min against the 200/min bucket a compliant User-Agent gets, leaving
 80/min for one operator run. Three (180/min) plus a CLI run breaks the bucket and earns 429s, which
-latch the provider for the run. One is safe but serialises the drain; never exceed two.
+latch the provider for the run. Never exceed two.
+
+The queue shipped at 2 and was reduced to **1** on 2026-11-18 while historical
+drains run as operator slices at ~40 calls/min: 60 + 40 = 100/min, half the bucket
+spare. Raise it back to 2 when no drain is active.
 
 The batch job (tabled) will later need an advisory lock to share that invariant; this plan does not
 add one — while only the queue runs resolution, its concurrency covers the online path.

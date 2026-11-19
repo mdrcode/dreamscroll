@@ -706,7 +706,7 @@ production since 2026-11-18: `illuminate`, `spark`, `search-index`,
 | `illuminate` | 1 | serializes Gemini inference (2026-10-27) |
 | `spark`, `search-index` | 5 | the API default |
 | `knowledge-link` | 1 | one graph writer at a time; link is DB-bound |
-| `identity-resolve` | 2 | two 1 s-paced runs = 120 of Wikidata's 200 req/min, leaving 80 for an operator run |
+| `identity-resolve` | 1 (was 2) | reduced 2026-11-18 so an operator drain slice (~40 calls/min) fits: 60 + 40 = 100 of Wikidata's 200 req/min. The ceiling stays 2; raise it back when no drain is running. |
 
 `knowledge-link` and `identity-resolve` were created 2026-11-18, before the web
 revision that submits to them, and created paused so nothing dispatched against
