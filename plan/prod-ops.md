@@ -33,21 +33,12 @@ both places — the runbook wins.
 
 ## Proposals, ranked by leverage
 
-### P1 — `dreamscroll_db status`, and `sync_schema --dry-run`
+### P1 — schema audit (status and dry run shipped 2026-11-18)
 
-The job already has everything a read needs: the socket, the credentials, in-region latency, and
-`gcloud run jobs execute … --args` can override the job's arguments today. So:
-
-- **`status`** (read-only): applied vs required marker; which guarded migrations *would* fire; legacy
-  tables; the graph row counts; whether every configured queue name has a webhook route.
-- **`sync_schema --dry-run`**: run the real transaction, then roll it back, and report success or the
-  exact failure. PostgreSQL DDL is transactional, so this answers "would the jump work?" without a
-  dump. The v1-table failure would have appeared in seconds.
-- **`audit`**: the model-registry vs `information_schema` column diff already listed in
-  `plan/backlog.md` — the check that caught `task_runs.user_id` after the 2026-10-27 reset.
-
-Acceptance: `gcloud run jobs execute dreamscroll-db-sync --args status --wait` prints the state, and
-`--args sync_schema,--dry-run` predicts a failure without touching data. No new job, no new manifest.
+`dreamscroll_db status` and `sync_schema --dry-run` now exist and run in-region through the existing
+job (`--args status`, `--args sync_schema,--dry-run`); both are documented in `prod-deploy.md`. What
+remains is **`audit`**: the model-registry vs `information_schema` column diff, so a surviving table
+with retired `NOT NULL` columns is reported by the same command instead of a hand-built CTE.
 
 ### P2 — one read-only status command for a release
 
@@ -111,27 +102,20 @@ hand, with a digest to pin and a one-writer rule to remember. `gcloud/operator-j
 scheduler or slice bookkeeping. Decide manual slices vs Cloud Scheduler (new infra), and have the CLI
 print the remaining `awaiting identification` count so a slice is self-describing.
 
-### P8 — provider health visibility
+### P8 — provider health visibility (rate-limit event shipped 2026-11-18)
 
-There is no live view of provider errors, and a **429 is not logged**. The gateway latches it
-silently, so the only trace is `refused=true` on that run's log line — no provider, no status, no
-`Retry-After`, no time series. `fetch_cache` records per-query outcomes, but a 429 is never cached, so
-it cannot be counted there either.
+The gateway now emits `event="provider.rate_limited"` with `provider`, `kind` and `retry_after_secs`,
+and `telemetry::events` is the canonical vocabulary. Remaining: put the fetch counters and the
+refusal reason on the online resolve log line, add a per-provider `found`/`empty`/`failed`/`degraded`
+block to `status`, and attach a log-based metric + alert policy — the metric filter is documented in
+`prod-deploy.md`; the policy needs a notification channel.
 
-Measured 2026-11-18, a three-hour window that included the drain: 2,898 `found` + 1,143 `empty`,
-**no `failed` or `degraded`**, zero `refused=true` across five online resolves, cache 4,041 rows and
-0 expired. Healthy — but provable only by pulling two ad-hoc queries.
-
-Proposal:
-
-- `tracing::warn!(provider, retry_after_secs, "provider rate limited")` in the gateway's
-  `RateLimited` arm, so Cloud Logging can see and alert on it.
-- Put the fetch counters and the refusal reason on the online resolve log line (the CLI report
-  already has them; the task log does not).
-- A `provider_health` block in P1's `status`: per provider, last hour/day, `found` / `empty` /
-  `failed` / `degraded` and refusals.
-- A log-based metric + alert policy on `rate_limited` (or `failed > 0` in a run report). New infra;
-  decide alongside P7's cadence.
+Before the event existed, a 429 left no trace beyond `refused=true`, and a failed fetch left only a
+cache row. Measured 2026-11-18, a three-hour window that included the drain: 2,898 `found` + 1,143
+`empty`, **no `failed` or `degraded`**, zero `refused=true` across five online resolves, cache 4,041
+rows and 0 expired — healthy, but provable only by pulling two ad-hoc queries. A later 3,268-fetch
+slice did record exactly one failed search (`United States Census Bureau`), with no status or error
+anywhere; that is the shape the event should remove.
 
 ## What not to build
 

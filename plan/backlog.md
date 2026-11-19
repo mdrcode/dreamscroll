@@ -25,10 +25,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ### Production ergonomics (see `plan/prod-ops.md`)
 
-- [ ] **`dreamscroll_db status` and `sync_schema --dry-run`.** Run in-region through the existing job
-  (`gcloud run jobs execute dreamscroll-db-sync --args …`): marker vs required, guarded migrations
-  that would fire, legacy tables, graph counts; dry run = real transaction + rollback. Removes the
-  proxy/secret/dump dance for every future release.
 - [ ] **`gcloud/prod-status.sh`.** One read-only snapshot: drift, revision/digest/traffic, job
   executions, all five queues with expected concurrency, latest backup, error count, optional DB
   status. Exit 1 on anything unexpected.
@@ -41,9 +37,10 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   gitignored `config_prod.env` drifting apart.
 - [ ] **Stable API error codes.** A non-sensitive `code` on every `ApiError` response so the UI can
   say "that image is too large" instead of "Upload failed", without exposing internal messages.
-- [ ] **Provider health visibility.** Log a warning on a provider `429` (today it latches silently),
-  include fetch counters and the refusal reason in the online resolve log, and add a per-provider
-  `found`/`empty`/`failed`/`degraded` report to `status`. Then decide on a log-based alert.
+- [ ] **Provider health visibility (the rest).** The `provider.rate_limited` event and
+  `telemetry::events` shipped 2026-11-18. Remaining: fetch counters and the refusal reason on the
+  online resolve log, a per-provider `found`/`empty`/`failed`/`degraded` block in `status`, and a
+  log-based metric + alert policy (needs a notification channel).
 
 ### Knowledge cutover (2026-11-18)
 

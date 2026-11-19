@@ -553,32 +553,54 @@ clone` sat in `PENDING_CREATE` for over 20 minutes (COPY operation, uncancellabl
 and had to be deleted. The transactional sync is the safer rehearsal — a failure
 rolls back with no partial schema.
 
-## Rehearsing a schema jump without a clone
+## Checking a schema jump
 
-`gcloud sql instances clone` stalls on this instance (2026-10-27), so a rehearsal is a **logical**
-copy:
+The job answers "would this sync succeed?" without touching data. `sync_schema --dry-run` runs the
+whole reconciliation and rolls it back — PostgreSQL DDL is transactional, so the marker write is
+undone too:
+
+```bash
+./gcloud/prod-apply.sh --apply --db --no-execute --image <release digest>   # job runs the new code
+gcloud run jobs execute dreamscroll-db-sync --region us-central1 --args sync_schema,--dry-run --wait
+```
+
+Then run the real sync. The same execution also shows what the next sync would do:
+`gcloud run jobs execute dreamscroll-db-sync --region us-central1 --args status --wait`.
+
+### When a dump copy is still needed
+
+Data, not DDL: a jump that migrates rows (observations, `link`) is exercised on a **logical copy**,
+because the dry run rolls the data back too and proves only that the statements execute.
 
 1. Take the on-demand backup first; the rehearsal does not replace it.
 2. `pg_dump` production into a file (read-only; through the Cloud SQL proxy container is enough).
 3. Restore the dump into a scratch database — a local Postgres 18 is fastest, since the sync issues
    hundreds of catalog round-trips and the proxy multiplies them by your RTT.
-4. Run the **release commit's** `dreamscroll_db sync_schema` against the copy, then the graph
-   command the release needs (`knowledge link`). Iterate on the migration in code, not by hand.
+4. Run the **release commit's** `sync_schema` against the copy, then the graph command the release
+   needs (`knowledge link`). Iterate on the migration in code, not by hand.
 5. Drop the scratch copy.
 
-The 2026-11-18 cutover was rehearsed exactly this way: the first run failed on
-`knowledge_entities.alt_types`, which is how schema 43 was found. Since
-2026-11-18 the image also ships `dreamscroll_knowledge`, so operator graph
-commands run in-region (next section) instead of through the proxy.
+The 2026-11-18 cutover predated the dry run, which is why it was rehearsed with a dump: the first run
+failed on `knowledge_entities.alt_types`, and that is how schema 43 was found. Since 2026-11-18 the
+image also ships `dreamscroll_knowledge`, so operator graph commands run in-region (next section).
 
 ## Operator one-off job (graph commands)
 
 The image ships `dreamscroll_web`, `dreamscroll_db` and `dreamscroll_knowledge`
-(since 2026-11-18), so operator graph work — `link`, `identity resolve`, `merge`,
-`proximity scan`, `stats` — can run in-region. The proxy costs ~56 ms per
-statement (measured 2026-11-18: 40 trivial statements took 2.9 s), which turns an
-N+1 operator command into an hour: the same `link` of ~6k observations took ~1.5 h
-from the laptop and 79 s of work in-region.
+(since 2026-11-18), so operator work — `status`, `sync_schema --dry-run`, `link`,
+`identity resolve`, `merge`, `proximity scan`, `stats` — can run in-region. The
+existing `dreamscroll-db-sync` job already runs `dreamscroll_db`, so the first two
+need no new job:
+
+```bash
+gcloud run jobs execute dreamscroll-db-sync --region us-central1 --args status --wait
+gcloud run jobs execute dreamscroll-db-sync --region us-central1 --args sync_schema,--dry-run --wait
+```
+
+Graph commands need the `dreamscroll_knowledge` argv, so they use a throwaway job.
+The proxy costs ~56 ms per statement (measured 2026-11-18: 40 trivial statements took
+2.9 s), which turns an N+1 operator command into an hour: the same `link` of ~6k
+observations took ~1.5 h from the laptop and 79 s of work in-region.
 
 ```bash
 IMG=<image base>@sha256:<digest>
@@ -645,8 +667,12 @@ Routine release (code change):
    the digest and the exact apply commands.
 2. `./gcloud/prod-apply.sh --check` — the only diff should be the change you are
    releasing.
-3. Schema-changing release: `--apply --db` first, watch the execution, then
-   `--apply --web`.
+3. Schema-changing release: predict it first.
+   a. `--apply --db --no-execute` — the job gets the release image without syncing.
+   b. `gcloud run jobs execute dreamscroll-db-sync --region us-central1 --args sync_schema,--dry-run --wait`
+      — the whole reconciliation runs and rolls back.
+   c. `gcloud run jobs execute dreamscroll-db-sync --region us-central1 --wait` — the real sync.
+   d. `--apply --web`.
 4. `./gcloud/prod-apply.sh --apply --web` — dry-run, replace, wait for the new
    revision to be Ready at 100 % traffic, then re-check drift.
 
@@ -696,9 +722,22 @@ WHERE fetched_at > now() - interval '1 hour'
 GROUP BY 1, 2 ORDER BY 1, 3 DESC;
 ```
 
-A **429 does not show up in the cache** — it is never cached; it latches the run and appears only as
-`refused=true` in the log line above. `dreamscroll_knowledge stats` prints the same outcome counts,
-plus candidates/no-match.
+A **429 never appears in the cache** — it is not cached; it latches the run. Since 2026-11-18 it is
+also a structured log event: `jsonPayload.event="provider.rate_limited"`, with `provider`, `kind` and
+`retry_after_secs` (0 when the provider sent no `Retry-After`). Query it, and build the metric on the
+event name rather than on prose:
+
+```bash
+gcloud logging read 'resource.type="cloud_run_revision" AND jsonPayload.event="provider.rate_limited"' \
+  --freshness=24h --format='value(timestamp,jsonPayload.provider,jsonPayload.kind,jsonPayload.retry_after_secs)'
+
+gcloud logging metrics create provider_rate_limited \
+  --description="A provider returned 429" \
+  --log-filter='resource.type="cloud_run_revision" AND jsonPayload.event="provider.rate_limited"'
+```
+
+An alerting policy on that metric is the remaining step; it needs a notification channel.
+`dreamscroll_knowledge stats` prints the same outcome counts, plus candidates/no-match.
 
 Troubleshooting:
 
