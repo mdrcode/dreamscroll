@@ -105,10 +105,10 @@ print the remaining `awaiting identification` count so a slice is self-describin
 ### P8 — provider health visibility (rate-limit event shipped 2026-11-18)
 
 The gateway now emits `event="provider.rate_limited"` with `provider`, `kind` and `retry_after_secs`,
-and `telemetry::events` is the canonical vocabulary. Remaining: put the fetch counters and the
-refusal reason on the online resolve log line, add a per-provider `found`/`empty`/`failed`/`degraded`
-block to `status`, and attach a log-based metric + alert policy — the metric filter is documented in
-`prod-deploy.md`; the policy needs a notification channel.
+and `telemetry::events` is the canonical vocabulary. The log-based metric `provider_rate_limited`
+exists (2026-11-18). Remaining: put the fetch counters and the refusal reason on the online resolve
+log line, add a per-provider `found`/`empty`/`failed`/`degraded` block to `status`, and attach an
+alerting policy — the policy needs a notification channel.
 
 Before the event existed, a 429 left no trace beyond `refused=true`, and a failed fetch left only a
 cache row. Measured 2026-11-18, a three-hour window that included the drain: 2,898 `found` + 1,143

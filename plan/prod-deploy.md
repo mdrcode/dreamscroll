@@ -65,9 +65,9 @@ manifests structurally.
 | --- | --- |
 | Project / region | `mdrcode` / `us-central1` |
 | Service | `dreamscroll-webui-api`, `https://dreamscroll-webui-api-xdrchnynaq-uc.a.run.app` (also `…-783246871160.us-central1.run.app`) |
-| Current image | `…/dreamscroll-web@sha256:aa2ed914aa43b7eef3b4a71318291b86502e7fe45368bbd7d8cc08a7b2bb3f5f` (tag `3d079d5d…`), revision `00115-99z` (2026-11-18; ships `dreamscroll_web`, `dreamscroll_db` and `dreamscroll_knowledge`) |
+| Current image | `…/dreamscroll-web@sha256:1319bf1a39c817a4504c15d10ef73236f3328ce553a8447f8a0419885f3ab99a` (tag `7b1064dc…`), revision `00116-24k` (2026-11-18; `dreamscroll_db status`, `sync_schema --dry-run`, structured `provider.rate_limited` events) |
 | Custom domain | `dreamscroll.ai` (serves the same service) |
-| Cloud Run Jobs | `dreamscroll-db-sync` exists; successful executions `7cnbm` (post-rename), `f42cv` (post-drop), and `lk4j5` (schema 43, 2026-11-18) |
+| Cloud Run Jobs | `dreamscroll-db-sync` exists; successful executions `7cnbm` (post-rename), `f42cv` (post-drop), `lk4j5` (schema 43), `6phhs` (`status`), `7dxkp` (`sync_schema --dry-run`) |
 | Cloud SQL | `mdrcode:us-central1:dreamscroll-prod-db4`, PostgreSQL 18, tier `db-f1-micro`, **public IP** (`ipv4Enabled: true`), `GOOGLE_MANAGED_INTERNAL_CA` |
 | DB access path | unix socket: `POSTGRES_CONNECTION_PARAMS=host=/cloudsql/mdrcode:us-central1:dreamscroll-prod-db4`, `POSTGRES_HOST_PORT=localhost` |
 | DB name / users | `dreamscroll-prod`; `dreamscroll-web` (built-in), `mike.repass@gmail.com` (IAM), `postgres` |
@@ -736,7 +736,8 @@ gcloud logging metrics create provider_rate_limited \
   --log-filter='resource.type="cloud_run_revision" AND jsonPayload.event="provider.rate_limited"'
 ```
 
-An alerting policy on that metric is the remaining step; it needs a notification channel.
+An alerting policy on that metric is the remaining step; it needs a notification channel. The metric
+`provider_rate_limited` exists (created 2026-11-18), so only the policy is missing.
 `dreamscroll_knowledge stats` prints the same outcome counts, plus candidates/no-match.
 
 Troubleshooting:
