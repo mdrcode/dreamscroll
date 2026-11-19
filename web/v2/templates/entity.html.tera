@@ -8,8 +8,18 @@
 {% set ke = entity.knowledge_entity %}
 <article class="feed-card entity-card" aria-labelledby="entity-name">
     <header class="entity-card__header">
-        <p class="metadata-subsection-title">Entity</p>
-        <h2 id="entity-name" class="entity-card__name">{{ ke.name }}</h2>
+        <div class="entity-card__title-row">
+            <h2 id="entity-name" class="entity-card__name">{{ ke.name }} <span class="entity-card__type">[{{ ke.entity_type }}]</span></h2>
+            {% if ke.search_query or entity.search_query %}
+            {% set query = ke.search_query | default(value=entity.search_query) %}
+            <a class="pill pill--search" href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" rel="noopener noreferrer" title="Canonical search: {{ query }}">
+                <span class="pill__prefix pill__prefix--icon">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path></svg>
+                </span>
+                <span class="pill__label">{{ query }}</span>
+            </a>
+            {% endif %}
+        </div>
         {% if ke.platform or entity.platform_link %}
         <div class="pill-group pill-group--wrap">
             {% if ke.platform %}
@@ -28,12 +38,14 @@
     </header>
 
     <div class="entity-card__body">
-        {% if ke.description %}
-        <p class="entity-card__description">{{ ke.description }}</p>
-        {% endif %}
-
-        {% if entity.description %}
-        <p class="entity-card__description"><span class="entity-card__muted">Observation description:</span> {{ entity.description }}</p>
+        {% if descriptions | length == 1 %}
+        <p class="entity-card__description">{{ descriptions[0] }}</p>
+        {% elif descriptions | length > 1 %}
+        <ul class="entity-card__descriptions">
+            {% for description in descriptions %}
+            <li>{{ description }}</li>
+            {% endfor %}
+        </ul>
         {% endif %}
 
         {% if ke.alt_names | length > 0 %}
@@ -48,64 +60,30 @@
         {% endif %}
 
         {% if ke.identities | length > 0 %}
-        <dl class="metadata-dict-list entity-card__meta">
-            <dt>Identities</dt>
-            <dd class="pill-group pill-group--wrap">
-                {% for identity in ke.identities %}
-                {% if identity.scheme == "wikidata" %}
-                <a class="pill" href="https://www.wikidata.org/wiki/{{ identity.external_id }}"
-                    target="_blank" rel="noopener noreferrer"
-                    {% if identity.method %}title="{{ identity.method }} · {{ identity.provider }}"{% endif %}>
-                    <span class="pill__prefix">{{ identity.scheme }}</span>
-                    <span class="pill__label">{{ identity.external_id }}</span>
-                </a>
-                {% else %}
-                <span class="pill"
-                    {% if identity.method %}title="{{ identity.method }} · {{ identity.provider }}"{% endif %}>
-                    <span class="pill__prefix">{{ identity.scheme }}</span>
-                    <span class="pill__label">{{ identity.external_id }}</span>
-                </span>
-                {% endif %}
-                {% endfor %}
-            </dd>
-        </dl>
-        {% endif %}
-
-        <dl class="metadata-dict-list entity-card__meta">
-            {% if ke.search_query %}
-            <dt>Canonical search</dt>
-            <dd>
-                <a href="https://www.google.com/search?q={{ ke.search_query | urlencode }}"
-                    target="_blank" rel="noopener noreferrer">{{ ke.search_query }}</a>
-            </dd>
-            {% elif entity.search_query %}
-            <dt>Canonical search</dt>
-            <dd>
-                <a href="https://www.google.com/search?q={{ entity.search_query | urlencode }}"
-                    target="_blank" rel="noopener noreferrer">{{ entity.search_query }}</a>
-            </dd>
+        <div class="pill-group pill-group--wrap entity-card__identities">
+            {% for identity in ke.identities %}
+            {% if identity.scheme == "wikidata" %}
+            <a class="pill" href="https://www.wikidata.org/wiki/{{ identity.external_id }}"
+                target="_blank" rel="noopener noreferrer"
+                {% if identity.method %}title="{{ identity.method }} · {{ identity.provider }}"{% endif %}>
+                <span class="pill__prefix">{{ identity.scheme }}</span>
+                <span class="pill__label">{{ identity.external_id }}</span>
+            </a>
+            {% else %}
+            <span class="pill"
+                {% if identity.method %}title="{{ identity.method }} · {{ identity.provider }}"{% endif %}>
+                <span class="pill__prefix">{{ identity.scheme }}</span>
+                <span class="pill__label">{{ identity.external_id }}</span>
+            </span>
             {% endif %}
-        </dl>
+            {% endfor %}
+        </div>
+        {% endif %}
     </div>
 
     <footer class="card-footer">
         <span class="card-timestamp">Occurrence {{ entity.id }} · {{ capture.created_at_human }}</span>
-        <div class="pill-group entity-card__badges">
-            <span class="pill">
-                <span class="pill__prefix">status</span>
-                <span class="pill__label">{{ ke.status }}</span>
-            </span>
-            {% if ke.confidence %}
-            <span class="pill">
-                <span class="pill__prefix">confidence</span>
-                <span class="pill__label">{{ ke.confidence | round(precision=2) }}</span>
-            </span>
-            {% endif %}
-            <span class="pill">
-                <span class="pill__prefix">type</span>
-                <span class="pill__label">{{ ke.entity_type }}</span>
-            </span>
-        </div>
+        <span class="entity-card__meta-caption">{{ ke.status }}{% if ke.confidence %} · confidence {{ ke.confidence | round(precision=2) }}{% endif %}</span>
     </footer>
 </article>
 {% else %}
@@ -114,19 +92,25 @@
 <article class="feed-card entity-card" aria-labelledby="entity-name">
     <header class="entity-card__header">
         <p class="metadata-subsection-title">Entity occurrence</p>
-        <h2 id="entity-name" class="entity-card__name">{{ entity.name }}</h2>
+        <div class="entity-card__title-row">
+            <h2 id="entity-name" class="entity-card__name">{{ entity.name }} <span class="entity-card__type">[{{ entity.type }}]</span></h2>
+            {% if entity.search_query %}
+            <a class="pill pill--search" href="https://www.google.com/search?q={{ entity.search_query | urlencode }}" target="_blank" rel="noopener noreferrer" title="Canonical search: {{ entity.search_query }}">
+                <span class="pill__prefix pill__prefix--icon">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path></svg>
+                </span>
+                <span class="pill__label">{{ entity.search_query }}</span>
+            </a>
+            {% endif %}
+        </div>
+        {% if entity.platform_link %}
         <div class="pill-group pill-group--wrap">
-            <span class="pill">
-                <span class="pill__prefix">type</span>
-                <span class="pill__label">{{ entity.type }}</span>
-            </span>
-            {% if entity.platform_link %}
             <span class="pill">
                 <span class="pill__prefix">{{ entity.platform_link.platform }}</span>
                 <span class="pill__label">{{ entity.platform_link.handle }}</span>
             </span>
-            {% endif %}
         </div>
+        {% endif %}
     </header>
 
     <div class="entity-card__body">
@@ -146,14 +130,6 @@
                 {% if entity.platform_link.display_name %}
                 <span class="entity-card__muted">({{ entity.platform_link.display_name }})</span>
                 {% endif %}
-            </dd>
-            {% endif %}
-
-            {% if entity.search_query %}
-            <dt>Canonical search</dt>
-            <dd>
-                <a href="https://www.google.com/search?q={{ entity.search_query | urlencode }}"
-                    target="_blank" rel="noopener noreferrer">{{ entity.search_query }}</a>
             </dd>
             {% endif %}
         </dl>

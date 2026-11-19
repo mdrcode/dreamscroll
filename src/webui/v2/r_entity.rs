@@ -20,6 +20,28 @@ pub async fn get(
     let context_user = user.into();
 
     let entity = state.user_api.get_entity(&context_user, id).await?;
+    // All readings of the description, the entity's current one first. The observation's own
+    // wording is appended when the projection does not already carry it.
+    let descriptions = match &entity.knowledge_entity {
+        Some(known) => {
+            let mut descriptions = Vec::new();
+            if let Some(description) = &known.description {
+                descriptions.push(description.clone());
+            }
+            for description in &known.alt_descriptions {
+                if !descriptions.contains(description) {
+                    descriptions.push(description.clone());
+                }
+            }
+            if let Some(description) = &entity.description {
+                if !descriptions.contains(description) {
+                    descriptions.push(description.clone());
+                }
+            }
+            descriptions
+        }
+        None => Vec::new(),
+    };
     let occurrences = match &entity.knowledge_entity {
         Some(known) => {
             state
@@ -50,6 +72,7 @@ pub async fn get(
     let mut context = state.template_context();
     context.insert("page_kind", &"entity_detail");
     context.insert("entity", &entity);
+    context.insert("descriptions", &descriptions);
     context.insert("capture", &capture);
     context.insert("occurrences", &occurrences);
     context.insert("siblings", &siblings);

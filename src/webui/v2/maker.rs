@@ -445,6 +445,10 @@ mod tests {
             }),
         );
         context.insert(
+            "descriptions",
+            &serde_json::json!(["Pioneer of computing", "Mathematician"]),
+        );
+        context.insert(
             "occurrences",
             &serde_json::json!([
                 {
@@ -469,8 +473,16 @@ mod tests {
 
         assert!(rendered.contains("identified"), "status is shown");
         assert!(
-            rendered.contains("entity-card__badges"),
-            "status, confidence and type sit in the card caption"
+            rendered.contains("[real_person]"),
+            "the type sits beside the name"
+        );
+        assert!(
+            rendered.contains("pill--search"),
+            "canonical search is a pill with an icon"
+        );
+        assert!(
+            rendered.contains("entity-card__meta-caption"),
+            "status and confidence are plain captions"
         );
         assert!(
             rendered.contains("https://www.wikidata.org/wiki/Q7259"),
@@ -485,8 +497,14 @@ mod tests {
             "the separate evidence section is gone"
         );
         assert!(
-            rendered.contains("Observation description:") && rendered.contains("Pioneer of computing"),
-            "the observation's description sits under the entity's"
+            rendered.contains("entity-card__descriptions")
+                && rendered.contains("Pioneer of computing")
+                && rendered.contains("Mathematician"),
+            "every reading of the description is listed"
+        );
+        assert!(
+            !rendered.contains("Observation description:"),
+            "the old single-line label is gone"
         );
         assert!(
             rendered.contains("href=\"/entity/12\"") && rendered.contains("Another capture"),
@@ -503,6 +521,15 @@ mod tests {
         assert!(
             !rendered.contains("Not linked to the graph yet"),
             "a linked page is never cold"
+        );
+
+        // One reading is a plain paragraph; only multiple readings become a list.
+        context.insert("descriptions", &serde_json::json!(["only one reading"]));
+        let single = tera.render("entity.html.tera", &context).unwrap();
+        assert!(single.contains("only one reading"));
+        assert!(
+            !single.contains("entity-card__descriptions"),
+            "a lone reading is not bulleted"
         );
     }
 
