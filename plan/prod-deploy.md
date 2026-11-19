@@ -65,7 +65,7 @@ manifests structurally.
 | --- | --- |
 | Project / region | `mdrcode` / `us-central1` |
 | Service | `dreamscroll-webui-api`, `https://dreamscroll-webui-api-xdrchnynaq-uc.a.run.app` (also `…-783246871160.us-central1.run.app`) |
-| Current image | `…/dreamscroll-web@sha256:c51b75a2cdbd861ad208a390b3e134d7f34988ffb393407294ea851ebca9b7f6` (tag `23917261…`), revision `00117-78n` (2026-11-19; bounds `search_query` at the observation write) |
+| Current image | `…/dreamscroll-web@sha256:78545ed56910e7ac428fa82bf6f894103e4f9ef76dbef5976174a3ba6d8a86a4` (tag `534389b9…`), revision `00118-hbw` (2026-11-19; entity + capture page rework, SSE indicator removed) |
 | Custom domain | `dreamscroll.ai` (serves the same service) |
 | Cloud Run Jobs | `dreamscroll-db-sync` exists; successful executions `7cnbm` (post-rename), `f42cv` (post-drop), `lk4j5` (schema 43), `6phhs` (`status`), `7dxkp` (`sync_schema --dry-run`) |
 | Cloud SQL | `mdrcode:us-central1:dreamscroll-prod-db4`, PostgreSQL 18, tier `db-f1-micro`, **public IP** (`ipv4Enabled: true`), `GOOGLE_MANAGED_INTERNAL_CA` |
