@@ -216,7 +216,7 @@ mod tests {
         assert!(metadata.contains("hx-swap-oob=\"outerHTML\""));
         assert!(metadata.contains("Ada Lovelace"));
         assert!(metadata.contains("href=\"/entity/11\""));
-        assert!(metadata.contains("Related searches"));
+        assert!(metadata.contains("Related Searches"));
         assert!(!metadata.contains("metadata-card"));
 
         let mut empty_context = tera::Context::new();

@@ -17,7 +17,7 @@
     {% endif %}
 
     {% if illum.suggested_searches | length > 0 %}
-    <p class="metadata-subsection-title">Related searches</p>
+    <p class="metadata-subsection-title">Related Searches</p>
     <div class="pill-group pill-group--wrap">
         {% for query in illum.suggested_searches %}
         <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" rel="noopener noreferrer" class="pill pill--search" title="Search: {{ query }}">
