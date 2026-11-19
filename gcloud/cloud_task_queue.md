@@ -47,14 +47,12 @@ gcloud tasks queues update illuminate \
 with concurrency 1 the throughput ceiling becomes one illumination per task
 duration, so the all-captures backfill takes roughly that long per capture.
 
-`identity-resolve` runs at **1 concurrent dispatch** (reduced from 2 on
-2026-11-18). The ceiling is 2, derived from the Wikimedia per-minute limit rather
-than chosen: each run paces at 1 s ⇒ 60 requests/min, so two runs = 120/min
-against the 200/min bucket a compliant User-Agent gets. The queue is kept at 1
-while an operator drain runs slices at ~40 calls/min: 60 + 40 = 100/min, half the
-bucket spare. Raise it back to 2 when no drain is running. Never exceed 2 — three
-runs (180/min) plus a CLI run is 240/min and earns 429s, which latch the provider
-for the remainder of the run. Same retry policy:
+`identity-resolve` runs at **2 concurrent dispatches** in steady state, derived from the Wikimedia
+per-minute limit rather than chosen: each run paces at 1 s ⇒ 60 requests/min, so two runs = 120/min
+against the 200/min bucket a compliant User-Agent gets, leaving 80/min for one operator run. It was
+reduced to **1** for the 2026-11-18 historical drain (60 online + 75 operator = 135/min) and restored
+to 2 when the drain finished. Never exceed 2 — three runs (180/min) plus a CLI run is 240/min and
+earns 429s, which latch the provider for the remainder of the run. Same retry policy:
 
 ```bash
 gcloud tasks queues create knowledge-link \
@@ -69,7 +67,7 @@ gcloud tasks queues create knowledge-link \
 gcloud tasks queues create identity-resolve \
   --location=us-central1 \
   --max-dispatches-per-second=2 \
-  --max-concurrent-dispatches=1 \
+  --max-concurrent-dispatches=2 \
   --max-attempts=3 \
   --min-backoff=10s \
   --max-backoff=600s \

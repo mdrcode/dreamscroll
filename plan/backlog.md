@@ -54,14 +54,12 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ### Knowledge cutover (2026-11-18)
 
-- [ ] **Drain the historical identities.** The cutover adopted 5,966 v1 rows as observations and
-  `knowledge link` built 5,155 entities, 4,375 of them provisional. Online `identity_resolve` only
-  names what new captures touch; the backlog needs a paced `knowledge identity resolve` run
-  (80 requests per attempt, 1 s pace) or a replacement batch job. Decide the rate before starting.
-  Measured 2026-11-18 in-region (one slice 300 units, one 1,200, `--min-interval-ms 1500`):
-  353 entities identified, ~70% of those considered, ~4.2 budget units per identified entity, zero
-  429s and zero failures. That projects a full drain at roughly five hours of paced calls; run it in
-  bounded slices, one at a time.
+- [x] **Drain the historical identities.** Done 2026-11-18. In-region slices (one writer, paced at
+  1.5 s then 0.8 s, queue concurrency temporarily 1) identified **3,746 of 5,155 entities**, with
+  **3,155 Wikidata identities**; the last two slices added none, so the drain stopped.
+  **1,409 remain provisional** — the unfindable tail under the current evidence (no Wikidata match,
+  or not enough evidence to search), and the natural target for agentic
+  curation (`plan/knowledge-agent-curation.md`) rather than more resolution.
 - [ ] **Confirm the legacy `illuminations_20261027` table still has no reader** once the new revision
   has run for a week; it is the last pre-reset table in `public`.
 

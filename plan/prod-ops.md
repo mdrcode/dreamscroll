@@ -96,12 +96,6 @@ hand, with a digest to pin and a one-writer rule to remember. `gcloud/operator-j
 [args…]` should pin the current commit's digest, refuse if a job is already running, execute with
 `--wait`, print the report line, and delete the job.
 
-### P7 — drain cadence
-
-4,301 provisional entities at ~4 budget units each is ~4 hours of paced transport, and there is no
-scheduler or slice bookkeeping. Decide manual slices vs Cloud Scheduler (new infra), and have the CLI
-print the remaining `awaiting identification` count so a slice is self-describing.
-
 ### P8 — provider health visibility (rate-limit event shipped 2026-11-18)
 
 The gateway now emits `event="provider.rate_limited"` with `provider`, `kind` and `retry_after_secs`,

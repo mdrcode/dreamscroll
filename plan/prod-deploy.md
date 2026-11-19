@@ -173,6 +173,12 @@ finished at 5,987 observations all linked, 5,155 entities (4,375 provisional, 78
 identified), and zero illuminations awaiting link; the final 2,297 observations
 took 79 s in the one-off job, after 3,690 took roughly 40 minutes from the laptop.
 
+The historical identity drain followed the same day: 20 in-region slices (paced 1.5 s, then 0.8 s,
+one writer at a time, queue concurrency temporarily 1) identified **3,746 of 5,155 entities** and
+wrote **3,155 Wikidata identities**; two consecutive slices added none, leaving **1,409 provisional** —
+the unfindable tail. The queue was restored to 2 when the drain finished, and the throwaway job
+deleted.
+
 ## Configuration as code
 
 | File | Holds |
@@ -788,7 +794,7 @@ production since 2026-11-18: `illuminate`, `spark`, `search-index`,
 | `illuminate` | 1 | serializes Gemini inference (2026-10-27) |
 | `spark`, `search-index` | 5 | the API default |
 | `knowledge-link` | 1 | one graph writer at a time; link is DB-bound |
-| `identity-resolve` | 1 (was 2) | reduced 2026-11-18 so an operator drain slice (~40 calls/min) fits: 60 + 40 = 100 of Wikidata's 200 req/min. The ceiling stays 2; raise it back when no drain is running. |
+| `identity-resolve` | 2 | two 1 s-paced runs = 120 of Wikidata's 200 req/min, leaving 80 for an operator run. Temporarily 1 during the 2026-11-18 historical drain; restored afterwards. |
 
 `knowledge-link` and `identity-resolve` were created 2026-11-18, before the web
 revision that submits to them, and created paused so nothing dispatched against

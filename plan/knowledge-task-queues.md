@@ -1,11 +1,12 @@
 # Knowledge task queues — the online resolve
 
-**Status:** Shipped 2026-11-18. The `knowledge-link` and `identity-resolve` queues exist in
-production (created paused, ahead of the revision that submits to them), both names are required
-config, and the web revision from that release is the first to chain the online resolve. What remains
-is not plumbing: after the 2026-11-18 cutover rebuilt the graph by `knowledge link`, 5,155 entities
-exist and 4,375 of them are still provisional; only the online path + manual
-`knowledge identity resolve` can drain them. The nightly drain stays abandoned
+**Status:** Shipped 2026-11-18, including the historical drain. The `knowledge-link` and
+`identity-resolve` queues exist in production (created paused, ahead of the revision that submits to
+them), both names are required config, and the web revision from that release is the first to chain
+the online resolve. After the cutover rebuilt the graph by `knowledge link`, a paced in-region drain
+identified 3,746 of 5,155 entities (3,155 Wikidata identities); 1,409 remain provisional — the
+unfindable tail under the current evidence, since two consecutive slices added none. The online path
+handles new captures; the nightly batch job stays abandoned
 (`plan/archive/knowledge-batch-job.md`).
 
 **Purpose:** a capture that has been linked gets its entities identified without an operator. The
@@ -77,9 +78,8 @@ The ceiling is **2 concurrent dispatches**, and it is arithmetic rather than tas
 80/min for one operator run. Three (180/min) plus a CLI run breaks the bucket and earns 429s, which
 latch the provider for the run. Never exceed two.
 
-The queue shipped at 2 and was reduced to **1** on 2026-11-18 while historical
-drains run as operator slices at ~40 calls/min: 60 + 40 = 100/min, half the bucket
-spare. Raise it back to 2 when no drain is active.
+The queue ships at 2 and was reduced to **1** during the 2026-11-18 historical drain so an operator
+slice at 75 calls/min fit (60 + 75 = 135/min); it was restored to 2 when the drain finished.
 
 The batch job (tabled) will later need an advisory lock to share that invariant; this plan does not
 add one — while only the queue runs resolution, its concurrency covers the online path.
