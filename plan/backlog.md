@@ -109,13 +109,16 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `inference_metas`.
 
 ### Knowledge identity resolver
-- [ ] **A cache key can exceed the btree index limit.** One Wikidata answer failed to cache on
-  2026-11-18: `index row size 5864 exceeds btree version 4 maximum 2704 for index
-  "idx-fetch_cache-fetch_cache_key"`. The write warns and the run continues, but that query is
-  fetched again on every run. Fix: index a digest of `(provider, kind, query, shape)` and keep the
-  raw columns for debugging; backfill existing rows in the same migration. One occurrence in a
-  3,268-fetch slice, so not urgent — but the warning also lacks provider/kind, so give it an event
-  name when it is touched.
+- [ ] **Bound the search hint; it is used verbatim as a query.** Production has a projected
+  `search_query` of **43,140 characters** (the model ignores "concise"), and `search_hint`
+  (`identification/plan.rs`) passes it verbatim into a MediaWiki full-text search. One ~5.8 KB key
+  failed to cache on 2026-11-18 — `index row size 5864 exceeds btree version 4 maximum 2704` on
+  `idx-fetch_cache-fetch_cache_key` — so the answer is fetched again every run; long queries also
+  make nonsense search URLs and may explain some `failed` fetch rows. Cap the hint where it is used
+  (first ~160 characters or a few words, whitespace collapsed) and at ingest, so the projection and
+  UI stay sane; add `maxLength` to the illumination schema as a hint, but enforce server-side. A
+  cache-key digest is optional defense-in-depth, not the fix: with a bounded hint the key cannot
+  approach the limit.
 - [x] **Unify the heuristic tokenizer.** The linker tokenises with `text::content_tokens`, the
   resolver's own definition, instead of splitting on whitespace. Measured over the full rebuild:
   two link decisions move, both correct merges (`Nintendo` × 2, `The Criterion Collection` × 2), no
