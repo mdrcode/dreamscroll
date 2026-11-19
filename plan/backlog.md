@@ -109,21 +109,14 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `inference_metas`.
 
 ### Knowledge identity resolver
-- [ ] **Bound the search hint; it is used verbatim as a query.** Production has one degenerate hint of
-  **43,139 characters** (1 of 2,937 projected hints exceeds 100; it loops boilerplate and leaks
-  `*/ { query:`), and `search_hint` (`identification/plan.rs`) passes it verbatim into a MediaWiki
-  full-text search. One ~5.8 KB key failed to cache on 2026-11-18 — `index row size 5864 exceeds
-  btree version 4 maximum 2704` on `idx-fetch_cache-fetch_cache_key` — so the answer is fetched again
-  every run; long queries also make nonsense search URLs. Cap at the **projection and the use site**
-  (collapse whitespace, truncate at a word boundary; a named constant, e.g. 256 chars with the
-  observed p100 of 97 in the comment), while `user_observed_entities` keeps the raw hint as
-  evidence. Add `maxLength` to the illumination schema as a hint, but enforce server-side. A
-  cache-key digest is optional defense-in-depth, not the fix: with a bounded hint the key cannot
-  approach the limit. The same outlier check across every illumination field found no other
-  candidate (2026-11-19): names ≤118, handles ≤24, types ≤20, summaries ≤265, descriptions ≤258,
-  arrays ≤10 items / 258 chars, raw content ≤45 KB. `illuminations.details` reaches 2,006 by design
-  (a paragraph, 860 rows over 1,024) and must not be capped — only the field used as a query and a
-  cache key needs the bound.
+- [x] **Bound the search hint at the observation write.** Done 2026-11-19. `insert_illumination_v2`
+  stores `bounded_hint(search_query)` — whitespace collapsed, at most 256 characters, cut at a word
+  boundary; the raw model output stays in `illumination_raws`. 256 is measured (the longest
+  legitimate hint of 2,937 is 97 characters; the only longer one is a 43 KB degeneration). Rows
+  written before this change keep their value until re-illuminated, so the one legacy 43 KB entity
+  still produces a long query and cache key; everything new is bounded. A survey of every
+  illumination field found no other candidate — `details` reaches 2,006 by design, descriptions and
+  summaries ≤265, arrays ≤10 items / 258 chars — and none of them is a query or a cache key.
 - [x] **Unify the heuristic tokenizer.** The linker tokenises with `text::content_tokens`, the
   resolver's own definition, instead of splitting on whitespace. Measured over the full rebuild:
   two link decisions move, both correct merges (`Nintendo` × 2, `The Criterion Collection` × 2), no

@@ -80,7 +80,7 @@ pub async fn insert_illumination_v2(
             .set_name(&entity.name)
             .set_entity_type(entity.entity_type.to_string())
             .set_description(entity.description.clone())
-            .set_search_query(entity.search_query.clone())
+            .set_search_query(entity.search_query.as_deref().and_then(bounded_hint))
             .set_platform(platform)
             .set_platform_handle(handle)
             .set_platform_display_name(display_name)
@@ -150,6 +150,34 @@ pub fn format_for_search_v2(illumination: &v2::Illumination) -> String {
     illumination.to_markdown()
 }
 
+/// The longest hint stored on an observation.
+///
+/// Measured 2026-11-19 over 2,937 projected hints: the longest legitimate one is 97 characters; the
+/// only longer one is a 43 KB model degeneration. 256 leaves ample headroom and keeps the resolver's
+/// `fetch_cache` key far below Postgres's btree limit.
+const SEARCH_HINT_MAX_CHARS: usize = 256;
+
+/// A hint fit to be stored: whitespace collapsed, cut at a word boundary at
+/// [`SEARCH_HINT_MAX_CHARS`], or `None` when nothing is left. The raw model output stays in
+/// `illumination_raws`.
+fn bounded_hint(hint: &str) -> Option<String> {
+    let collapsed = hint.split_whitespace().collect::<Vec<_>>().join(" ");
+    let total = collapsed.chars().count();
+    if total == 0 {
+        return None;
+    }
+
+    let mut bounded: String = collapsed.chars().take(SEARCH_HINT_MAX_CHARS).collect();
+    if total > SEARCH_HINT_MAX_CHARS
+        && let Some(cut) = bounded.rfind(char::is_whitespace)
+    {
+        bounded.truncate(cut);
+    }
+
+    let bounded = bounded.trim();
+    (!bounded.is_empty()).then(|| bounded.to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,6 +186,47 @@ mod tests {
     use chrono::Utc;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
     use serde_json::json;
+
+    #[test]
+    fn short_hints_survive_with_collapsed_whitespace() {
+        assert_eq!(
+            bounded_hint("  Ada \n Lovelace\tmathematician ").as_deref(),
+            Some("Ada Lovelace mathematician")
+        );
+    }
+
+    #[test]
+    fn a_degenerate_hint_is_cut_at_a_word_boundary() {
+        let hint = "FFmpeg multimedia ".repeat(3_000) + "*/ { query:";
+        let bounded = bounded_hint(&hint).expect("a non-empty hint stays a hint");
+
+        assert!(
+            bounded.chars().count() <= SEARCH_HINT_MAX_CHARS,
+            "{} chars",
+            bounded.chars().count()
+        );
+        assert!(
+            bounded.chars().count() > SEARCH_HINT_MAX_CHARS - 32,
+            "backed off too far: {} chars",
+            bounded.chars().count()
+        );
+        assert!(
+            bounded.ends_with("FFmpeg") || bounded.ends_with("multimedia"),
+            "cut mid-word: {bounded}"
+        );
+    }
+
+    #[test]
+    fn a_multibyte_hint_is_cut_on_a_character_boundary() {
+        let hint = "é".repeat(SEARCH_HINT_MAX_CHARS + 50);
+        let bounded = bounded_hint(&hint).expect("a non-empty hint stays a hint");
+        assert_eq!(bounded.chars().count(), SEARCH_HINT_MAX_CHARS);
+    }
+
+    #[test]
+    fn a_blank_hint_is_none() {
+        assert_eq!(bounded_hint(" \n\t "), None);
+    }
 
     async fn record_usage(db: &DbHandle, user_id: i32, run_id: &str, tokens: i64) -> i32 {
         super::super::record_inference(
