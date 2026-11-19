@@ -109,14 +109,15 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `inference_metas`.
 
 ### Knowledge identity resolver
-- [ ] **Bound the search hint; it is used verbatim as a query.** Production has a projected
-  `search_query` of **43,140 characters** (the model ignores "concise"), and `search_hint`
-  (`identification/plan.rs`) passes it verbatim into a MediaWiki full-text search. One ~5.8 KB key
-  failed to cache on 2026-11-18 — `index row size 5864 exceeds btree version 4 maximum 2704` on
-  `idx-fetch_cache-fetch_cache_key` — so the answer is fetched again every run; long queries also
-  make nonsense search URLs and may explain some `failed` fetch rows. Cap the hint where it is used
-  (first ~160 characters or a few words, whitespace collapsed) and at ingest, so the projection and
-  UI stay sane; add `maxLength` to the illumination schema as a hint, but enforce server-side. A
+- [ ] **Bound the search hint; it is used verbatim as a query.** Production has one degenerate hint of
+  **43,139 characters** (1 of 2,937 projected hints exceeds 100; it loops boilerplate and leaks
+  `*/ { query:`), and `search_hint` (`identification/plan.rs`) passes it verbatim into a MediaWiki
+  full-text search. One ~5.8 KB key failed to cache on 2026-11-18 — `index row size 5864 exceeds
+  btree version 4 maximum 2704` on `idx-fetch_cache-fetch_cache_key` — so the answer is fetched again
+  every run; long queries also make nonsense search URLs. Cap at the **projection and the use site**
+  (collapse whitespace, truncate at a word boundary; a named constant, e.g. 256 chars with the
+  observed p100 of 97 in the comment), while `user_observed_entities` keeps the raw hint as
+  evidence. Add `maxLength` to the illumination schema as a hint, but enforce server-side. A
   cache-key digest is optional defense-in-depth, not the fix: with a bounded hint the key cannot
   approach the limit.
 - [x] **Unify the heuristic tokenizer.** The linker tokenises with `text::content_tokens`, the
