@@ -61,7 +61,7 @@ manifests structurally.
 | --- | --- |
 | Project / region | `mdrcode` / `us-central1` |
 | Service | `dreamscroll-webui-api`, `https://dreamscroll-webui-api-xdrchnynaq-uc.a.run.app` (also `…-783246871160.us-central1.run.app`) |
-| Current image | `…/dreamscroll-web@sha256:cb35dcf4365902b93bd9d1f99f616f13c4c438e07da9979d67b1d4e93ff27c71` (tag `37322026…`), revision `00114-b9r` (2026-11-18, upload size guard; no schema change on top of `00113-vdx` / `sha256:e3334d35…`) |
+| Current image | `…/dreamscroll-web@sha256:aa2ed914aa43b7eef3b4a71318291b86502e7fe45368bbd7d8cc08a7b2bb3f5f` (tag `3d079d5d…`), revision `00115-99z` (2026-11-18; ships `dreamscroll_web`, `dreamscroll_db` and `dreamscroll_knowledge`) |
 | Custom domain | `dreamscroll.ai` (serves the same service) |
 | Cloud Run Jobs | `dreamscroll-db-sync` exists; successful executions `7cnbm` (post-rename), `f42cv` (post-drop), and `lk4j5` (schema 43, 2026-11-18) |
 | Cloud SQL | `mdrcode:us-central1:dreamscroll-prod-db4`, PostgreSQL 18, tier `db-f1-micro`, **public IP** (`ipv4Enabled: true`), `GOOGLE_MANAGED_INTERNAL_CA` |
@@ -154,8 +154,9 @@ Release order: on-demand backup; create `knowledge-link` and `identity-resolve`
 paused; ingress `internal` and pause all five queues; `--apply --db` (the job at
 the new image executes `sync_schema`); `--apply --web`; restore ingress, then
 resume queues. Historical illuminations predate observations, so the existing
-graph is rebuilt with the operator CLI (`dreamscroll_knowledge link`) against
-production through the Cloud SQL proxy, not by the online path.
+graph is rebuilt by running `dreamscroll_knowledge link` as a one-off Cloud Run
+job in-region (see "Operator one-off job"), not by the online path and not from a
+laptop through the proxy.
 
 Verified: execution `lk4j5` logged `Synchronized Postgres schema
 schema_version=43`; the marker is `43` and the v1 table is gone; revision
@@ -163,7 +164,10 @@ schema_version=43`; the marker is `43` and the v1 table is gone; revision
 `prod-apply.sh` reports `no drift` for both targets; `dreamscroll.ai/` and
 `/login` return 200; the five queues are RUNNING at their documented
 concurrency. Backup `1795050597065` was SUCCESSFUL before the apply, and the
-sync adopted 5,966 observations (the rehearsal copy had 5,953).
+sync adopted 5,966 observations (the rehearsal copy had 5,953). The rebuild
+finished at 5,987 observations all linked, 5,155 entities (4,375 provisional, 780
+identified), and zero illuminations awaiting link; the final 2,297 observations
+took 79 s in the one-off job, after 3,690 took roughly 40 minutes from the laptop.
 
 ## Configuration as code
 
@@ -559,9 +563,41 @@ copy:
 5. Drop the scratch copy.
 
 The 2026-11-18 cutover was rehearsed exactly this way: the first run failed on
-`knowledge_entities.alt_types`, which is how schema 43 was found. The image ships `dreamscroll_web`
-and `dreamscroll_db` only, so operator graph commands (`dreamscroll_knowledge`) run from the repo
-against the production database through the proxy.
+`knowledge_entities.alt_types`, which is how schema 43 was found. Since
+2026-11-18 the image also ships `dreamscroll_knowledge`, so operator graph
+commands run in-region (next section) instead of through the proxy.
+
+## Operator one-off job (graph commands)
+
+The image ships `dreamscroll_web`, `dreamscroll_db` and `dreamscroll_knowledge`
+(since 2026-11-18), so operator graph work — `link`, `identity resolve`, `merge`,
+`proximity scan`, `stats` — can run in-region. The proxy costs ~56 ms per
+statement (measured 2026-11-18: 40 trivial statements took 2.9 s), which turns an
+N+1 operator command into an hour: the same `link` of ~6k observations took ~1.5 h
+from the laptop and 79 s of work in-region.
+
+```bash
+IMG=<image base>@sha256:<digest>
+gcloud run jobs create knowledge-oneshot \
+  --image "$IMG" --region us-central1 \
+  --command /app/dreamscroll_knowledge --args link \
+  --set-cloudsql-instances mdrcode:us-central1:dreamscroll-prod-db4 \
+  --set-env-vars NO_LOCAL_CONFIG_FILES=true,RUST_LOG=info,POSTGRES_HOST_PORT=localhost,POSTGRES_USER=dreamscroll-web,POSTGRES_DB=dreamscroll-prod,POSTGRES_CONNECTION_PARAMS=host=/cloudsql/mdrcode:us-central1:dreamscroll-prod-db4 \
+  --set-secrets POSTGRES_PASSWORD=DREAMSCROLL_PROD_POSTGRES_PASSWORD:latest \
+  --tasks 1 --parallelism 1 --max-retries 0 --task-timeout 15m
+gcloud run jobs execute knowledge-oneshot --region us-central1 --wait
+gcloud beta run jobs executions logs read <execution> --region us-central1
+gcloud run jobs delete knowledge-oneshot --region us-central1 --quiet
+```
+
+Rules:
+
+- **One writer at a time.** A second `link` would create entities for observations
+  the first is already linking. Stop any laptop run before executing the job.
+- These jobs sit outside the manifests — only `dreamscroll-db-sync` is managed by
+  `prod-apply.sh`. Create, use, delete; pin the image by digest.
+- The command reads only `PostgresConfig`, so the environment is the same five
+  `POSTGRES_*` values the schema job uses.
 
 ## Schema audits
 

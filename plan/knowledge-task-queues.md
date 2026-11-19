@@ -3,9 +3,10 @@
 **Status:** Shipped 2026-11-18. The `knowledge-link` and `identity-resolve` queues exist in
 production (created paused, ahead of the revision that submits to them), both names are required
 config, and the web revision from that release is the first to chain the online resolve. What remains
-is not plumbing: the 2026-11-18 cutover rebuilt the graph by `knowledge link`, so ~5,100 historical
-entities are `awaiting identification` and only the online path + manual `knowledge identity resolve`
-can drain them. The nightly drain stays abandoned (`plan/archive/knowledge-batch-job.md`).
+is not plumbing: after the 2026-11-18 cutover rebuilt the graph by `knowledge link`, 5,155 entities
+exist and 4,375 of them are still provisional; only the online path + manual
+`knowledge identity resolve` can drain them. The nightly drain stays abandoned
+(`plan/archive/knowledge-batch-job.md`).
 
 **Purpose:** a capture that has been linked gets its entities identified without an operator. The
 online task resolves exactly what one illumination touched; everything it misses waits for

@@ -25,8 +25,8 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ### Knowledge cutover (2026-11-18)
 
-- [ ] **Drain the historical identities.** The cutover adopted 5,953 v1 rows as observations and
-  `knowledge link` built 5,125 entities, 4,364 of them provisional. Online `identity_resolve` only
+- [ ] **Drain the historical identities.** The cutover adopted 5,966 v1 rows as observations and
+  `knowledge link` built 5,155 entities, 4,375 of them provisional. Online `identity_resolve` only
   names what new captures touch; the backlog needs a paced `knowledge identity resolve` run
   (80 requests per attempt, 1 s pace) or a replacement batch job. Decide the rate before starting.
 - [ ] **Confirm the legacy `illuminations_20261027` table still has no reader** once the new revision
