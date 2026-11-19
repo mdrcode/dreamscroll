@@ -32,8 +32,10 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 - [ ] **`gcloud/prod-status.sh`.** One read-only snapshot: drift, revision/digest/traffic, job
   executions, all five queues with expected concurrency, latest backup, error count, optional DB
   status. Exit 1 on anything unexpected.
-- [ ] **Queue preflight in `prod-apply.sh --check`.** Assert every `TASK_QUEUE_NAME_*` exists with the
-  expected concurrency, so a manifest-only queue change fails the check rather than the first capture.
+- [ ] **Release preflight for what manifests only name.** On `--apply` (and `--check`), assert every
+  `TASK_QUEUE_NAME_*` exists with the expected concurrency and every `secretKeyRef` has an enabled
+  version. The manifest is the next state by design; the failure to avoid is a deploy that looks
+  successful and then cannot submit tasks or read a secret.
 - [ ] **`Config::required_env_names()` + manifest assertion.** One source for required env, tested
   against `prod-dreamscroll-web.yaml`, instead of `config_def.rs` + manifest + the shell list +
   gitignored `config_prod.env` drifting apart.

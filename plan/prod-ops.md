@@ -14,7 +14,7 @@ proxy, a dumped secret, or ad-hoc SQL is a gap in that tooling, not a fact about
 | --- | --- | --- |
 | Prod schema marker and table shape | Started a Cloud SQL Auth Proxy container, fetched the DB password from Secret Manager, ran `psql` | ~10 min setup; a static proxy token expired mid-run and had to be replaced with ADC; credential handling on the laptop |
 | Would the 8→43 sync succeed? | `pg_dump` (17 MB) → restore into a local PG18 copy (112 s) → run `sync_schema` → read the error (`alt_types contains null values`) → write schema 43 → re-run | ~30 min and two iterations; the dump is the only safe way to answer it today |
-| Does prod have the queues the manifest names? | `gcloud tasks queues list` after reading the plan's warning | fine, but only because a plan doc said to look |
+| Does prod have the queues this release will submit to? | `gcloud tasks queues list` after reading the plan's warning | the manifest is the *next* state and legitimately led prod; the gap is that the release path did not assert the external prerequisite, so the only pointer was a plan checklist |
 | Manifest vs live drift | `prod-apply.sh --check` | this worked; it is the model to copy |
 | Which env vars does the binary require? | manual three-way diff of `config_def.rs`, the manifest, and `config_prod.env` | `config_prod.env` is gitignored, so the manifest is the only tracked source; `prod-apply.sh` keeps a third list |
 | Rebuild the historical graph | local `dreamscroll_knowledge link` through the proxy | 56 ms per statement; 3,690 observations took ~40 min. The same remainder ran in-region in 79 s |
@@ -53,13 +53,24 @@ Acceptance: `gcloud run jobs execute dreamscroll-db-sync --args status --wait` p
 Today this was ~15 ad-hoc `gcloud` calls, each with its own format string and failure mode. Exit 1 on
 anything unexpected, so it can be the first command of every session.
 
-### P3 — queue preflight inside `--check`
+### P3 — release preflight for what the manifests only *name*
 
-The manifest named `knowledge-link` and `identity-resolve` for four days before either existed; only
-manual inspection found it, and a missing queue surfaces after deploy as a failing submit. Extend
-`prod-apply.sh --check` to assert, for every `TASK_QUEUE_NAME_*` in the manifest, that the queue
-exists and matches the expected concurrency (a small table beside `prod-config.sh`). Fail `--check`
-and `--apply`, not the first capture.
+The manifests describe the **next deployed state**, and they are right to lead prod: a queue name, a
+secret reference, or an OIDC audience is declared there for a release that has not happened yet.
+Nothing about that is drift. What is missing is that those things live outside Cloud Run — Cloud
+Tasks, Secret Manager, IAM — so `--check` compares them against nothing, and the knowledge that they
+must exist lived in a plan checklist.
+
+Make it a release assertion instead. On `--apply` (and in `--check` when it can read them):
+
+- every `TASK_QUEUE_NAME_*` in the manifest names an existing queue, with the expected concurrency
+  (a small table beside `prod-config.sh`);
+- every `secretKeyRef` names a secret with an enabled latest version;
+- the job's Cloud SQL instance exists and is reachable through the same annotation the manifest uses.
+
+Fail before applying, so the first failing signal is a preflight line, not the first capture after a
+successful-looking deploy. Create the queues/secrets in the same release step as the image, as the
+2026-11-18 release did.
 
 ### P4 — required env from one source
 
