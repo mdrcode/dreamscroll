@@ -61,19 +61,19 @@ manifests structurally.
 | --- | --- |
 | Project / region | `mdrcode` / `us-central1` |
 | Service | `dreamscroll-webui-api`, `https://dreamscroll-webui-api-xdrchnynaq-uc.a.run.app` (also `…-783246871160.us-central1.run.app`) |
-| Current image | `…/dreamscroll-web@sha256:e3a7fc9473287213d01b72e6055e938fba797731c3c9996b166c9f97dc131fb5` (tag `7f14d91a…`), revision `00107-vjk` |
+| Current image | `…/dreamscroll-web@sha256:e3334d35228ec36a1284eb3e4416ac2c4c1f93bff92c8dee17c682d957dc1327` (tag `6a96a83b…`), revision `00113-vdx` (2026-11-18) |
 | Custom domain | `dreamscroll.ai` (serves the same service) |
-| Cloud Run Jobs | `dreamscroll-db-sync` exists; successful executions `7cnbm` (post-rename) and `f42cv` (post-drop) |
+| Cloud Run Jobs | `dreamscroll-db-sync` exists; successful executions `7cnbm` (post-rename), `f42cv` (post-drop), and `lk4j5` (schema 43, 2026-11-18) |
 | Cloud SQL | `mdrcode:us-central1:dreamscroll-prod-db4`, PostgreSQL 18, tier `db-f1-micro`, **public IP** (`ipv4Enabled: true`), `GOOGLE_MANAGED_INTERNAL_CA` |
 | DB access path | unix socket: `POSTGRES_CONNECTION_PARAMS=host=/cloudsql/mdrcode:us-central1:dreamscroll-prod-db4`, `POSTGRES_HOST_PORT=localhost` |
 | DB name / users | `dreamscroll-prod`; `dreamscroll-web` (built-in), `mike.repass@gmail.com` (IAM), `postgres` |
 | Password secret | `DREAMSCROLL_PROD_POSTGRES_PASSWORD`, referenced as `:latest` |
 | Service identity | Compute Engine default service account (derived at check/apply time from the project, not committed) |
 | Service networking | Direct VPC egress `private-ranges-only`, network/subnet `default` |
-| Service shape | 30 env vars, 3 secret refs, 1 vCPU / 512 MiB, concurrency 80, port 8080, `timeoutSeconds 300`, startup probe `tcpSocket 8080` with `periodSeconds 240` |
+| Service shape | 32 env vars, 3 secret refs, 1 vCPU / 512 MiB, concurrency 80, port 8080, `timeoutSeconds 300`, startup probe `tcpSocket 8080` with `periodSeconds 240` |
 | Max instances | 4, declared by both `run.googleapis.com/maxScale` (service) and `autoscaling.knative.dev/maxScale` (template). Deliberate cost ceiling set 2026-10-27 through the manifest (was 20). |
 | Public access | annotation `run.googleapis.com/invoker-iam-disabled: 'true'` (no `allUsers` binding) |
-| Schema marker | `dreamscroll_schema_version`; the current binary requires `43`; production was at `8` until the 2026-11-18 cutover (the deployed service had been frozen on the 2026-10-30 image) |
+| Schema marker | `dreamscroll_schema_version`; the current binary requires `43`, production is at `43` since 2026-11-18 (it had been frozen at `8` on the 2026-10-30 image) |
 
 Because the instance has a public IP and the binary connects over the
 `/cloudsql/...` socket, the job needs only `--set-cloudsql-instances`; no VPC
@@ -156,6 +156,14 @@ the new image executes `sync_schema`); `--apply --web`; restore ingress, then
 resume queues. Historical illuminations predate observations, so the existing
 graph is rebuilt with the operator CLI (`dreamscroll_knowledge link`) against
 production through the Cloud SQL proxy, not by the online path.
+
+Verified: execution `lk4j5` logged `Synchronized Postgres schema
+schema_version=43`; the marker is `43` and the v1 table is gone; revision
+`00113-vdx` (digest `sha256:e3334d35…`) logged `Database schema is compatible`;
+`prod-apply.sh` reports `no drift` for both targets; `dreamscroll.ai/` and
+`/login` return 200; the five queues are RUNNING at their documented
+concurrency. Backup `1795050597065` was SUCCESSFUL before the apply, and the
+sync adopted 5,966 observations (the rehearsal copy had 5,953).
 
 ## Configuration as code
 
