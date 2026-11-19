@@ -20,6 +20,15 @@ pub async fn get(
     let context_user = user.into();
 
     let entity = state.user_api.get_entity(&context_user, id).await?;
+    let occurrences = match &entity.knowledge_entity {
+        Some(known) => {
+            state
+                .user_api
+                .get_entity_occurrences(&context_user, known.id, entity.id)
+                .await?
+        }
+        None => Vec::new(),
+    };
     let capture = state
         .user_api
         .get_capture(&context_user, entity.capture_id)
@@ -42,6 +51,7 @@ pub async fn get(
     context.insert("page_kind", &"entity_detail");
     context.insert("entity", &entity);
     context.insert("capture", &capture);
+    context.insert("occurrences", &occurrences);
     context.insert("siblings", &siblings);
 
     let rendered = state.render("entity.html.tera", &context)?;

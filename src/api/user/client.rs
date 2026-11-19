@@ -217,6 +217,39 @@ impl UserApiClient {
         ))
     }
 
+    /// The caller's occurrences of one entity: one capture preview per capture, clicked first.
+    #[tracing::instrument(skip(self, context))]
+    pub async fn get_entity_occurrences(
+        &self,
+        context: &auth::Context,
+        knowledge_entity_id: i32,
+        clicked_observation_id: i32,
+    ) -> Result<Vec<schema::CapturePreviewInfo>, ApiError> {
+        let pairs = super::entity_occurrence_pairs(
+            &self.db,
+            context,
+            knowledge_entity_id,
+            clicked_observation_id,
+        )
+        .await?;
+        let capture_ids: Vec<i32> = pairs.iter().map(|(_, capture_id)| *capture_id).collect();
+        let captures = super::get_captures_for_previews(&self.db, context, capture_ids).await?;
+        let mut captures: HashMap<i32, model::capture::ModelEx> = captures
+            .into_iter()
+            .map(|capture| (capture.id, capture))
+            .collect();
+
+        Ok(pairs
+            .into_iter()
+            .filter_map(|(observation_id, capture_id)| {
+                let capture = captures.remove(&capture_id)?;
+                let mut preview = self.info_maker.make_capture_preview_info(&capture)?;
+                preview.observation_id = Some(observation_id);
+                Some(preview)
+            })
+            .collect())
+    }
+
     #[tracing::instrument(skip(self, context))]
     pub async fn get_entities_by_type(
         &self,

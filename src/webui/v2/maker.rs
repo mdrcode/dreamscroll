@@ -444,6 +444,25 @@ mod tests {
                 "created_at_human": "just now"
             }),
         );
+        context.insert(
+            "occurrences",
+            &serde_json::json!([
+                {
+                    "id": 7,
+                    "thumbnail_url": "https://example.com/image.jpg",
+                    "summary": "Source capture summary",
+                    "created_at_human": "just now",
+                    "observation_id": 11
+                },
+                {
+                    "id": 9,
+                    "thumbnail_url": "https://example.com/other.jpg",
+                    "summary": "Another capture",
+                    "created_at_human": "last week",
+                    "observation_id": 12
+                }
+            ]),
+        );
         context.insert("siblings", &serde_json::json!([]));
 
         let rendered = tera.render("entity.html.tera", &context).unwrap();
@@ -460,6 +479,14 @@ mod tests {
         assert!(
             rendered.contains("This capture said"),
             "the observation survives as evidence"
+        );
+        assert!(
+            rendered.contains("href=\"/entity/12\"") && rendered.contains("Another capture"),
+            "other occurrences are reachable"
+        );
+        assert!(
+            rendered.contains("aria-current=\"page\""),
+            "the opened occurrence is marked"
         );
         assert!(
             !rendered.contains("Not linked to the graph yet"),

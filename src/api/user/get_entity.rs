@@ -1,9 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::anyhow;
-use sea_orm::QueryOrder;
 use sea_orm::prelude::*;
 use sea_orm::sea_query::{Expr, ExprTrait};
+use sea_orm::{QueryOrder, QuerySelect};
 
 use crate::{api::*, auth, database::DbHandle, model};
 
@@ -108,6 +108,46 @@ pub async fn knowledge_entity_infos(
             }
             (info.id, info)
         })
+        .collect())
+}
+
+/// The caller's current observations of one entity, one per capture, clicked first.
+///
+/// Pairs rather than wire rows: the card needs a capture preview, which needs storage, so the
+/// caller hydrates. Ordering is the clicked occurrence, then newest observation first; a capture
+/// whose reading names the entity twice contributes once.
+pub async fn entity_occurrence_pairs(
+    db: &DbHandle,
+    context: &auth::Context,
+    knowledge_entity_id: i32,
+    clicked_observation_id: i32,
+) -> Result<Vec<(i32, i32)>, ApiError> {
+    let rows: Vec<(i32, i32)> = model::user_observed_entity::Entity::find()
+        .inner_join(model::capture::Entity)
+        .select_only()
+        .column(model::user_observed_entity::Column::Id)
+        .column(model::user_observed_entity::Column::CaptureId)
+        .filter(model::user_observed_entity::Column::UserId.eq(context.user_id()))
+        .filter(model::user_observed_entity::Column::KnowledgeEntityId.eq(knowledge_entity_id))
+        .filter(model::capture::Column::ArchivedAt.is_null())
+        .filter(
+            Expr::col(model::user_observed_entity::Column::IlluminationId)
+                .in_subquery(current_illumination()),
+        )
+        .order_by_desc(model::user_observed_entity::Column::Id)
+        .into_tuple()
+        .all(&db.conn)
+        .await?;
+
+    let (clicked, rest): (Vec<_>, Vec<_>) = rows
+        .into_iter()
+        .partition(|(observation, _)| *observation == clicked_observation_id);
+
+    let mut seen = HashSet::new();
+    Ok(clicked
+        .into_iter()
+        .chain(rest)
+        .filter(|(_, capture)| seen.insert(*capture))
         .collect())
 }
 
@@ -391,5 +431,52 @@ mod tests {
         assert_eq!(identities[0].method.as_deref(), Some("exact_label"));
         assert_eq!(identities[1].external_id, "handle");
         assert!(map[&plain].identities.is_empty());
+    }
+
+    #[tokio::test]
+    async fn occurrences_lead_with_the_clicked_capture_and_dedupe() {
+        db_or_skip!(db);
+        let user = fixtures::user(&db, "occurrences").await;
+        let shared = knowledge_entity(&db, "shared", None, None).await;
+
+        let first = fixtures::capture(&db, user).await;
+        let first_illumination = fixtures::illumination(&db, user, first).await;
+        let first_capture = fixtures::Capture {
+            user_id: user,
+            capture_id: first,
+            illumination_id: first_illumination,
+        };
+        fixtures::attached(&db, &first_capture, 0, "shared", None, "unknown", shared).await;
+        let first_later = fixtures::attached(
+            &db,
+            &first_capture,
+            1,
+            "shared again",
+            None,
+            "unknown",
+            shared,
+        )
+        .await;
+
+        let second = fixtures::capture(&db, user).await;
+        let second_illumination = fixtures::illumination(&db, user, second).await;
+        let second_capture = fixtures::Capture {
+            user_id: user,
+            capture_id: second,
+            illumination_id: second_illumination,
+        };
+        let clicked =
+            fixtures::attached(&db, &second_capture, 0, "shared", None, "unknown", shared).await;
+
+        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user));
+        let pairs = entity_occurrence_pairs(&db, &context, shared, clicked)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            pairs,
+            vec![(clicked, second), (first_later, first)],
+            "the clicked occurrence leads, one card per capture, newest reading within it"
+        );
     }
 }

@@ -176,6 +176,8 @@ impl InfoMaker {
             id: capture_model.id,
             thumbnail_url: self.url_maker.make_url(&handle),
             summary,
+            created_at_human: common::humanize_datetime(capture_model.created_at),
+            observation_id: None,
         })
     }
 

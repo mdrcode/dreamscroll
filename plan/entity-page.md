@@ -1,8 +1,8 @@
 # Entity page: from observation to knowledge entity
 
-Status: **Partly implemented 2026-11-19.** Phases 1–3 are in: observations carry their entity, the
-entity carries its identities, and the page renders cold or warm. Occurrences across captures are
-next. Decisions in “Decisions”.
+Status: **Implemented 2026-11-19** (phases 1–4). The page renders the entity when linked, the
+observation when not, and a gallery of the user's related captures. Optional ideas remain:
+superseded-illumination redirect, canonical `/k/:id` when disclosure lands.
 
 The entity page is where a user's personal slice meets the shared graph. Today it shows only the
 user's own **observation** (`user_observed_entities`) and never the **knowledge entity** it was
