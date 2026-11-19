@@ -10,7 +10,6 @@ document.addEventListener('DOMContentLoaded', function () {
     setupSearchClearButton();
     setupSearchEndpointRouting();
     setupCaptureExpandToggle(document);
-    setupMetadataCardExpandToggle(document);
     setupRelatedCapturesGallery(document);
     setupSearchClearOnSlashCommand();
     setupAnnotationEditorCaret(document);
@@ -21,7 +20,6 @@ document.addEventListener('DOMContentLoaded', function () {
     // delegated behavior for freshly rendered cards belongs.
     window.htmx.onLoad(function (node) {
         setupCaptureExpandToggle(node);
-        setupMetadataCardExpandToggle(node);
     });
 
     document.body.addEventListener('htmx:afterSwap', function (e) {
@@ -872,10 +870,6 @@ function applyFeedParameters(parameters, state) {
 
 function setupCaptureExpandToggle(rootNode) {
     rootNode.querySelectorAll('.capture-card__details-toggle').forEach(function (button) {
-        if (button.closest('.metadata-card')) {
-            return;
-        }
-
         if (button.dataset.bound === 'true') {
             return;
         }
@@ -903,91 +897,6 @@ function setupCaptureExpandToggle(rootNode) {
                 panel.inert = !isExpanded;
             }
         });
-    });
-}
-
-function setupMetadataCardExpandToggle(rootNode) {
-    const cards = [];
-    if (rootNode.matches && rootNode.matches('.metadata-card')) {
-        cards.push(rootNode);
-    }
-    if (rootNode.querySelectorAll) {
-        rootNode.querySelectorAll('.metadata-card').forEach(function (card) {
-            cards.push(card);
-        });
-    }
-
-    cards.forEach(function (card) {
-        if (card.dataset.expandBound === 'true') {
-            return;
-        }
-
-        const content = card.querySelector('.metadata-card__content');
-        const toggle = card.querySelector('.metadata-card__toggle');
-        const toggleRow = card.querySelector('.metadata-card__toggle-row');
-        if (!content || !toggle || !toggleRow) {
-            return;
-        }
-
-        card.dataset.expandBound = 'true';
-
-        function setExpanded(isExpanded) {
-            card.classList.toggle('is-expanded', isExpanded);
-            content.inert = !isExpanded;
-            toggle.textContent = 'More';
-            toggle.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
-        }
-
-        function collapsedHeightPx() {
-            const cardStyle = getComputedStyle(card);
-            const collapsedHeightVar = Number.parseFloat(
-                cardStyle.getPropertyValue('--metadata-card-collapsed-height').trim()
-            );
-            if (Number.isFinite(collapsedHeightVar) && collapsedHeightVar > 0) {
-                return collapsedHeightVar;
-            }
-
-            const contentMaxHeight = Number.parseFloat(getComputedStyle(content).maxHeight);
-            if (Number.isFinite(contentMaxHeight) && contentMaxHeight > 0) {
-                return contentMaxHeight;
-            }
-
-            return content.scrollHeight;
-        }
-
-        function syncInitialState() {
-            const collapsedHeight = collapsedHeightPx();
-            const shouldCollapse = content.scrollHeight > collapsedHeight + 4;
-
-            if (!shouldCollapse) {
-                setExpanded(true);
-                toggleRow.hidden = true;
-                return;
-            }
-
-            if (card.dataset.expandedOnce === 'true') {
-                setExpanded(true);
-                toggleRow.hidden = true;
-                return;
-            }
-
-            setExpanded(false);
-            toggleRow.hidden = false;
-        }
-
-        toggle.addEventListener('click', function (e) {
-            e.preventDefault();
-            if (card.classList.contains('is-expanded')) {
-                return;
-            }
-
-            card.dataset.expandedOnce = 'true';
-            setExpanded(true);
-            toggleRow.hidden = true;
-        });
-
-        syncInitialState();
-        window.requestAnimationFrame(syncInitialState);
     });
 }
 

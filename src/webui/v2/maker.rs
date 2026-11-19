@@ -203,7 +203,9 @@ mod tests {
             .render("partials/cards/detail_illumination.html.tera", &context)
             .expect("detail illumination should render");
         assert!(detail.contains("Summary text"));
-        assert!(detail.contains("aria-controls=\"capture-detail-summary-7\""));
+        assert!(detail.contains("<details"));
+        assert!(detail.contains("capture-card__details-disclosure"));
+        assert!(detail.contains("Details text"));
         assert!(!detail.contains("Ada Lovelace"));
 
         context.insert("oob", &true);
@@ -212,9 +214,10 @@ mod tests {
             .expect("detail metadata should render");
         assert!(metadata.contains("id=\"capture-metadata-7\""));
         assert!(metadata.contains("hx-swap-oob=\"outerHTML\""));
-        assert!(metadata.contains("id=\"capture-metadata-content-7\""));
         assert!(metadata.contains("Ada Lovelace"));
         assert!(metadata.contains("href=\"/entity/11\""));
+        assert!(metadata.contains("Related searches"));
+        assert!(!metadata.contains("metadata-card"));
 
         let mut empty_context = tera::Context::new();
         empty_context.insert("page_snapshot_at", &"2026-10-22T12:00:00Z");

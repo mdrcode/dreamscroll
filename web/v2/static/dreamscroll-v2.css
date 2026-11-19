@@ -488,6 +488,45 @@ body {
     font-size: var(--font-size-capture-seemore);
 }
 
+.capture-card__title {
+    margin: 0 0 8px;
+    font-size: 1.25rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    line-height: 1.2;
+}
+
+.capture-metadata {
+    margin-top: 10px;
+}
+
+.capture-card__details-disclosure {
+    margin-top: 12px;
+}
+
+.capture-card__details-summary {
+    display: block;
+    width: 100%;
+    text-align: center;
+    cursor: pointer;
+    list-style: none;
+    color: var(--color-text-secondary);
+    text-transform: uppercase;
+    font-size: var(--font-size-capture-seemore);
+}
+
+.capture-card__details-summary::-webkit-details-marker {
+    display: none;
+}
+
+.capture-card__details-summary::marker {
+    content: "";
+}
+
+.capture-card__details-disclosure[open] .capture-card__details-summary {
+    margin-bottom: 10px;
+}
+
 .capture-card__details-panel {
     max-height: 0;
     opacity: 0;
@@ -872,82 +911,6 @@ body {
     line-height: 1.45;
 }
 
-.metadata-card .pill__prefix {
-    font-size: 0.75rem;
-}
-
-.metadata-card .pill__label {
-    font-size: 0.875rem;
-}
-
-.metadata-card {
-    --metadata-card-collapsed-height: 200px;
-}
-
-.metadata-card .capture-card__body {
-    position: relative;
-}
-
-.metadata-card__content {
-    position: relative;
-}
-
-.metadata-card .capture-card__details-panel {
-    max-height: var(--metadata-card-collapsed-height);
-    opacity: 1;
-    overflow: hidden;
-}
-
-.metadata-card:not(.is-expanded) .metadata-card__content::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    height: 84px;
-    background: linear-gradient(to bottom, rgba(242, 239, 233, 0), var(--color-card) 78%);
-    pointer-events: none;
-}
-
-.metadata-card.is-expanded .metadata-card__content {
-    max-height: 2400px;
-    margin-bottom: 0;
-}
-
-.metadata-card .metadata-card__toggle-row {
-    position: absolute;
-    left: 50%;
-    bottom: 2px;
-    transform: translateX(-50%);
-    z-index: 2;
-    margin: 0;
-}
-
-.metadata-card.is-expanded .metadata-card__toggle-row:not([hidden]) {
-    position: static;
-    transform: none;
-    margin: 2px 0 0 0;
-    display: flex;
-    justify-content: center;
-}
-
-.metadata-card .metadata-card__toggle-row[hidden] {
-    display: none;
-}
-
-.metadata-card__toggle {
-    border: 1px solid var(--color-stroke-soft);
-    border-radius: 999px;
-    background: var(--color-canvas);
-    padding: 3px 10px;
-    cursor: pointer;
-}
-
-.metadata-card__toggle:hover {
-    border-color: var(--color-stroke);
-    color: var(--color-text-primary);
-}
-
 .metadata-subsection-title {
     margin: 0 0 6px 0;
     color: var(--color-text-primary);
@@ -958,19 +921,6 @@ body {
 
 .metadata-dict-list+.metadata-subsection-title,
 .pill-group+.metadata-subsection-title {
-    margin-top: 10px;
-}
-
-.capture-detail-disclosure {
-    position: relative;
-    --metadata-card-collapsed-height: 280px;
-}
-
-.capture-detail-disclosure .capture-card__details-panel {
-    transition: none;
-}
-
-.capture-detail-disclosure .capture-card__summary+.capture-card__details {
     margin-top: 10px;
 }
 
@@ -1035,10 +985,6 @@ body {
 
     .related-captures__column {
         gap: 8px;
-    }
-
-    .capture-detail-disclosure {
-        --metadata-card-collapsed-height: 220px;
     }
 
     #header-row {
@@ -1221,11 +1167,6 @@ body {
         width: 45%;
         margin-left: 10px;
         padding: 0;
-    }
-
-    .metadata-card .capture-card__body {
-        width: 100%;
-        margin-left: 0;
     }
 
     .pill-group--scroll {

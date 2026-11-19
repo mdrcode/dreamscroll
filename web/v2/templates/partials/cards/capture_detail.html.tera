@@ -1,6 +1,6 @@
 <article id="capture-card-{{ capture.id }}" data-capture-id="{{ capture.id }}" class="feed-card feed-card--capture capture-card capture-card--detail">
     <div class="card-header">
-        <p class="metadata-subsection-title">Capture {{ capture.id }}</p>
+        <h2 class="capture-card__title">Capture {{ capture.id }} · {{ capture.created_at_human }}</h2>
     </div>
 
     <div class="capture-card__image-container">
@@ -16,7 +16,7 @@
         </div>
 
         {% include "partials/cards/detail_illumination.html.tera" %}
-
+        {% include "partials/cards/capture_metadata.html.tera" %}
     </div>
 
     <div class="card-footer card-footer--detail">
@@ -24,12 +24,9 @@
         <div class="card-footer__meta">
             {% include "partials/cards/capture_archive_action.html.tera" %}
             {% include "partials/cards/annotation_footer_note.html.tera" %}
-            <a class="card-footer__action" href="/capture/{{ capture.id }}" title="{{ capture.created_at }}">{{ capture.created_at_human }}</a>
         </div>
     </div>
 </article>
-
-{% include "partials/cards/capture_metadata.html.tera" %}
 
 <section
     id="related-captures"

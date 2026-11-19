@@ -4,27 +4,16 @@
     data-has-illumination="{% if capture.illuminations | length > 0 %}true{% else %}false{% endif %}">
     {% if capture.illuminations | length > 0 %}
     {% set illum = capture.illuminations | first %}
-    {% set has_details = illum.details %}
 
-    {% if illum.summary or has_details %}
-    <div class="capture-detail-disclosure metadata-card">
-        <div id="capture-detail-summary-{{ capture.id }}" class="metadata-card__content capture-card__details-panel" inert>
-            {% if illum.summary %}
-            <p class="capture-card__summary">{{ illum.summary }}</p>
-            {% endif %}
+    {% if illum.summary %}
+    <p class="capture-card__summary">{{ illum.summary }}</p>
+    {% endif %}
 
-            {% if has_details %}
-            <p class="capture-card__details">{{ illum.details }}</p>
-            {% endif %}
-        </div>
-
-        <div class="capture-card__details-toggle-row metadata-card__toggle-row">
-            <button type="button"
-                class="capture-card__details-toggle metadata-card__toggle"
-                aria-expanded="false"
-                aria-controls="capture-detail-summary-{{ capture.id }}">More</button>
-        </div>
-    </div>
+    {% if illum.details %}
+    <details class="capture-card__details-disclosure">
+        <summary class="capture-card__details-summary">More</summary>
+        <p class="capture-card__details">{{ illum.details }}</p>
+    </details>
     {% endif %}
     {% endif %}
 </div>

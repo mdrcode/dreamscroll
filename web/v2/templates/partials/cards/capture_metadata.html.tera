@@ -1,54 +1,33 @@
-<article id="capture-metadata-{{ capture.id }}"
-    class="feed-card feed-card--capture capture-card metadata-card"
+<section id="capture-metadata-{{ capture.id }}"
+    class="capture-metadata"
     {% if oob | default(value=false) %}hx-swap-oob="outerHTML"{% endif %}>
-    <div class="capture-card__body">
-        <div id="capture-metadata-content-{{ capture.id }}" class="metadata-card__content capture-card__details-panel" inert>
-        {% if capture.illuminations | length > 0 %}
-        {% set illum = capture.illuminations | first %}
+    {% if capture.illuminations | length > 0 %}
+    {% set illum = capture.illuminations | first %}
 
-        {% if illum.observed_entities | length > 0 %}
-        <p class="metadata-subsection-title">Entities</p>
-        <dl class="metadata-dict-list">
-            {% for entity in illum.observed_entities %}
-            <dt>
-                <a class="pill" href="/entity/{{ entity.id }}"{% if entity.description %} title="{{ entity.description }}"{% endif %}>
-                    <span class="pill__prefix">{{ entity.type }}</span>
-                    <span class="pill__label">{{ entity.name }}{% if entity.platform_link %} · {{ entity.platform_link.platform }}{% endif %}</span>
-                </a>
-            </dt>
-            {% if entity.description %}
-            <dd>{{ entity.description }}</dd>
-            {% endif %}
-            {% if entity.platform_link %}
-            <dd>{% if entity.platform_link.display_name %}{{ entity.platform_link.display_name }} {% endif %}({{ entity.platform_link.handle }})</dd>
-            {% endif %}
-            {% if entity.search_query %}
-            <dd><a href="https://www.google.com/search?q={{ entity.search_query | urlencode }}" target="_blank" rel="noopener noreferrer">Canonical search: {{ entity.search_query }}</a></dd>
-            {% endif %}
-            {% endfor %}
-        </dl>
-        {% endif %}
-
-        {% if illum.suggested_searches | length > 0 %}
-        <p class="metadata-subsection-title">Related Searches</p>
-        <div class="pill-group pill-group--wrap pill-group--queries pill-group--stack">
-            {% for query in illum.suggested_searches %}
-            <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" rel="noopener noreferrer" class="pill">
-                <span class="pill__prefix">⌕</span>
-                <span class="pill__label">{{ query }}</span>
-            </a>
-            {% endfor %}
-        </div>
-        {% endif %}
-
-        {% endif %}
-        </div>
-
-        <div class="capture-card__details-toggle-row metadata-card__toggle-row">
-            <button type="button"
-                class="capture-card__details-toggle metadata-card__toggle"
-                aria-expanded="false"
-                aria-controls="capture-metadata-content-{{ capture.id }}">More</button>
-        </div>
+    {% if illum.observed_entities | length > 0 %}
+    <p class="metadata-subsection-title">Entities</p>
+    <div class="pill-group pill-group--wrap capture-metadata__links">
+        {% for entity in illum.observed_entities %}
+        <a class="pill" href="/entity/{{ entity.id }}"{% if entity.description %} title="{{ entity.description }}"{% endif %}>
+            <span class="pill__prefix">{{ entity.type }}</span>
+            <span class="pill__label">{{ entity.name }}</span>
+        </a>
+        {% endfor %}
     </div>
-</article>
+    {% endif %}
+
+    {% if illum.suggested_searches | length > 0 %}
+    <p class="metadata-subsection-title">Related searches</p>
+    <div class="pill-group pill-group--wrap">
+        {% for query in illum.suggested_searches %}
+        <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" rel="noopener noreferrer" class="pill pill--search" title="Search: {{ query }}">
+            <span class="pill__prefix pill__prefix--icon">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="M21 21l-4.35-4.35"></path></svg>
+            </span>
+            <span class="pill__label">{{ query }}</span>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+</section>
