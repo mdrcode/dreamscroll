@@ -119,7 +119,11 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   observed p100 of 97 in the comment), while `user_observed_entities` keeps the raw hint as
   evidence. Add `maxLength` to the illumination schema as a hint, but enforce server-side. A
   cache-key digest is optional defense-in-depth, not the fix: with a bounded hint the key cannot
-  approach the limit.
+  approach the limit. The same outlier check across every illumination field found no other
+  candidate (2026-11-19): names ≤118, handles ≤24, types ≤20, summaries ≤265, descriptions ≤258,
+  arrays ≤10 items / 258 chars, raw content ≤45 KB. `illuminations.details` reaches 2,006 by design
+  (a paragraph, 860 rows over 1,024) and must not be capped — only the field used as a query and a
+  cache key needs the bound.
 - [x] **Unify the heuristic tokenizer.** The linker tokenises with `text::content_tokens`, the
   resolver's own definition, instead of splitting on whitespace. Measured over the full rebuild:
   two link decisions move, both correct merges (`Nintendo` × 2, `The Criterion Collection` × 2), no
