@@ -8,6 +8,12 @@ that privileged DB access already exists in-region (the `dreamscroll-db-sync` jo
 `/cloudsql` socket and the password secret). Every inspection that instead went through a laptop
 proxy, a dumped secret, or ad-hoc SQL is a gap in that tooling, not a fact about Postgres.
 
+**How this relates to [`prod-deploy.md`](prod-deploy.md):** that doc is *normative* — the release path
+and runbook as they exist today, and the place a rule lives. This one is *input*: what the 2026-11-18
+session had to improvise, and the tooling it should have had. When a proposal ships, its recipe moves
+into `prod-deploy.md` (or `gcloud/`) and the proposal is deleted here; when the list is empty this doc
+goes to `plan/archive/`. Never state the same rule in both places — the runbook wins.
+
 ## What the session actually required
 
 | Need | What I did | Cost / risk |
@@ -111,15 +117,11 @@ print the remaining `awaiting identification` count so a slice is self-describin
 - **Sync at service startup.** The explicit job is why every failed jump rolled back with the old
   revision still serving.
 
-## What already worked — keep doing this
+## What already worked
 
-- Checked-in manifests and `prod-apply.sh --check`: the entire config difference was one printed
-  diff, and every apply ended with "no drift".
-- `sync_schema` in a single transaction: three failed attempts on the rehearsal copy and one on prod
-  all rolled back cleanly, marker untouched.
-- The job pattern for privileged DB work: the sync and the in-region graph rebuild both used it.
-- Plan docs as memory: the queue checklist and the rehearsal recipe are why the failure was found
-  before production was touched.
+The release path itself did not need reinvention: checked-in manifests with `prod-apply.sh --check`,
+a single-transaction `sync_schema`, and the job pattern for privileged DB work all earned their keep
+and are documented in `prod-deploy.md`. This doc only adds what was missing around them.
 
 ## Lessons for the next session
 

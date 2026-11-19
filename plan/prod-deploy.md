@@ -1,14 +1,16 @@
 # Production deploy
 
 **Status:** shipped and exercised against production — one-off schema reset, first
-`jobs execute`, first `--apply --web`, an ingress/queue stop-and-restore, and a
-cost-ceiling change. Operating runbook, reset procedure, and schema audits are
-included below. **Updated:** 2026-10-27.
+`jobs execute`, first `--apply --web`, an ingress/queue stop-and-restore, the
+knowledge v2 cutover, and a cost-ceiling change. Operating runbook, reset
+procedure, and schema audits are included below.
 
 **Start here (fresh session):** read this doc, then run
 `./gcloud/prod-apply.sh --check` to see whether production still matches the repo,
 then read `plan/backlog.md` for open work. Verify anything date-specific in the
-environment table — it is a snapshot, not a live query.
+environment table — it is a snapshot, not a live query. Open *proposals* about
+production tooling live in `plan/prod-ops.md`; this doc is the record of what
+exists and how to run it. **Updated:** 2026-11-18.
 
 ## Scope
 
