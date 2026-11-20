@@ -71,8 +71,7 @@
     </div>
 
     <footer class="card-footer">
-        <span class="card-timestamp">Occurrence {{ entity.id }} · {{ capture.created_at_human }}</span>
-        <span class="card-timestamp">{{ ke.status }}{% if ke.confidence %} · confidence {{ ke.confidence | round(precision=2) }}{% endif %}</span>
+        <span class="card-timestamp">#{{ entity.id }} · {{ capture.created_at_human }}</span>
     </footer>
 </article>
 {% else %}
@@ -115,14 +114,14 @@
     </div>
 
     <footer class="card-footer">
-        <span class="card-timestamp">Occurrence {{ entity.id }} · {{ capture.created_at_human }}</span>
+        <span class="card-timestamp">#{{ entity.id }} · {{ capture.created_at_human }}</span>
     </footer>
 </article>
 {% endif %}
 
 {% if siblings | length > 0 %}
 <section class="entity-section" aria-labelledby="entity-siblings-title">
-    <p id="entity-siblings-title" class="metadata-subsection-title">Also in this capture</p>
+    <p id="entity-siblings-title" class="metadata-subsection-title">Occurs With</p>
     <div class="pill-group pill-group--wrap">
         {% for sibling in siblings %}
         <a class="pill" href="/entity/{{ sibling.id }}"{% if sibling.description %} title="{{ sibling.description }}"{% endif %}>

@@ -474,7 +474,6 @@ mod tests {
 
         let rendered = tera.render("entity.html.tera", &context).unwrap();
 
-        assert!(rendered.contains("identified"), "status is shown");
         assert!(
             rendered.contains("[real_person]"),
             "the type sits beside the name"
@@ -484,8 +483,8 @@ mod tests {
             "canonical search leads the single links row"
         );
         assert!(
-            rendered.contains("identified") && rendered.contains("confidence 0.9"),
-            "status and confidence sit in the footer caption"
+            rendered.contains("#11"),
+            "the footer identifies the occurrence by number"
         );
         assert!(
             rendered.contains("https://www.wikidata.org/wiki/Q7259"),
