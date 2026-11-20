@@ -36,6 +36,11 @@ struct CaptureTaskRequest {
     capture_id: i32,
 }
 
+/// Flat wire shape kept for the CLI and existing callers.
+///
+/// The provider fields below are legacy: the task payload already nests them under
+/// `gemini: GeminiInferenceOptions`. The REST shape should be superseded by that same
+/// nested object rather than growing one flat provider flag at a time.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IlluminateTaskRequest {
     pub capture_id: i32,
@@ -45,6 +50,10 @@ pub struct IlluminateTaskRequest {
     pub persist_projection: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub web_search: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_summaries: Option<bool>,
 }
 
 impl Client {
@@ -418,6 +427,8 @@ impl Client {
         thinking_level: Option<llms::gemini::ThinkingLevel>,
         persist_projection: Option<bool>,
         web_search: Option<bool>,
+        store: Option<bool>,
+        thinking_summaries: Option<bool>,
     ) -> anyhow::Result<String> {
         let response = self
             .reqwest_client
@@ -428,6 +439,8 @@ impl Client {
                 thinking_level,
                 persist_projection,
                 web_search,
+                store,
+                thinking_summaries,
             })
             .send()
             .await

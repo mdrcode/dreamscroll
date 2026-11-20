@@ -445,8 +445,12 @@ mod tests {
                 "capture_id": 42,
                 "entity_owner_id": 1,
                 "model_id": "test-model",
-                "persist_projection": true,
-                "web_search": false
+                "gemini": {
+                    "store": false,
+                    "thinking_summaries": false,
+                    "web_search": false
+                },
+                "persist_projection": true
             }))
         );
         assert_eq!(stored.attempts, 0);

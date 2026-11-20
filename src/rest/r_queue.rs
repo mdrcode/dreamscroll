@@ -26,14 +26,19 @@ pub async fn post_illuminate(
     State(state): State<Arc<RestState>>,
     Json(request): Json<IlluminateTaskRequest>,
 ) -> Result<impl IntoResponse, api::ApiError> {
+    let gemini = crate::llms::gemini::GeminiInferenceOptions {
+        thinking_level: request.thinking_level,
+        store: request.store.unwrap_or(false),
+        thinking_summaries: request.thinking_summaries.unwrap_or(false),
+        web_search: request.web_search.unwrap_or(false),
+    };
     let run_id = state
         .user_api
         .enqueue_illumination(
             &user.into(),
             request.capture_id,
-            request.thinking_level,
+            gemini,
             request.persist_projection,
-            request.web_search,
         )
         .await?;
     Ok(accepted_task_run_response(run_id))
@@ -110,6 +115,8 @@ mod tests {
         // Omitted flags defer to IlluminationTask's defaults rather than repeating them here.
         assert_eq!(default.persist_projection, None);
         assert_eq!(default.web_search, None);
+        assert_eq!(default.store, None);
+        assert_eq!(default.thinking_summaries, None);
     }
 
     #[test]

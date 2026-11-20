@@ -134,11 +134,11 @@ impl GeminiInferenceClient {
                 "content": content,
             }]),
         };
-        // Keep user media in Dreamscroll's result storage, not the provider's interaction store.
+        // Media normally stays in Dreamscroll's storage; `store` is a debug opt-in.
         let mut body = json!({
             "model": request.model_id,
             "input": input,
-            "store": false,
+            "store": request.gemini.store,
         });
         let tools = request
             .capabilities
@@ -152,8 +152,11 @@ impl GeminiInferenceClient {
         }
 
         let mut generation_config = json!({ "max_output_tokens": MAX_OUTPUT_TOKENS });
-        if let Some(thinking_level) = request.thinking_level {
+        if let Some(thinking_level) = request.gemini.thinking_level {
             generation_config["thinking_level"] = json!(thinking_level);
+        }
+        if request.gemini.thinking_summaries {
+            generation_config["thinking_summaries"] = json!("auto");
         }
         body["generation_config"] = generation_config;
 
@@ -356,6 +359,7 @@ fn inference_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llms::gemini::GeminiInferenceOptions;
 
     fn developer_api_client() -> GeminiInferenceClient {
         GeminiInferenceClient {
@@ -390,12 +394,16 @@ mod tests {
             (Some(gemini::ThinkingLevel::Medium), Some("medium")),
             (Some(gemini::ThinkingLevel::High), Some("high")),
         ] {
+            let gemini = GeminiInferenceOptions {
+                thinking_level: level,
+                ..Default::default()
+            };
             let request = InferenceRequest {
                 model_id: "model-a",
                 input: &input,
                 response_schema: Some(&schema),
                 capabilities: &capabilities,
-                thinking_level: level,
+                gemini: &gemini,
             };
 
             let body = client.interaction_body(&request).unwrap();
@@ -421,12 +429,13 @@ mod tests {
         let client = developer_api_client();
         let input = [InferenceInput::Text("hello")];
         let capabilities: [InferenceCapability; 0] = [];
+        let gemini = GeminiInferenceOptions::default();
         let request = InferenceRequest {
             model_id: "model-a",
             input: &input,
             response_schema: None,
             capabilities: &capabilities,
-            thinking_level: None,
+            gemini: &gemini,
         };
 
         let body = client.interaction_body(&request).unwrap();
@@ -434,16 +443,63 @@ mod tests {
     }
 
     #[test]
-    fn request_body_rejects_missing_input() {
+    fn request_body_honors_the_store_flag() {
         let client = developer_api_client();
-        let input: [InferenceInput; 0] = [];
+        let input = [InferenceInput::Text("hello")];
         let capabilities: [InferenceCapability; 0] = [];
+        let gemini = GeminiInferenceOptions {
+            store: true,
+            ..Default::default()
+        };
         let request = InferenceRequest {
             model_id: "model-a",
             input: &input,
             response_schema: None,
             capabilities: &capabilities,
-            thinking_level: None,
+            gemini: &gemini,
+        };
+
+        let body = client.interaction_body(&request).unwrap();
+        assert_eq!(body["store"], json!(true));
+    }
+
+    #[test]
+    fn request_body_requests_thinking_summaries() {
+        let client = developer_api_client();
+        let input = [InferenceInput::Text("hello")];
+        let capabilities: [InferenceCapability; 0] = [];
+        let gemini = GeminiInferenceOptions {
+            store: true,
+            thinking_summaries: true,
+            ..Default::default()
+        };
+        let request = InferenceRequest {
+            model_id: "model-a",
+            input: &input,
+            response_schema: None,
+            capabilities: &capabilities,
+            gemini: &gemini,
+        };
+
+        let body = client.interaction_body(&request).unwrap();
+        assert_eq!(
+            body["generation_config"]["thinking_summaries"],
+            json!("auto")
+        );
+    }
+
+    #[test]
+    fn request_body_rejects_missing_input() {
+        let client = developer_api_client();
+        let input: [InferenceInput; 0] = [];
+        let capabilities: [InferenceCapability; 0] = [];
+        let gemini = GeminiInferenceOptions::default();
+        let request = InferenceRequest {
+            model_id: "model-a",
+            input: &input,
+            response_schema: None,
+            capabilities: &capabilities,
+            gemini: &gemini,
         };
 
         assert!(client.interaction_body(&request).is_err());

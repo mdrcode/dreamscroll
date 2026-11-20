@@ -7,6 +7,7 @@
 quota-related, or structural.
 
 Related: `plan/topology_and_throughput.md` (Cloud Run/Cloud SQL budgets),
+`plan/prod-vertex-gemini.md` (provider storage, token budget, thought summaries),
 `plan/archive/google-ai-interactions-api.md` (the client that issues these calls),
 `plan/archive/inference-metadata.md` (where duration/tokens are recorded).
 

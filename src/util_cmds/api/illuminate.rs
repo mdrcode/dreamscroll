@@ -34,6 +34,16 @@ pub struct IlluminateArgs {
     #[argh(description = "let the model use provider web search (default: false)")]
     web_search: Option<bool>,
 
+    #[argh(option, long = "store")]
+    #[argh(description = "persist the provider interaction for debugging (default: false)")]
+    store: Option<bool>,
+
+    #[argh(option, long = "thinking-summaries")]
+    #[argh(
+        description = "request human-readable thought summaries for debugging (default: false)"
+    )]
+    thinking_summaries: Option<bool>,
+
     #[argh(option, long = "wait-seconds", default = "60")]
     #[argh(description = "maximum seconds to wait for task completion (default: 60)")]
     wait_seconds: u64,
@@ -52,6 +62,8 @@ pub async fn run(state: ApiCmdState, args: IlluminateArgs) -> anyhow::Result<()>
             args.thinking_level,
             args.persist_projection,
             args.web_search,
+            args.store,
+            args.thinking_summaries,
         )
         .await?;
     eprintln!("Enqueued TaskRun {run_id}.");
@@ -348,6 +360,8 @@ mod tests {
         let default = parse(&["42"]).unwrap();
         assert_eq!(default.persist_projection, None);
         assert_eq!(default.web_search, None);
+        assert_eq!(default.store, None);
+        assert_eq!(default.thinking_summaries, None);
         assert_eq!(
             parse(&["42", "--persist-projection", "false"])
                 .unwrap()
@@ -356,6 +370,14 @@ mod tests {
         );
         assert_eq!(
             parse(&["42", "--web-search", "true"]).unwrap().web_search,
+            Some(true)
+        );
+        assert_eq!(parse(&["42", "--store", "true"]).unwrap().store, Some(true));
+        assert!(parse(&["42", "--store", "yes"]).is_err());
+        assert_eq!(
+            parse(&["42", "--thinking-summaries", "true"])
+                .unwrap()
+                .thinking_summaries,
             Some(true)
         );
         assert!(parse(&["42", "--web-search", "yes"]).is_err());

@@ -8,6 +8,10 @@ procedure, and schema audits are included below.
 > **Companion doc:** [`plan/prod-ops.md`](prod-ops.md) holds *open proposals* about production
 > tooling — what this runbook lacks and why. Nothing there is procedure: a proposal is real only
 > once it is written here. Read this doc to release; read that one to decide what to build next.
+>
+> **Provider operations:** [`plan/prod-vertex-gemini.md`](prod-vertex-gemini.md) covers Vertex/Gemini
+> storage and retention, the output-token ceiling, thinking, thought-summary retrieval, and schema
+> constraints. Use it when diagnosing production inference.
 
 **Start here (fresh session):** read this doc, then run
 `./gcloud/prod-apply.sh --check` to see whether production still matches the repo,

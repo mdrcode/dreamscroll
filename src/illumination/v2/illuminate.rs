@@ -13,8 +13,7 @@ pub async fn illuminate(
     storage_provider: &dyn storage::StorageProvider,
     capture: &api::CaptureInfo,
     model_id: &str,
-    thinking_level: Option<llms::gemini::ThinkingLevel>,
-    capabilities: &[llms::InferenceCapability],
+    options: &llms::gemini::GeminiInferenceOptions,
 ) -> anyhow::Result<llms::InferenceOutcome<Illumination>> {
     let media = capture
         .medias
@@ -31,6 +30,11 @@ pub async fn illuminate(
         .and_then(|annotation| annotation_hint(&annotation.content));
     let input = input_parts(image.as_ref(), mime_type, note.as_deref());
     let schema = make_schema();
+    let capabilities: &[llms::InferenceCapability] = if options.web_search {
+        &[llms::InferenceCapability::WebSearch]
+    } else {
+        &[]
+    };
     tracing::info!(
         capture.id,
         media.id,
@@ -46,7 +50,7 @@ pub async fn illuminate(
             input: &input,
             response_schema: Some(&schema),
             capabilities,
-            thinking_level,
+            gemini: options,
         })
         .await?;
 

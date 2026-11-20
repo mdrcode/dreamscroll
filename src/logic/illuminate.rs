@@ -9,17 +9,11 @@ pub struct IlluminationTask {
     pub entity_owner_id: i32,
     /// Gemini model selected for this illumination run.
     pub model_id: String,
-    /// Optional reasoning effort override. `None` delegates to Gemini's default, which is
-    /// model-specific (`medium` for `gemini-3.8-flash`, `high` for `gemini-3.1-pro-preview`).
-    /// See <https://ai.google.dev/gemini-api/docs/thinking#thinking-levels>.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub thinking_level: Option<llms::gemini::ThinkingLevel>,
+    /// Provider-specific request controls: thinking level, storage, summaries, grounding.
+    pub gemini: llms::gemini::GeminiInferenceOptions,
     /// Persist the relational projection and enqueue indexing; raw output is always retained.
     /// `new` starts at `true`; `false` is for testing or eval.
     pub persist_projection: bool,
-    /// Enable the provider's web-search tool (Gemini `google_search` grounding).
-    /// Billed per grounded request and roughly 30% slower. `new` starts at `false`.
-    pub web_search: bool,
 }
 
 impl IlluminationTask {
@@ -28,9 +22,8 @@ impl IlluminationTask {
             capture_id,
             entity_owner_id,
             model_id: model_id.into(),
-            thinking_level: None,
+            gemini: llms::gemini::GeminiInferenceOptions::default(),
             persist_projection: true,
-            web_search: false,
         }
     }
 }
@@ -76,20 +69,12 @@ pub async fn exec(
         )));
     };
 
-    // Grounding is the only capability requested today, and the task stores it as a flag.
-    let capabilities: &[llms::InferenceCapability] = if task.web_search {
-        &[llms::InferenceCapability::WebSearch]
-    } else {
-        &[]
-    };
-
     let illumination = illumination::v2::illuminate(
         state.inference_client.as_ref(),
         state.storage.as_ref(),
         &capture,
         &task.model_id,
-        task.thinking_level,
-        capabilities,
+        &task.gemini,
     )
     .await
     .map_err(api::ApiError::internal)?;
@@ -143,13 +128,17 @@ mod tests {
     fn new_tasks_are_projected_and_ungrounded() {
         let task = IlluminationTask::new(7, 1, "m");
         assert!(task.persist_projection);
-        assert!(!task.web_search);
+        assert!(!task.gemini.web_search);
+        assert!(!task.gemini.store);
+        assert!(!task.gemini.thinking_summaries);
 
-        // Both flags are always written, so a queued payload round-trips with no defaults.
+        // The whole task, including options, round-trips as queued work.
         let queued: IlluminationTask =
             serde_json::from_value(serde_json::to_value(&task).unwrap()).unwrap();
         assert!(queued.persist_projection);
-        assert!(!queued.web_search);
+        assert!(!queued.gemini.web_search);
+        assert!(!queued.gemini.store);
+        assert!(!queued.gemini.thinking_summaries);
         assert_eq!(queued.capture_id, 7);
     }
 }

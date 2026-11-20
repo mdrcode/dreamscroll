@@ -20,7 +20,7 @@ pub struct InferenceRequest<'a> {
     pub input: &'a [InferenceInput<'a>],
     pub response_schema: Option<&'a Value>,
     pub capabilities: &'a [InferenceCapability],
-    pub thinking_level: Option<gemini::ThinkingLevel>,
+    pub gemini: &'a gemini::GeminiInferenceOptions,
 }
 
 #[derive(Debug)]

@@ -56,7 +56,7 @@ pub async fn illuminate(
     let context_user = auth.user.unwrap().into();
     state
         .user_api
-        .enqueue_illumination(&context_user, capture_id, None, None, None)
+        .enqueue_illumination(&context_user, capture_id, Default::default(), None)
         .await?;
     Ok(StatusCode::ACCEPTED)
 }

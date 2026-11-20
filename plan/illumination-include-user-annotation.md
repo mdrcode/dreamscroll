@@ -1,8 +1,8 @@
 # Illumination: include the owner's annotation
 
 **Status:** implemented and locally evaluated 2026-11-20 on `illumination-annotation`.
-Prompt `capture_illumination_v2.1` → `v2.3`; the four-capture eval ran on `v2.2`, and `v2.3` only
-tightens the owner-note wording.
+Prompt `capture_illumination_v2.1` → `v2.4`; the four-capture eval ran on `v2.2`, `v2.3` tightens
+the owner-note wording, and `v2.4` adds the 4,000-character soft cap on `details`.
 
 A wrong reading has no correction path today. The model sees the image, decides what it is, and a
 rerun sees exactly the same input. The user can annotate a capture, but that note never reaches
@@ -15,8 +15,9 @@ illumination. This change feeds the note back as a hint without letting it becom
 3. User requests a rerun (`POST /api/queues/illuminate`, or the CLI).
 4. The rerun appends a reading with the note in the prompt. The capture page shows the latest.
 
-No new endpoint, table, or task field. The note is already part of `CaptureInfo`, and the worker's
-`get_captures` load already fetches it.
+No new endpoint or table. The note is already part of `CaptureInfo`, and the worker's `get_captures`
+load already fetches it. (The `store` / `thinking_summaries` task fields are debug-only and separate
+from this feature.)
 
 ## Decisions
 
@@ -42,10 +43,14 @@ the two-part form it was before.
 
 ## Version
 
-`PROMPT_VERSION` is now `capture_illumination_v2.3`. It is recorded in
-`inference_meta.params.prompt_version`, so the eval can separate readings made before and after the
-change. The eval ran on `v2.2`; the wording review that produced `v2.3` changed no behavior, but a
-prompt version should name one exact prompt, so it got its own bump.
+`PROMPT_VERSION` is now `capture_illumination_v2.4`. It is recorded in
+`inference_meta.params.prompt_version`, so the eval can separate runs made before and after each
+change. The eval ran on `v2.2`; `v2.3` tightened the owner-note wording without changing behavior;
+`v2.4` adds the `details` soft cap. A prompt version should name one exact prompt, so each wording
+change gets its own bump.
+
+Provider behavior (storage, retention, token ceiling, thought summaries) is documented in
+`plan/prod-vertex-gemini.md`.
 
 ## Eval set
 

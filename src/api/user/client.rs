@@ -503,21 +503,17 @@ impl UserApiClient {
         &self,
         context: &auth::Context,
         capture_id: i32,
-        thinking_level: Option<llms::gemini::ThinkingLevel>,
+        gemini: llms::gemini::GeminiInferenceOptions,
         persist_projection: Option<bool>,
-        web_search: Option<bool>,
     ) -> Result<String, ApiError> {
         // Archived captures remain the owner's data and stay re-illuminatable from their detail
         // page; `get_capture` includes them.
         let capture = super::get_capture(&self.db, context, capture_id).await?;
 
         let mut task = self.illumination_task(capture_id, capture.user_id)?;
-        task.thinking_level = thinking_level;
+        task.gemini = gemini;
         if let Some(persist_projection) = persist_projection {
             task.persist_projection = persist_projection;
-        }
-        if let Some(web_search) = web_search {
-            task.web_search = web_search;
         }
         match self
             .task_master

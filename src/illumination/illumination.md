@@ -1,7 +1,10 @@
 # illumination: one image, one structured reading
 
-Status: v2, prompt `capture_illumination_v2.3`. Implemented in `v2/`; called only through
+Status: v2, prompt `capture_illumination_v2.4`. Implemented in `v2/`; called only through
 `logic::illuminate::exec` on the illumination worker.
+
+Provider behavior — endpoints, `store`, retention, the output-token ceiling, and thought-summary
+retrieval — lives in [`plan/prod-vertex-gemini.md`](../../plan/prod-vertex-gemini.md).
 
 Illumination turns a capture's image into a summary, a description, suggested searches, and the
 entities a knowledge graph can link. It is one inference call per attempt. The module owns the
@@ -76,8 +79,8 @@ fields therefore survive into `illumination_raw` even when the typed projection 
 
 ## Prompt versions
 
-`PROMPT_VERSION` names the prompt that produced a reading. Bump the minor (`v2.2` → `v2.3`) when
-the wording, examples, or input framing change; bump the major only if the response contract
+`PROMPT_VERSION` names the prompt that produced an illumination. Bump the minor (`v2.3` → `v2.4`)
+when the wording, examples, or input framing change; bump the major only if the response contract
 changes. The version travels on every inference row, so old and new readings of the same capture
 remain distinguishable after a rerun.
 
