@@ -387,6 +387,7 @@ mod tests {
                 "description": "Mathematician"
             }]),
         );
+        context.insert("co_occurrences", &serde_json::json!([]));
 
         let rendered = tera.render("entity.html.tera", &context).unwrap();
 
@@ -471,6 +472,21 @@ mod tests {
             ]),
         );
         context.insert("siblings", &serde_json::json!([]));
+        context.insert(
+            "co_occurrences",
+            &serde_json::json!([{
+                "id": 13,
+                "type": "real_person",
+                "name": "Grace Hopper",
+                "knowledge_entity": {
+                    "id": 9,
+                    "name": "Grace Hopper",
+                    "entity_type": "real_person",
+                    "status": "identified",
+                    "identities": []
+                }
+            }]),
+        );
 
         let rendered = tera.render("entity.html.tera", &context).unwrap();
 
@@ -493,6 +509,12 @@ mod tests {
         assert!(
             rendered.contains("Augusta Ada King"),
             "alternate names are surfaced"
+        );
+        assert!(
+            rendered.contains("Occurs With")
+                && rendered.contains("href=\"/entity/13\"")
+                && rendered.contains("Grace Hopper"),
+            "co-occurrences from other readings join the same section"
         );
         assert!(
             !rendered.contains("This capture said"),

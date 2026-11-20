@@ -260,6 +260,23 @@ impl UserApiClient {
             .collect())
     }
 
+    /// One-hop co-occurrences across the caller's member readings of an entity.
+    #[tracing::instrument(skip(self, context))]
+    pub async fn get_entity_co_occurrences(
+        &self,
+        context: &auth::Context,
+        knowledge_entity_id: i32,
+        excluded_knowledge_entity_ids: &[i32],
+    ) -> Result<Vec<schema::ObservedEntityInfo>, ApiError> {
+        super::entity_co_occurrences(
+            &self.db,
+            context,
+            knowledge_entity_id,
+            excluded_knowledge_entity_ids,
+        )
+        .await
+    }
+
     #[tracing::instrument(skip(self, context))]
     pub async fn get_entities_by_type(
         &self,

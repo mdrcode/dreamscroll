@@ -139,6 +139,110 @@ pub async fn superseded_capture_id(
     Ok(capture_id)
 }
 
+/// Every knowledge entity that shares a reading with one of the caller's observations of this entity.
+///
+/// One hop: the union over all current member readings of the entity, across the caller's captures.
+/// The opened capture's siblings are handled separately by the page (they come first); this returns
+/// the rest, one observation per knowledge entity, sorted by name. Excluded ids are entities already
+/// shown as current-capture siblings.
+pub async fn entity_co_occurrences(
+    db: &DbHandle,
+    context: &auth::Context,
+    knowledge_entity_id: i32,
+    excluded_knowledge_entity_ids: &[i32],
+) -> Result<Vec<ObservedEntityInfo>, ApiError> {
+    let member_readings: Vec<i32> = model::user_observed_entity::Entity::find()
+        .inner_join(model::capture::Entity)
+        .select_only()
+        .column(model::user_observed_entity::Column::IlluminationId)
+        .filter(model::user_observed_entity::Column::UserId.eq(context.user_id()))
+        .filter(model::user_observed_entity::Column::KnowledgeEntityId.eq(knowledge_entity_id))
+        .filter(model::capture::Column::ArchivedAt.is_null())
+        .filter(
+            Expr::col(model::user_observed_entity::Column::IlluminationId)
+                .in_subquery(current_illumination()),
+        )
+        .into_tuple()
+        .all(&db.conn)
+        .await?;
+
+    if member_readings.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Newest observation per knowledge entity, so a merged-away pointer settles on what the view
+    // currently serves. The member reading's own observation is excluded: `$ke` is the subject.
+    let rows: Vec<(i32, Option<i32>)> = model::user_observed_entity::Entity::find()
+        .select_only()
+        .column(model::user_observed_entity::Column::Id)
+        .column(model::user_observed_entity::Column::KnowledgeEntityId)
+        .filter(model::user_observed_entity::Column::UserId.eq(context.user_id()))
+        .filter(model::user_observed_entity::Column::IlluminationId.is_in(member_readings))
+        .filter(model::user_observed_entity::Column::KnowledgeEntityId.is_not_null())
+        .filter(model::user_observed_entity::Column::KnowledgeEntityId.ne(knowledge_entity_id))
+        .order_by_desc(model::user_observed_entity::Column::Id)
+        .into_tuple()
+        .all(&db.conn)
+        .await?;
+
+    let excluded: HashSet<i32> = excluded_knowledge_entity_ids.iter().copied().collect();
+    let mut representatives: HashMap<i32, i32> = HashMap::new();
+    for (observation_id, related_entity_id) in rows {
+        let Some(related_entity_id) = related_entity_id else {
+            continue;
+        };
+        if excluded.contains(&related_entity_id) {
+            continue;
+        }
+        representatives
+            .entry(related_entity_id)
+            .or_insert(observation_id);
+    }
+
+    if representatives.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let observations = model::user_observed_entity::Entity::find()
+        .filter(
+            model::user_observed_entity::Column::Id
+                .is_in(representatives.values().copied().collect::<Vec<_>>()),
+        )
+        .filter(model::user_observed_entity::Column::UserId.eq(context.user_id()))
+        .filter(
+            Expr::col(model::user_observed_entity::Column::IlluminationId)
+                .in_subquery(current_illumination()),
+        )
+        .all(&db.conn)
+        .await?;
+
+    let knowledge = knowledge_entity_infos(
+        db,
+        observations
+            .iter()
+            .filter_map(|observation| observation.knowledge_entity_id),
+    )
+    .await?;
+
+    let mut infos: Vec<ObservedEntityInfo> = observations
+        .into_iter()
+        .map(|observation| {
+            let knowledge_entity = observation
+                .knowledge_entity_id
+                .and_then(|id| knowledge.get(&id))
+                .cloned();
+            ObservedEntityInfo::new(observation.into(), None, knowledge_entity)
+        })
+        .collect();
+    infos.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    Ok(infos)
+}
+
 /// The caller's current observations of one entity, one per capture, clicked first.
 ///
 /// Pairs rather than wire rows: the card needs a capture preview, which needs storage, so the
@@ -555,6 +659,83 @@ mod tests {
             pairs,
             vec![(clicked, second), (first_later, first)],
             "the clicked occurrence leads, one card per capture, newest reading within it"
+        );
+    }
+
+    #[tokio::test]
+    async fn co_occurrences_union_the_member_readings() {
+        db_or_skip!(db);
+        let user = fixtures::user(&db, "co_occurrences").await;
+        let subject = knowledge_entity(&db, "Subject", None, None).await;
+        let alpha = knowledge_entity(&db, "Alpha", None, None).await;
+        let beta = knowledge_entity(&db, "Beta", None, None).await;
+        let gamma = knowledge_entity(&db, "Gamma", None, None).await;
+
+        let first = fixtures::capture(&db, user).await;
+        let first_illumination = fixtures::illumination(&db, user, first).await;
+        let first_reading = fixtures::Capture {
+            user_id: user,
+            capture_id: first,
+            illumination_id: first_illumination,
+        };
+        fixtures::attached(&db, &first_reading, 0, "Subject", None, "unknown", subject).await;
+        fixtures::attached(&db, &first_reading, 1, "Alpha", None, "unknown", alpha).await;
+
+        let second = fixtures::capture(&db, user).await;
+        let second_illumination = fixtures::illumination(&db, user, second).await;
+        let second_reading = fixtures::Capture {
+            user_id: user,
+            capture_id: second,
+            illumination_id: second_illumination,
+        };
+        fixtures::attached(&db, &second_reading, 0, "Subject", None, "unknown", subject).await;
+        fixtures::attached(&db, &second_reading, 1, "Beta", None, "unknown", beta).await;
+
+        // Another user's capture must not leak into the caller's union.
+        let stranger = fixtures::user(&db, "co_occurrences_other").await;
+        let stranger_capture = fixtures::capture(&db, stranger).await;
+        let stranger_illumination = fixtures::illumination(&db, stranger, stranger_capture).await;
+        let stranger_reading = fixtures::Capture {
+            user_id: stranger,
+            capture_id: stranger_capture,
+            illumination_id: stranger_illumination,
+        };
+        fixtures::attached(
+            &db,
+            &stranger_reading,
+            0,
+            "Subject",
+            None,
+            "unknown",
+            subject,
+        )
+        .await;
+        fixtures::attached(&db, &stranger_reading, 1, "Gamma", None, "unknown", gamma).await;
+
+        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user));
+        let union = entity_co_occurrences(&db, &context, subject, &[])
+            .await
+            .unwrap();
+        assert_eq!(
+            union
+                .iter()
+                .map(|info| info.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Alpha", "Beta"],
+            "both of the caller's readings contribute, sorted by name"
+        );
+        assert!(union.iter().all(|info| info.knowledge_entity.is_some()));
+
+        let remaining = entity_co_occurrences(&db, &context, subject, &[alpha])
+            .await
+            .unwrap();
+        assert_eq!(
+            remaining
+                .iter()
+                .map(|info| info.name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Beta"],
+            "entities already shown as current-capture siblings are excluded"
         );
     }
 }

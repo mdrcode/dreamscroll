@@ -119,7 +119,7 @@
 </article>
 {% endif %}
 
-{% if siblings | length > 0 %}
+{% if siblings | length > 0 or co_occurrences | length > 0 %}
 <section class="entity-section" aria-labelledby="entity-siblings-title">
     <p id="entity-siblings-title" class="metadata-subsection-title">Occurs With</p>
     <div class="pill-group pill-group--wrap">
@@ -127,6 +127,17 @@
         <a class="pill" href="/entity/{{ sibling.id }}"{% if sibling.description %} title="{{ sibling.description }}"{% endif %}>
             <span class="pill__prefix">{{ sibling.type }}</span>
             <span class="pill__label">{{ sibling.name }}</span>
+        </a>
+        {% endfor %}
+        {% for related in co_occurrences %}
+        <a class="pill" href="/entity/{{ related.id }}"{% if related.description %} title="{{ related.description }}"{% endif %}>
+            {% if related.knowledge_entity %}
+            <span class="pill__prefix">{{ related.knowledge_entity.entity_type }}</span>
+            <span class="pill__label">{{ related.knowledge_entity.name }}</span>
+            {% else %}
+            <span class="pill__prefix">{{ related.type }}</span>
+            <span class="pill__label">{{ related.name }}</span>
+            {% endif %}
         </a>
         {% endfor %}
     </div>

@@ -84,12 +84,29 @@ pub async fn get(
         })
         .unwrap_or_default();
 
+    // One-hop co-occurrences from every reading of the entity, minus what the opened capture
+    // already shows as siblings.
+    let sibling_entities: Vec<i32> = siblings
+        .iter()
+        .filter_map(|sibling| sibling.knowledge_entity.as_ref().map(|known| known.id))
+        .collect();
+    let co_occurrences = match &entity.knowledge_entity {
+        Some(known) => {
+            state
+                .user_api
+                .get_entity_co_occurrences(&context_user, known.id, &sibling_entities)
+                .await?
+        }
+        None => Vec::new(),
+    };
+
     let mut context = state.template_context();
     context.insert("page_kind", &"entity_detail");
     context.insert("entity", &entity);
     context.insert("descriptions", &descriptions);
     context.insert("capture", &capture);
     context.insert("occurrences", &occurrences);
+    context.insert("co_occurrences", &co_occurrences);
     context.insert("siblings", &siblings);
 
     let rendered = state.render("entity.html.tera", &context)?;
