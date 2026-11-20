@@ -507,13 +507,9 @@ impl UserApiClient {
         persist_projection: Option<bool>,
         web_search: Option<bool>,
     ) -> Result<String, ApiError> {
-        let captures = super::get_captures(&self.db, context, vec![capture_id]).await?;
-        let Some(capture) = captures.first() else {
-            return Err(ApiError::not_found(anyhow!(
-                "Capture with id {} not found or access denied",
-                capture_id
-            )));
-        };
+        // Archived captures remain the owner's data and stay re-illuminatable from their detail
+        // page; `get_capture` includes them.
+        let capture = super::get_capture(&self.db, context, capture_id).await?;
 
         let mut task = self.illumination_task(capture_id, capture.user_id)?;
         task.thinking_level = thinking_level;

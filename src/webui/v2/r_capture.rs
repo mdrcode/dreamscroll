@@ -3,6 +3,7 @@ use std::sync::Arc;
 use axum::{
     Form,
     extract::{Path, State},
+    http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
 };
 use axum_login::AuthSession;
@@ -32,6 +33,7 @@ pub async fn get(
     context.insert("page_snapshot_at", &page_snapshot_at);
     context.insert("feed_content_mode", "detail");
     context.insert("capture", &capture);
+    context.insert("always_show_reilluminate", &true);
     context.insert("show_archive_actions", &true);
     // Archiving or unarchiving here leaves the user on the same page, with the
     // action flipped.
@@ -40,6 +42,23 @@ pub async fn get(
     let rendered = state.render("capture.html.tera", &context)?;
 
     Ok(Html(rendered).into_response())
+}
+
+/// Enqueue a fresh illumination for a capture the session user owns.
+///
+/// A run already in flight comes back as 409; the client treats that as "already running"
+/// rather than an error.
+pub async fn illuminate(
+    auth: AuthSession<auth::WebAuthBackend>,
+    State(state): State<Arc<WebState>>,
+    Path(capture_id): Path<i32>,
+) -> Result<StatusCode, api::ApiError> {
+    let context_user = auth.user.unwrap().into();
+    state
+        .user_api
+        .enqueue_illumination(&context_user, capture_id, None, None, None)
+        .await?;
+    Ok(StatusCode::ACCEPTED)
 }
 
 #[derive(Debug, Deserialize)]

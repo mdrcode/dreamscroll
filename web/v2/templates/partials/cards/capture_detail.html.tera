@@ -23,6 +23,9 @@
         {% include "partials/cards/annotation_block.html.tera" %}
         <div class="card-footer__meta">
             {% include "partials/cards/capture_archive_action.html.tera" %}
+            <div class="card-footer__middle">
+                {% include "partials/cards/reilluminate_action.html.tera" %}
+            </div>
             {% include "partials/cards/annotation_footer_note.html.tera" %}
         </div>
     </div>

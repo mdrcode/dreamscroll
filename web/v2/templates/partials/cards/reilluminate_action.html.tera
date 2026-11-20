@@ -1,0 +1,5 @@
+<button
+    type="button"
+    class="card-footer__action"
+    data-reilluminate
+    data-capture-id="{{ capture.id }}">re-illuminate</button>

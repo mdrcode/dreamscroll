@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', function () {
     setupRelatedCapturesGallery(document);
     setupSearchClearOnSlashCommand();
     setupAnnotationEditorCaret(document);
+    setupReilluminate();
     setupUploadInteractions();
 
     // htmx:load fires for content inserted by a swap (including the outerHTML
@@ -96,6 +97,9 @@ function setupTaskStatusEvents() {
         if (window.dreamscrollTaskProgress) {
             window.dreamscrollTaskProgress.accept(update);
         }
+        document.dispatchEvent(new CustomEvent('dreamscroll:capture-illumination-status', {
+            detail: update
+        }));
         if (!isRefreshWorthyTaskStatus(update.payload.status)) {
             return;
         }
@@ -158,11 +162,13 @@ function setupTaskStatusEvents() {
             || status.name === 'complete_failure';
     }
 
+    // Every rendered capture, not only unilluminated or rerun-eligible cards: a
+    // capture with an existing illumination can have a run in flight, and the
+    // page that started it may be gone. Catch-up is how the client learns that.
     function captureIdsForCatchup() {
         const captureIds = new Set();
         document.querySelectorAll('[data-capture-id]').forEach(function (card) {
-            const illumination = card.querySelector('.capture-card__illumination');
-            if (card.dataset.captureId && (!illumination || illumination.dataset.hasIllumination !== 'true')) {
+            if (card.dataset.captureId) {
                 captureIds.add(card.dataset.captureId);
             }
         });
@@ -183,6 +189,7 @@ function setupTaskStatusEvents() {
     let foregroundTimer = null;
     let heartbeatTimer = null;
     let lastHeartbeatAt = null;
+    let progressWatchTimer = null;
     let source = null;
     let lastActivityAt = Date.now();
 
@@ -301,8 +308,24 @@ function setupTaskStatusEvents() {
         }
     }
 
+    // Armed only while a progress bar exists; the timer clears itself once the
+    // last state is gone. A visible bar is a reason to keep status flowing, so
+    // reconnect if the stream expired or a restart killed it.
+    function watchProgress() {
+        if (progressWatchTimer !== null) return;
+        progressWatchTimer = window.setInterval(function () {
+            if (!window.dreamscrollTaskProgress || !window.dreamscrollTaskProgress.hasActive()) {
+                window.clearInterval(progressWatchTimer);
+                progressWatchTimer = null;
+                return;
+            }
+            recordActivity('progress watchdog');
+        }, 10000);
+    }
+
     window.dreamscrollTaskStatusEvents = {
-        ensureConnected: recordActivity
+        ensureConnected: recordActivity,
+        watchProgress: watchProgress
     };
 
     // pointerover counts meaningful hover/entry without the high event rate of pointermove.
@@ -321,7 +344,6 @@ function setupTaskStatusEvents() {
     lastActivityAt = Date.now();
     armIdleClose();
     connectNow();
-
 }
 
 // Client-side estimated progress, scoped to each capture card. The percentage
@@ -345,6 +367,9 @@ function setupTaskProgress() {
     function show(captureId, label, indeterminate, showBar, percent) {
         const elements = elementsFor(captureId);
         if (!elements || !elements.bar || !elements.text) return;
+        if (window.dreamscrollTaskStatusEvents) {
+            window.dreamscrollTaskStatusEvents.watchProgress();
+        }
         elements.wrap.hidden = false;
         elements.wrap.classList.toggle('is-indeterminate', indeterminate);
         elements.wrap.classList.toggle('is-message-only', !showBar);
@@ -497,8 +522,74 @@ function setupTaskProgress() {
             states.forEach(function (state, captureId) {
                 renderState(captureId, state);
             });
+        },
+        hasActive: function () {
+            return states.size > 0;
         }
     };
+}
+
+function setupReilluminate() {
+    document.addEventListener('click', function (event) {
+        const button = event.target.closest('[data-reilluminate]');
+        if (!button || button.disabled) return;
+        event.preventDefault();
+        reilluminate(button);
+    });
+
+    // The footer note is not part of the SSE illumination swap, so terminal task
+    // statuses re-enable (or drop) the button here.
+    document.addEventListener('dreamscroll:capture-illumination-status', function (event) {
+        const update = event.detail;
+        if (!update || !update.payload || !update.payload.status) return;
+        const status = update.payload.status.name;
+        const selector = '[data-reilluminate][data-capture-id="' + update.entity_id + '"]';
+
+        if (status === 'queued' || status === 'in_progress' || status === 'error_will_retry') {
+            document.querySelectorAll(selector).forEach(function (button) {
+                button.disabled = true;
+                button.setAttribute('aria-busy', 'true');
+            });
+            return;
+        }
+
+        document.querySelectorAll(selector).forEach(function (button) {
+            // A retry button exists only because there was no illumination. Once one
+            // lands, the action no longer makes sense; a note-backed button stays.
+            if (status === 'complete_success' && button.hasAttribute('data-reilluminate-retry')) {
+                button.remove();
+                return;
+            }
+            button.disabled = false;
+            button.removeAttribute('aria-busy');
+        });
+    });
+}
+
+async function reilluminate(button) {
+    const captureId = button.dataset.captureId;
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+
+    try {
+        const response = await fetch('/capture/' + encodeURIComponent(captureId) + '/illuminate', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json' }
+        });
+        // 409 means a run is already in flight; stay attached to it.
+        if (response.ok || response.status === 409) {
+            if (window.dreamscrollTaskProgress) {
+                window.dreamscrollTaskProgress.start(captureId);
+            }
+            return;
+        }
+        throw new Error('re-illuminate request failed: ' + response.status);
+    } catch (_error) {
+        button.disabled = false;
+        button.removeAttribute('aria-busy');
+        button.title = 'Could not start illumination. Try again.';
+    }
 }
 
 function setupAnnotationEditorCaret(rootNode) {

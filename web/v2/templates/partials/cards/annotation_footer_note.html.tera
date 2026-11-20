@@ -3,12 +3,25 @@
     class="card-footer__note"
     {% if oob | default(value=false) %}hx-swap-oob="outerHTML"{% endif %}>
     {% set is_annotation_editing = annotation_editing | default(value=false) %}
-    {% if not capture.annotation and not is_annotation_editing %}
+    {% set always_show = always_show_reilluminate | default(value=false) %}
+    {% set has_note = capture.annotation %}
+    {% set no_illumination = capture.illuminations | length == 0 %}
+    {% set show_reilluminate = always_show or has_note or no_illumination %}
+    {% if not is_annotation_editing %}
+    {% if not has_note %}
     <button
         type="button"
         class="card-footer__action"
         hx-get="/annotation/{{ capture.id }}/form"
         hx-target="#annotation-block-{{ capture.id }}"
         hx-swap="outerHTML">add note</button>
+    {% endif %}
+    {% if show_reilluminate and not always_show %}
+    <button
+        type="button"
+        class="card-footer__action"
+        data-reilluminate{% if not has_note and no_illumination %} data-reilluminate-retry{% endif %}
+        data-capture-id="{{ capture.id }}">re-illuminate</button>
+    {% endif %}
     {% endif %}
 </div>

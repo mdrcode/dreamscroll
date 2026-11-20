@@ -539,6 +539,7 @@ body {
 .card-footer__note {
     display: flex;
     align-items: center;
+    gap: 12px;
     min-height: 1.1rem;
 }
 
@@ -571,6 +572,12 @@ body {
     text-decoration: underline;
 }
 
+.card-footer__action:disabled {
+    cursor: default;
+    opacity: 0.6;
+    text-decoration: none;
+}
+
 .card-footer--detail {
     display: flex;
     flex-direction: column;
@@ -578,10 +585,28 @@ body {
 }
 
 .card-footer--detail .card-footer__meta {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
     width: 100%;
+}
+
+.card-footer--detail .card-footer__meta > .card-footer__archive-form {
+    justify-self: start;
+}
+
+.card-footer--detail .card-footer__meta > .card-footer__note {
+    justify-self: end;
+}
+
+.card-footer__middle {
+    display: flex;
+    justify-content: center;
+}
+
+/* The note editor is open: a rerun would use the saved note, not the draft. */
+.capture-card:has(.capture-card__annotation-form) .card-footer__middle {
+    display: none;
 }
 
 .capture-card__annotation-block {

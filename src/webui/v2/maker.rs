@@ -95,6 +95,7 @@ pub fn make_ui_router(
         .route("/", get(r_feed::page))
         .route("/archived", get(r_archived::page))
         .route("/capture/{id}", get(r_capture::get))
+        .route("/capture/{id}/illuminate", post(r_capture::illuminate))
         .route("/capture/{id}/archive", post(r_capture::archive))
         .route("/capture/{id}/unarchive", post(r_capture::unarchive))
         .route("/entity/{id}", get(r_entity::get))
@@ -142,7 +143,99 @@ pub fn make_ui_router(
 
 #[cfg(test)]
 mod tests {
+    use serde_json::json;
+
     use super::load_templates;
+
+    #[test]
+    fn feed_footer_keeps_reilluminate_contextual() {
+        let tera = load_templates().expect("all v2 templates should load");
+        let render = |capture: serde_json::Value, always: bool| {
+            let mut context = tera::Context::new();
+            context.insert("capture", &capture);
+            context.insert("always_show_reilluminate", &always);
+            tera.render("partials/cards/annotation_footer_note.html.tera", &context)
+                .expect("footer note should render")
+        };
+
+        // The detail surface renders the action in its middle slot instead.
+        let html = render(
+            json!({"id": 7, "annotation": null, "illuminations": [{}]}),
+            true,
+        );
+        assert!(html.contains("add note"));
+        assert!(!html.contains("data-reilluminate"));
+
+        let html = render(
+            json!({"id": 7, "annotation": {"content": "a note"}, "illuminations": [{}]}),
+            true,
+        );
+        assert!(!html.contains("add note"));
+        assert!(!html.contains("data-reilluminate"));
+
+        let html = render(
+            json!({"id": 7, "annotation": {"content": "a note"}, "illuminations": [{}]}),
+            false,
+        );
+        assert!(html.contains("data-reilluminate"));
+        assert!(!html.contains("add note"));
+
+        let html = render(
+            json!({"id": 7, "annotation": null, "illuminations": [{}]}),
+            false,
+        );
+        assert!(html.contains("add note"));
+        assert!(!html.contains("data-reilluminate"));
+
+        let html = render(
+            json!({"id": 7, "annotation": null, "illuminations": []}),
+            false,
+        );
+        assert!(html.contains("add note"));
+        assert!(html.contains("data-reilluminate-retry"));
+    }
+
+    #[test]
+    fn capture_detail_centers_reilluminate_and_keeps_add_note_right() {
+        let tera = load_templates().expect("all v2 templates should load");
+        let mut context = tera::Context::new();
+        context.insert("static_asset_version", &"test");
+        context.insert("max_upload_bytes", &12_582_912usize);
+        context.insert("page_kind", &"capture_detail");
+        context.insert("feed_content_mode", &"detail");
+        context.insert("page_snapshot_at", &"2026-10-22T12:00:00Z");
+        context.insert("show_archive_actions", &true);
+        context.insert("archive_return_to", &"/capture/7");
+        context.insert("always_show_reilluminate", &true);
+        context.insert(
+            "capture",
+            &json!({
+                "id": 7,
+                "medias": [{ "url": "https://example.com/image.jpg", "storage_uuid": "abc" }],
+                "illuminations": [{
+                    "observed_entities": [],
+                    "suggested_searches": []
+                }],
+                "annotation": null,
+                "created_at": "2026-10-22T12:00:00Z",
+                "created_at_human": "now"
+            }),
+        );
+
+        let html = tera.render("capture.html.tera", &context).unwrap();
+        let middle = html.find("card-footer__middle").expect("middle slot");
+        let button = html.find("data-reilluminate").expect("rerun action");
+        let note = html.find("annotation-footer-note-7").expect("footer note");
+
+        assert!(
+            middle < button && button < note,
+            "the action sits between archive and the footer note"
+        );
+        assert!(html.contains(">re-illuminate</button>"));
+        let note_html = &html[note..];
+        assert!(note_html.contains("add note"));
+        assert!(!note_html.contains("data-reilluminate"));
+    }
 
     #[test]
     fn html_templates_escape_untrusted_content() {

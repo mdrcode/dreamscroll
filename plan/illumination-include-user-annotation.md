@@ -103,9 +103,23 @@ prompt edit weakening the wrapper, since free-text trust has no deterministic en
 annotations ever become shareable between users, the threat model changes from self-injection to
 cross-user injection and this matrix should be rerun.
 
+## UI affordance
+
+`re-illuminate` is a footer action (`annotation_footer_note.html.tera`) that posts to
+`POST /capture/{id}/illuminate`; the route enqueues through `UserApiClient::enqueue_illumination`
+and returns `202`. A run already in flight is `409`, which the client treats as "already running".
+
+- The capture detail page always shows it.
+- Feed cards show it when a note exists or when there is no illumination yet (the failed-first-run
+  retry case).
+- Archived captures keep working; archiving hides a capture from feeds, it does not freeze it.
+- Task/progress state stays client-owned: the footer renders only from durable facts (note,
+  illumination, archived), and the SSE catch-up tells the client whether to disable the action.
+  Catch-up seeds every rendered capture, so navigating away mid-run still shows the progress bar on
+  the destination page.
+
 ## Deliberately not in scope
 
-- A UI rerun button. Reruns remain API/CLI-only for now.
 - Annotation-aware prompts for Spark or other inference flows.
 - Structured annotations (regions, masks, per-entity notes).
 - Automatic rerun after annotation.
