@@ -8,7 +8,7 @@ use sea_orm::{
 use super::illuminate_v2_backfill::ILLUMINATE_V2_BACKFILL_ID;
 use super::*;
 use crate::test_support::db_or_skip;
-use crate::{api, auth, database, illumination, logic, model, task};
+use crate::{api, auth, database, logic, model, task};
 
 fn admin_context() -> auth::Context {
     auth::Context::from(auth::DreamscrollAuthUser::new_test_jwt(
@@ -198,12 +198,7 @@ async fn live_refusal_stays_eligible_and_status_includes_only_tagged_task_types(
     let master = Arc::new(task::TaskMaster::builder().db(db.clone()).build().unwrap());
     let client = api::AdminApiClient::new(db.clone(), master.clone());
     let context = admin_context();
-    let task = logic::illuminate::IlluminationTask::new(
-        1,
-        1,
-        "test-model",
-        illumination::IlluminationVersion::V2,
-    );
+    let task = logic::illuminate::IlluminationTask::new(1, 1, "test-model");
     let task::SubmitOutcome::Enqueued { run_id, .. } = master
         .submit_illuminate(&context, task.clone(), None)
         .await
@@ -434,12 +429,7 @@ async fn candidate_limits_bound_attempts_and_can_exceed_the_default() {
     let task::SubmitOutcome::Enqueued { run_id, .. } = master
         .submit_illuminate(
             &context,
-            logic::illuminate::IlluminationTask::new(
-                105,
-                1,
-                "test-model",
-                illumination::IlluminationVersion::V2,
-            ),
+            logic::illuminate::IlluminationTask::new(105, 1, "test-model"),
             None,
         )
         .await

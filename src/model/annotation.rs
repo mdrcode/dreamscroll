@@ -29,3 +29,8 @@ pub struct Model {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+impl Model {
+    /// Owner notes are prompt input on re-illumination, so bound the prompt they can produce.
+    pub const MAX_CONTENT_CHARS: usize = 1_000;
+}

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use sea_orm::prelude::{HasMany, HasOne};
 
-use crate::{api::*, auth, database, illumination, llms, logic, model, search, storage, task};
+use crate::{api::*, auth, database, llms, logic, model, search, storage, task};
 
 #[derive(Clone)]
 pub struct UserApiClient {
@@ -410,11 +410,7 @@ impl UserApiClient {
         )
         .await?;
 
-        let task = self.illumination_task(
-            capture_model.id,
-            capture_model.user_id,
-            illumination::IlluminationVersion::V2,
-        )?;
+        let task = self.illumination_task(capture_model.id, capture_model.user_id)?;
         if let Err(e) = self.beacon.new_capture(user_context, task).await {
             tracing::warn!(
                 capture_id = capture_model.id,
@@ -443,11 +439,7 @@ impl UserApiClient {
         )
         .await?;
 
-        let task = self.illumination_task(
-            capture_model.id,
-            capture_model.user_id,
-            illumination::IlluminationVersion::V2,
-        )?;
+        let task = self.illumination_task(capture_model.id, capture_model.user_id)?;
         if let Err(e) = self.beacon.new_capture(user_context, task).await {
             tracing::warn!(
                 capture_id = capture_model.id,
@@ -490,7 +482,6 @@ impl UserApiClient {
         &self,
         capture_id: i32,
         entity_owner_id: i32,
-        prompt_version: illumination::IlluminationVersion,
     ) -> Result<logic::illuminate::IlluminationTask, ApiError> {
         let model_id = self
             .default_illumination_model_id
@@ -504,7 +495,6 @@ impl UserApiClient {
             capture_id,
             entity_owner_id,
             model_id,
-            prompt_version,
         ))
     }
 
@@ -513,7 +503,6 @@ impl UserApiClient {
         &self,
         context: &auth::Context,
         capture_id: i32,
-        prompt_version: illumination::IlluminationVersion,
         thinking_level: Option<llms::gemini::ThinkingLevel>,
         persist_projection: Option<bool>,
         web_search: Option<bool>,
@@ -526,7 +515,7 @@ impl UserApiClient {
             )));
         };
 
-        let mut task = self.illumination_task(capture_id, capture.user_id, prompt_version)?;
+        let mut task = self.illumination_task(capture_id, capture.user_id)?;
         task.thinking_level = thinking_level;
         if let Some(persist_projection) = persist_projection {
             task.persist_projection = persist_projection;

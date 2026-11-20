@@ -651,12 +651,7 @@ mod tests {
     }
 
     fn illumination_task(capture_id: i32) -> IlluminationTask {
-        IlluminationTask::new(
-            capture_id,
-            1,
-            "test-model",
-            crate::illumination::IlluminationVersion::V1,
-        )
+        IlluminationTask::new(capture_id, 1, "test-model")
     }
 
     async fn persisted_task_run<T: Task>(

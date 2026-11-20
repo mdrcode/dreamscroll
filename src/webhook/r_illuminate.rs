@@ -7,7 +7,7 @@ use crate::{api, logic, task, webhook};
 /// Webhook POST route for Cloud Tasks illumination payloads.
 ///
 /// Expected body is a serialized `TaskRun<IlluminationTask>`, e.g.:
-/// `{ "logical_id": "u1-illuminate-capture123", "run_id": "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113", "run_number": 1, "task": { "capture_id": 123, "entity_owner_id": 1, "model_id": "gemini-3.8-flash", "prompt_version": "v2" } }`
+/// `{ "logical_id": "u1-illuminate-capture123", "run_id": "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113", "run_number": 1, "task": { "capture_id": 123, "entity_owner_id": 1, "model_id": "gemini-3.8-flash", "persist_projection": true, "web_search": false } }`
 ///
 /// This is the worker route for capture-created illumination, backfill, and
 /// rerun tasks. Backfill metadata is inherited by follow-up indexing tasks.

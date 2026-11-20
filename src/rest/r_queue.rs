@@ -31,7 +31,6 @@ pub async fn post_illuminate(
         .enqueue_illumination(
             &user.into(),
             request.capture_id,
-            request.prompt_version,
             request.thinking_level,
             request.persist_projection,
             request.web_search,
@@ -104,29 +103,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn illuminate_request_defaults_to_v2_and_accepts_explicit_versions() {
+    fn illuminate_request_defaults_to_provider_defaults_and_the_task_flags() {
         let default: IlluminateTaskRequest =
             serde_json::from_value(serde_json::json!({"capture_id": 42})).unwrap();
-        assert_eq!(
-            default.prompt_version,
-            crate::illumination::IlluminationVersion::V2
-        );
         assert_eq!(default.thinking_level, None);
         // Omitted flags defer to IlluminationTask's defaults rather than repeating them here.
         assert_eq!(default.persist_projection, None);
         assert_eq!(default.web_search, None);
-
-        for (version, expected) in [
-            ("v1", crate::illumination::IlluminationVersion::V1),
-            ("v2", crate::illumination::IlluminationVersion::V2),
-        ] {
-            let request: IlluminateTaskRequest = serde_json::from_value(serde_json::json!({
-                "capture_id": 42,
-                "prompt_version": version
-            }))
-            .unwrap();
-            assert_eq!(request.prompt_version, expected);
-        }
     }
 
     #[test]

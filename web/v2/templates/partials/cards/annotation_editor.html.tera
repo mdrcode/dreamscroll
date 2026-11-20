@@ -7,6 +7,7 @@
         <textarea
             class="capture-card__annotation-input"
             name="content"
+            maxlength="{{ annotation_max_chars }}"
             rows="3"
             autofocus
             onkeydown="if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); this.form.requestSubmit(); }"

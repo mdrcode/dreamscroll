@@ -35,20 +35,15 @@ impl Beacon {
 
     /// A successful projected illumination is persisted before anything downstream sees it.
     ///
-    /// `illumination_id` is the projection that was written, or `None` for raw-only tasks (including
-    /// V1) — those have no observations to link and no new indexable document.
+    /// `illumination_id` is the projection that was written, or `None` for raw-only tasks — those
+    /// have no observations to link and no new indexable document.
     pub async fn new_illumination(
         &self,
         illumination_task: &illuminate::IlluminationTask,
         illumination_id: Option<i32>,
         backfill_id: Option<&str>,
     ) -> anyhow::Result<()> {
-        if illumination_task.persist_projection
-            && matches!(
-                illumination_task.prompt_version,
-                crate::illumination::IlluminationVersion::V2
-            )
-        {
+        if illumination_task.persist_projection {
             let capture_id = illumination_task.capture_id;
             let outcome = self
                 .task_master
@@ -200,23 +195,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_projected_v2_illumination_enqueues_search_index() {
+    async fn only_projected_illumination_enqueues_search_index() {
         db_or_skip!(db);
         let (_task_master, beacon, queued) = search_queue_beacon(db);
-        let v1_capture_id = (uuid::Uuid::new_v4().as_u128() & i32::MAX as u128).max(1) as i32;
         let v2_capture_id = (uuid::Uuid::new_v4().as_u128() & i32::MAX as u128).max(1) as i32;
-        let v1_task = illuminate::IlluminationTask::new(
-            v1_capture_id,
-            1,
-            "test-model",
-            crate::illumination::IlluminationVersion::V1,
-        );
-        let v2_task = illuminate::IlluminationTask::new(
-            v2_capture_id,
-            1,
-            "test-model",
-            crate::illumination::IlluminationVersion::V2,
-        );
+        let v2_task = illuminate::IlluminationTask::new(v2_capture_id, 1, "test-model");
         assert!(v2_task.persist_projection);
         let mut raw_only_task = v2_task.clone();
         raw_only_task.persist_projection = false;
@@ -236,13 +219,9 @@ mod tests {
         );
 
         beacon
-            .new_illumination(&v1_task, None, None)
-            .await
-            .expect("v1 completion should not enqueue indexing");
-        beacon
             .new_illumination(&v2_task, Some(7), None)
             .await
-            .expect("v2 completion should enqueue indexing");
+            .expect("projected illumination should enqueue indexing");
 
         let queued = queued.lock().expect("queue mutex should not be poisoned");
         assert_eq!(queued.len(), 1);
@@ -255,12 +234,7 @@ mod tests {
     async fn backfill_descendants_keep_metadata_and_deduplicate_after_completion() {
         db_or_skip!(db);
         let (task_master, beacon, queued) = search_queue_beacon(db);
-        let illumination = illuminate::IlluminationTask::new(
-            42,
-            1,
-            "test-model",
-            crate::illumination::IlluminationVersion::V2,
-        );
+        let illumination = illuminate::IlluminationTask::new(42, 1, "test-model");
         beacon
             .new_illumination(&illumination, Some(11), Some("test-backfill"))
             .await
@@ -300,12 +274,7 @@ mod tests {
     async fn a_live_ordinary_descendant_is_not_retagged_by_backfill_completion() {
         db_or_skip!(db);
         let (task_master, beacon, queued) = search_queue_beacon(db);
-        let illumination = illuminate::IlluminationTask::new(
-            42,
-            1,
-            "test-model",
-            crate::illumination::IlluminationVersion::V2,
-        );
+        let illumination = illuminate::IlluminationTask::new(42, 1, "test-model");
         beacon
             .new_illumination(&illumination, Some(11), None)
             .await
@@ -346,12 +315,7 @@ mod tests {
                 .unwrap(),
         );
         let beacon = Beacon::new(task_master);
-        let task = illuminate::IlluminationTask::new(
-            42,
-            9,
-            "test-model",
-            crate::illumination::IlluminationVersion::V2,
-        );
+        let task = illuminate::IlluminationTask::new(42, 9, "test-model");
 
         beacon
             .new_illumination(&task, None, None)

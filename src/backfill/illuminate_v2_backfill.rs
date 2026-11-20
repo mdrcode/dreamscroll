@@ -1,6 +1,6 @@
 use sea_orm::{EntityTrait, QuerySelect, QueryTrait, sea_query::SelectStatement};
 
-use crate::{illumination, logic, model};
+use crate::{logic, model};
 
 use super::definition::{Backfill, BackfillTarget, TargetColumn};
 
@@ -30,7 +30,6 @@ impl Backfill for IlluminateV2Backfill {
             target.entity_id,
             target.owner_id,
             "gemini-3.8-flash",
-            illumination::IlluminationVersion::V2,
         )
     }
 }

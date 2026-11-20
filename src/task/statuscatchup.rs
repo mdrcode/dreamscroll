@@ -77,7 +77,6 @@ mod tests {
     use super::*;
     use crate::{
         database,
-        illumination::IlluminationVersion,
         logic::{illuminate::IlluminationTask, search_index::SearchIndexTask},
         task::{TaskRun, TaskRunStatus, timing},
     };
@@ -107,10 +106,7 @@ mod tests {
             TimingEstimator::new(db.clone()),
         );
 
-        let illuminate = TaskRun::new(
-            IlluminationTask::new(42, 1, "test-model", IlluminationVersion::V2),
-            1,
-        );
+        let illuminate = TaskRun::new(IlluminationTask::new(42, 1, "test-model"), 1);
         catchup.tracker.insert_run(&illuminate).await.unwrap();
         catchup
             .tracker

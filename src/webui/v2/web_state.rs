@@ -1,7 +1,7 @@
 use sea_orm::ConnectionTrait;
 use tera::Context;
 
-use crate::{api, sse, task};
+use crate::{api, model, sse, task};
 
 pub struct WebState {
     pub user_api: api::UserApiClient,
@@ -19,6 +19,10 @@ impl WebState {
         let mut context = Context::new();
         context.insert("static_asset_version", &self.static_asset_version);
         context.insert("max_upload_bytes", &self.max_upload_bytes);
+        context.insert(
+            "annotation_max_chars",
+            &model::annotation::Model::MAX_CONTENT_CHARS,
+        );
         context
     }
 

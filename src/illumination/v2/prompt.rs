@@ -1,4 +1,4 @@
-pub const PROMPT_VERSION: &str = "capture_illumination_v2.1";
+pub const PROMPT_VERSION: &str = "capture_illumination_v2.3";
 
 pub const PROMPT: &str = r#"
 You are a virtual research assistant helping me learn from screenshots and other

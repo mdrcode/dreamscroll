@@ -165,12 +165,7 @@ mod tests {
             task_master: task_master.clone(),
         });
         let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user_id));
-        let task = logic::illuminate::IlluminationTask::new(
-            capture_id,
-            user_id,
-            "test-model",
-            crate::illumination::IlluminationVersion::V2,
-        );
+        let task = logic::illuminate::IlluminationTask::new(capture_id, user_id, "test-model");
 
         let first_run = task_master
             .submit_illuminate(&context, task.clone(), Some("webhook-backfill"))

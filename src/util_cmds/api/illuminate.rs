@@ -1,9 +1,8 @@
 use std::time::Duration;
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{Context, anyhow};
 use argh::FromArgs;
 
-use crate::illumination::IlluminationVersion;
 use crate::{
     api, illumination, rest,
     task::{self, TaskRunStatus},
@@ -20,10 +19,6 @@ use super::{ApiCmdState, print_json};
 pub struct IlluminateArgs {
     #[argh(positional, description = "capture ID")]
     capture_id: i32,
-
-    #[argh(option, long = "prompt-version", default = "String::from(\"v2\")")]
-    #[argh(description = "illumination prompt version: v1 or v2 (default: v2)")]
-    prompt_version: String,
 
     #[argh(option, long = "thinking-level")]
     #[argh(description = "reasoning effort: low, medium, or high (default: provider default)")]
@@ -49,17 +44,11 @@ pub struct IlluminateArgs {
 }
 
 pub async fn run(state: ApiCmdState, args: IlluminateArgs) -> anyhow::Result<()> {
-    let prompt_version = parse_prompt_version(&args.prompt_version)?;
-    eprintln!(
-        "Enqueueing illumination for capture {} ({})...",
-        args.capture_id,
-        prompt_version.as_str()
-    );
+    eprintln!("Enqueueing illumination for capture {}...", args.capture_id);
     let run_id = state
         .rest_client
         .enqueue_illuminate(
             args.capture_id,
-            prompt_version,
             args.thinking_level,
             args.persist_projection,
             args.web_search,
@@ -82,7 +71,7 @@ pub async fn run(state: ApiCmdState, args: IlluminateArgs) -> anyhow::Result<()>
     if args.raw_json {
         return print_json(&raw);
     }
-    let markdown = render_illumination(prompt_version, raw)?;
+    let markdown = render_illumination(raw)?;
     println!("{markdown}");
     Ok(())
 }
@@ -142,14 +131,6 @@ fn is_settled(status: task::TaskRunStatus) -> bool {
     )
 }
 
-fn parse_prompt_version(value: &str) -> anyhow::Result<IlluminationVersion> {
-    match value {
-        "v1" => Ok(IlluminationVersion::V1),
-        "v2" => Ok(IlluminationVersion::V2),
-        _ => bail!("unsupported prompt version {value:?}; expected v1 or v2"),
-    }
-}
-
 fn ensure_successful_run(run_info: &api::TaskRunInfo) -> anyhow::Result<()> {
     match run_info.status {
         TaskRunStatus::CompleteSuccess => Ok(()),
@@ -172,18 +153,10 @@ fn ensure_successful_run(run_info: &api::TaskRunInfo) -> anyhow::Result<()> {
     }
 }
 
-fn render_illumination(
-    prompt_version: IlluminationVersion,
-    content: serde_json::Value,
-) -> anyhow::Result<String> {
-    match prompt_version {
-        IlluminationVersion::V1 => illumination::v1::Illumination::from_raw_json(content)
-            .context("failed to parse raw v1 illumination result")
-            .map(|result| result.to_markdown()),
-        IlluminationVersion::V2 => illumination::v2::Illumination::from_raw_json(content)
-            .context("failed to parse raw v2 illumination result")
-            .map(|result| result.to_markdown()),
-    }
+fn render_illumination(content: serde_json::Value) -> anyhow::Result<String> {
+    illumination::v2::Illumination::from_raw_json(content)
+        .context("failed to parse raw illumination result")
+        .map(|result| result.to_markdown())
 }
 
 #[cfg(test)]
@@ -411,30 +384,20 @@ mod tests {
     }
 
     #[test]
-    fn parses_supported_prompt_versions() {
-        assert_eq!(parse_prompt_version("v1").unwrap(), IlluminationVersion::V1);
-        assert_eq!(parse_prompt_version("v2").unwrap(), IlluminationVersion::V2);
-        assert!(parse_prompt_version("v3").is_err());
-    }
-
-    #[test]
-    fn renders_the_selected_illumination_schema_as_markdown() {
-        let markdown = render_illumination(
-            IlluminationVersion::V2,
-            serde_json::json!({
-                "summary": "A Reddit community",
-                "details": "Memes about the NFC West.",
-                "suggested_searches": [],
-                "entities": [{
-                    "name": "NFCWestMemeWar",
-                    "type": "online_community",
-                    "platform_link": {
-                        "platform": "reddit",
-                        "handle": "r/NFCWestMemeWar"
-                    }
-                }]
-            }),
-        )
+    fn renders_the_illumination_schema_as_markdown() {
+        let markdown = render_illumination(serde_json::json!({
+            "summary": "A Reddit community",
+            "details": "Memes about the NFC West.",
+            "suggested_searches": [],
+            "entities": [{
+                "name": "NFCWestMemeWar",
+                "type": "online_community",
+                "platform_link": {
+                    "platform": "reddit",
+                    "handle": "r/NFCWestMemeWar"
+                }
+            }]
+        }))
         .unwrap();
 
         assert!(markdown.contains("## Summary\n\nA Reddit community"));
@@ -456,26 +419,5 @@ mod tests {
                 .to_string()
                 .contains("timed out")
         );
-    }
-
-    #[test]
-    fn renders_v1_results_with_the_legacy_account_section() {
-        let markdown = render_illumination(
-            IlluminationVersion::V1,
-            serde_json::json!({
-                "summary": "Ada Lovelace",
-                "details": "A mathematician and writer.",
-                "suggested_searches": [],
-                "entities": [],
-                "social_media_accounts": [{
-                    "display_name": "Ada",
-                    "handle": "@ada",
-                    "platform": "x_twitter"
-                }]
-            }),
-        )
-        .unwrap();
-
-        assert!(markdown.contains("## Social media accounts\n- **Ada** (`@ada`; x_twitter)"));
     }
 }

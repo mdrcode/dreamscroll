@@ -416,12 +416,7 @@ mod tests {
         db_or_skip!(db);
         let tracker = TaskRunTracker::for_tests(db, None);
         let env = TaskRun::new(
-            crate::logic::illuminate::IlluminationTask::new(
-                42,
-                1,
-                "test-model",
-                crate::illumination::IlluminationVersion::V2,
-            ),
+            crate::logic::illuminate::IlluminationTask::new(42, 1, "test-model"),
             1,
         );
 
@@ -450,7 +445,6 @@ mod tests {
                 "capture_id": 42,
                 "entity_owner_id": 1,
                 "model_id": "test-model",
-                "prompt_version": "v2",
                 "persist_projection": true,
                 "web_search": false
             }))

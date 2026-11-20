@@ -4,6 +4,7 @@ use strum::IntoEnumIterator;
 
 use crate::{api, illumination::KnowledgeEntityType, llms, storage};
 
+use super::annotation_hint::annotation_hint;
 use super::*;
 
 #[tracing::instrument(skip(client, storage_provider, capture), fields(capture_id = %capture.id))]
@@ -22,13 +23,13 @@ pub async fn illuminate(
     let storage_handle = storage::StorageHandle::from(media);
     let image = storage_provider.retrieve_bytes(&storage_handle).await?;
     let mime_type = media.mime_type.as_deref().unwrap_or("image/jpeg");
-    let input = [
-        llms::InferenceInput::Text(prompt::PROMPT),
-        llms::InferenceInput::Image {
-            bytes: image.as_ref(),
-            mime_type,
-        },
-    ];
+    // The note trails the image: the base prompt and image stay a stable prefix, and the note is
+    // the last thing the model reads.
+    let note = capture
+        .annotation
+        .as_ref()
+        .and_then(|annotation| annotation_hint(&annotation.content));
+    let input = input_parts(image.as_ref(), mime_type, note.as_deref());
     let schema = make_schema();
     tracing::info!(
         capture.id,
@@ -36,6 +37,7 @@ pub async fn illuminate(
         image_bytes = image.len(),
         mime_type,
         model_id,
+        has_annotation = note.is_some(),
         "Starting v2 illumination inference"
     );
     let mut inference = client
@@ -68,6 +70,24 @@ pub async fn illuminate(
         metadata: inference.metadata,
         http_status_code: inference.http_status_code,
     })
+}
+
+fn input_parts<'a>(
+    image: &'a [u8],
+    mime_type: &'a str,
+    note: Option<&'a str>,
+) -> Vec<llms::InferenceInput<'a>> {
+    let mut input = vec![
+        llms::InferenceInput::Text(prompt::PROMPT),
+        llms::InferenceInput::Image {
+            bytes: image,
+            mime_type,
+        },
+    ];
+    if let Some(note) = note {
+        input.push(llms::InferenceInput::Text(note));
+    }
+    input
 }
 
 fn make_schema() -> serde_json::Value {
@@ -144,6 +164,25 @@ fn make_schema() -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn owner_note_trails_the_prompt_and_image() {
+        let image = [0u8; 4];
+        let note = annotation_hint("The sign reads Nias.").unwrap();
+
+        let base = input_parts(&image, "image/png", None);
+        assert_eq!(base.len(), 2);
+        assert!(matches!(base[0], llms::InferenceInput::Text(text) if text == prompt::PROMPT));
+        assert!(
+            matches!(base[1], llms::InferenceInput::Image { mime_type, .. } if mime_type == "image/png")
+        );
+
+        let with_note = input_parts(&image, "image/png", Some(&note));
+        assert_eq!(with_note.len(), 3);
+        assert!(
+            matches!(with_note[2], llms::InferenceInput::Text(text) if text.contains("The sign reads Nias."))
+        );
+    }
 
     #[test]
     fn response_schema_matches_the_entity_shape_the_parser_accepts() {

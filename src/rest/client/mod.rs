@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use reqwest;
 use serde::{Deserialize, Serialize};
 
-use crate::{api, backfill, illumination, llms, stats};
+use crate::{api, backfill, llms, stats};
 
 // TODO move this client impl into its own file so it's not hiding in mod.rs
 
@@ -39,8 +39,6 @@ struct CaptureTaskRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IlluminateTaskRequest {
     pub capture_id: i32,
-    #[serde(default)]
-    pub prompt_version: crate::illumination::IlluminationVersion,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_level: Option<crate::llms::gemini::ThinkingLevel>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -417,7 +415,6 @@ impl Client {
     pub async fn enqueue_illuminate(
         &self,
         capture_id: i32,
-        prompt_version: illumination::IlluminationVersion,
         thinking_level: Option<llms::gemini::ThinkingLevel>,
         persist_projection: Option<bool>,
         web_search: Option<bool>,
@@ -428,7 +425,6 @@ impl Client {
             .bearer_auth(&self.access_token)
             .json(&IlluminateTaskRequest {
                 capture_id,
-                prompt_version,
                 thinking_level,
                 persist_projection,
                 web_search,

@@ -17,6 +17,12 @@ pub async fn set_annotation(
             "annotation content must not be empty"
         )));
     }
+    if content.chars().count() > model::annotation::Model::MAX_CONTENT_CHARS {
+        return Err(ApiError::bad_request(anyhow!(
+            "annotation content must be at most {} characters",
+            model::annotation::Model::MAX_CONTENT_CHARS
+        )));
+    }
 
     let capture = model::capture::Entity::find()
         .filter(model::capture::Column::Id.eq(capture_id))

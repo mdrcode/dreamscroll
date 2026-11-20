@@ -1,3 +1,4 @@
+mod annotation_hint;
 mod illuminate;
 pub use illuminate::illuminate;
 

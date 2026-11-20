@@ -181,7 +181,6 @@ fn bounded_hint(hint: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::illumination::v1;
     use crate::llms::InferenceMetadata;
     use chrono::Utc;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
@@ -248,7 +247,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn insert_persists_v1_raw_only_and_v2_projection() {
+    async fn insert_persists_the_raw_result_and_the_projection() {
         crate::test_support::db_or_skip!(db);
 
         let user_id = crate::test_support::fixtures::user(&db, "insert_illum").await;
@@ -286,59 +285,6 @@ mod tests {
             illuminations: vec![],
             annotation: None,
         };
-        let v1_task_run_id = uuid::Uuid::new_v4().to_string();
-        let content = json!({
-            "summary": "A short summary",
-            "details": "Detailed content",
-            "suggested_searches": [],
-            "entities": [{
-                "name": "Ada Lovelace",
-                "description": "Pioneer of computing",
-                "type": "real_person"
-            }],
-            "social_media_accounts": [{
-                "display_name": "Ada",
-                "handle": "@ada",
-                "platform": "x_twitter"
-            }],
-            "future_schema_field": {"retained": true}
-        });
-
-        let illumination = v1::Illumination::from_raw_json(content.clone()).unwrap();
-
-        let v1_meta_id = record_usage(&db, user_id, &v1_task_run_id, 12).await;
-        insert_illumination_raw(
-            &db,
-            &capture_info,
-            &v1_task_run_id,
-            Some(v1_meta_id),
-            illumination.raw_json(),
-        )
-        .await
-        .unwrap();
-
-        let stored_raw = model::illumination_raw::Entity::find()
-            .filter(model::illumination_raw::Column::TaskRunId.eq(&v1_task_run_id))
-            .one(&db.conn)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(stored_raw.inference_meta_id, Some(v1_meta_id));
-        assert_eq!(stored_raw.media_id, media.id);
-        assert_eq!(stored_raw.content, content);
-
-        let v1_parent_rows = model::illumination::Entity::find()
-            .filter(model::illumination::Column::CaptureId.eq(capture_id))
-            .all(&db.conn)
-            .await
-            .unwrap();
-        assert!(v1_parent_rows.is_empty());
-        let v1_entities = model::user_observed_entity::Entity::find()
-            .filter(model::user_observed_entity::Column::UserId.eq(user_id))
-            .all(&db.conn)
-            .await
-            .unwrap();
-        assert!(v1_entities.is_empty());
         let v2_content = json!({
             "summary": "A Reddit community for NFC West memes",
             "details": "A community focused on memes about the NFL's NFC West division.",
