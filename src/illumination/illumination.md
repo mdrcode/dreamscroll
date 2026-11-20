@@ -67,6 +67,7 @@ unknown names survive as `Platform::Other`, so a new platform does not collapse 
 
 `Illumination::from_raw_json` parses the fields but retains the original JSON. Unknown or future
 fields therefore survive into `illumination_raw` even when the typed projection ignores them.
+When parsing fails, the provider output is retained on `inference_metas.raw_output` instead.
 
 ## Persistence and downstream
 

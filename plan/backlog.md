@@ -23,11 +23,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 > grammar is documented in `src/knowledge/knowledge.md`. K5 shipped 2026-11-18. K7 is retired;
 > nothing wrote `Cause::Model`. K8 shipped 2026-11-18. K9 is accepted in `plan/pragmatism.md`.
 
-- [ ] **Retain raw provider output on parse failure.** Add a nullable `raw_output` to
-  `inference_metas` and write it when the model returns unparseable output. With `store=false` and
-  no raw row, the truncated response is otherwise unrecoverable. See
-  `plan/prod-vertex-gemini.md`.
-
 ### Production ergonomics (see `plan/prod-ops.md`)
 
 - [ ] **Survey and add the remaining production metrics**, following the pattern established for

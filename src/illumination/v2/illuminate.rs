@@ -44,7 +44,7 @@ pub async fn illuminate(
         has_annotation = note.is_some(),
         "Starting v2 illumination inference"
     );
-    let mut inference = client
+    let inference = client
         .infer(llms::InferenceRequest {
             model_id,
             input: &input,
@@ -61,17 +61,26 @@ pub async fn illuminate(
         "Illumination inference output received"
     );
 
-    inference
-        .metadata
+    let mut metadata = inference.metadata;
+    metadata
         .params
         .insert("prompt_version".to_string(), json!(prompt::PROMPT_VERSION));
+    let output = match inference.output {
+        Ok(output) => match Illumination::parse_preserving_raw(output) {
+            Ok(illumination) => Ok(illumination),
+            Err((raw, error)) => {
+                metadata.raw_output = Some(raw.to_string());
+                Err(error).with_context(|| {
+                    format!("Failed to parse v2 illumination for capture {}", capture.id)
+                })
+            }
+        },
+        Err(error) => Err(error),
+    };
+
     Ok(llms::InferenceOutcome {
-        output: inference.output.and_then(|output| {
-            Illumination::from_raw_json(output).with_context(|| {
-                format!("Failed to parse v2 illumination for capture {}", capture.id)
-            })
-        }),
-        metadata: inference.metadata,
+        output,
+        metadata,
         http_status_code: inference.http_status_code,
     })
 }

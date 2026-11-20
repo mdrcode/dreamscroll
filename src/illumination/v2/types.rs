@@ -28,7 +28,15 @@ struct IlluminationFields {
 
 impl Illumination {
     pub fn from_raw_json(content: Value) -> Result<Self, serde_json::Error> {
-        let fields: IlluminationFields = serde_json::from_value(content.clone())?;
+        Self::parse_preserving_raw(content).map_err(|(_, error)| error)
+    }
+
+    /// Parses, returning the original value alongside the error so the caller can retain it.
+    pub(super) fn parse_preserving_raw(content: Value) -> Result<Self, (Value, serde_json::Error)> {
+        let fields: IlluminationFields = match serde_json::from_value(content.clone()) {
+            Ok(fields) => fields,
+            Err(error) => return Err((content, error)),
+        };
 
         Ok(Self {
             summary: fields.summary,
@@ -314,6 +322,15 @@ mod tests {
             serde_json::to_value(&link).expect("the link should serialize")["platform"],
             json!("myspace")
         );
+    }
+
+    #[test]
+    fn shape_failure_returns_the_raw_value() {
+        let raw = json!({"summary": "missing the rest"});
+        let (returned, error) = Illumination::parse_preserving_raw(raw.clone()).unwrap_err();
+
+        assert_eq!(returned, raw);
+        assert!(error.to_string().contains("missing field"), "{error}");
     }
 
     #[test]

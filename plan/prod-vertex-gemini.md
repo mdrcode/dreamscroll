@@ -142,14 +142,23 @@ thousands of characters or thousands of thought tokens, not a gradual drift.
 
 ## Failure observability
 
-A JSON parse failure returns before `insert_illumination_raw`, so the provider output is not stored
-in `illumination_raws`, and `task_runs.last_error_message` is capped at 2,000 characters. With
+A JSON parse failure returns before `insert_illumination_raw`, so the provider output does not reach
+`illumination_raws`, and `task_runs.last_error_message` is capped at 2,000 characters. With
 `store: false`, the provider does not retain it either.
 
-The planned fix is a nullable `raw_output` column on `inference_metas`, written only when parsing
-fails. Until then, diagnose with the token split (`tokens_out`, `tokens_thought`), the parse
-position, the prompt version, and the provider id. A `store: true` debug rerun can retrieve the
-stored interaction; it cannot retrieve a failed stateless one.
+Every failure that still has a provider payload now writes it to the nullable
+`inference_metas.raw_output` column (`TEXT`, NULL on success):
+
+- non-2xx response body;
+- an invalid response envelope;
+- no `model_output` step or empty output text;
+- model text that is not valid JSON;
+- valid JSON that fails the illumination shape.
+
+The admin inference-meta detail endpoint exposes the field. The column is bounded by the
+`max_output_tokens` ceiling; no separate size cap. A `store: true` debug rerun remains useful for
+thought summaries and input media, but it cannot recover a failed stateless response that was
+already dropped.
 
 ## Checklist
 
@@ -159,6 +168,7 @@ stored interaction; it cannot retrieve a failed stateless one.
 - `max_output_tokens` includes thoughts; 8,192 is ours.
 - No readable thoughts without `thinking_summaries: "auto"`.
 - Retrieve stored Vertex interactions with `GET .../interactions/{id}` + ADC.
+- Failed outputs are in `inference_metas.raw_output`; success rows are NULL.
 - AI Studio is not the Vertex debugging surface.
 - Schema `maxLength` does nothing; use prompt guidance and `maxItems` where enforcement matters.
 

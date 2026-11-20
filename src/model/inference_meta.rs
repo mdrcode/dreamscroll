@@ -34,14 +34,14 @@ pub struct Model {
     pub tokens_in_cached: Option<i64>,
     #[sea_orm(nullable)]
     pub tokens_out: Option<i64>,
-    /// Provider-reported reasoning tokens; inclusion in tokens_out is provider-specific.
     #[sea_orm(nullable)]
     pub tokens_thought: Option<i64>,
-    /// Additional request configuration, including prompt_version.
     #[sea_orm(column_type = "JsonBinary", default_value = "{}")]
     pub params: Json,
     #[sea_orm(column_type = "JsonBinary", default_value = "{}")]
     pub provider_metadata: Json,
+    #[sea_orm(nullable)]
+    pub raw_output: Option<String>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

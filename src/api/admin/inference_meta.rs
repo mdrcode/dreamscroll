@@ -41,13 +41,13 @@ mod tests {
                 r#"
 INSERT INTO inference_metas
   (user_id, task_run_id, attempt, task_type, provider, backend, model,
-   duration_ms, tokens_in, tokens_out, params, provider_metadata)
+   duration_ms, tokens_in, tokens_out, params, provider_metadata, raw_output)
 VALUES
   ($1, 'run-meta', 2, 'illuminate', 'gemini', 'vertex', 'test-model',
    2000, 200, 20, '{"prompt_version":"v2"}'::jsonb,
-   '{"provider_request_id":"req_meta"}'::jsonb),
+   '{"provider_request_id":"req_meta"}'::jsonb, '{"summary":'),
   ($1, 'run-meta', 1, 'illuminate', 'gemini', 'vertex', 'test-model',
-   1000, 100, 10, '{}'::jsonb, '{}'::jsonb)
+   1000, 100, 10, '{}'::jsonb, '{}'::jsonb, NULL)
 "#,
                 vec![user.id.into()],
             ))
@@ -59,6 +59,8 @@ VALUES
         assert_eq!(metas.len(), 2);
         assert_eq!(metas[0].attempt, Some(1));
         assert_eq!(metas[1].attempt, Some(2));
+        assert_eq!(metas[1].raw_output.as_deref(), Some("{\"summary\":"));
+        assert!(metas[0].raw_output.is_none());
         assert_eq!(metas[1].params["prompt_version"], "v2");
         assert_eq!(
             metas[1].provider_metadata["provider_request_id"],

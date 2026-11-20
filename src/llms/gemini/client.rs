@@ -4,7 +4,6 @@ use anyhow::{Context, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use google_cloud_auth::credentials::{AccessTokenCredentials, Builder};
 use reqwest::Client;
-use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::{config, llms::*};
@@ -43,12 +42,11 @@ pub struct GeminiInferenceClient {
     http: Client,
 }
 
-/// Provider-specific response shape returned by the Gemini Interactions API.
-#[derive(Debug, Deserialize)]
-struct GeminiInteractionResponse {
-    status: Option<String>,
-    #[serde(default)]
-    steps: Vec<Value>,
+/// Provider-specific response shape, borrowed so a parse failure can retain the body.
+#[derive(Debug)]
+struct GeminiInteractionResponse<'a> {
+    status: Option<&'a str>,
+    steps: &'a [Value],
 }
 
 /// Capture the provider request id. Vertex often omits the body `id` when
@@ -234,7 +232,21 @@ impl InferenceClient for GeminiInferenceClient {
     }
 }
 
-impl GeminiInteractionResponse {
+fn parse_interaction(response: &Value) -> Result<GeminiInteractionResponse<'_>, serde_json::Error> {
+    let status = match response.get("status") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) => Some(value.as_str()),
+        Some(_) => return Err(serde::de::Error::custom("Gemini status must be a string")),
+    };
+    let steps = match response.get("steps") {
+        None => &[],
+        Some(Value::Array(steps)) => steps.as_slice(),
+        Some(_) => return Err(serde::de::Error::custom("Gemini steps must be an array")),
+    };
+    Ok(GeminiInteractionResponse { status, steps })
+}
+
+impl GeminiInteractionResponse<'_> {
     /// Returns text from the final model-output step, after any tool steps.
     fn output_text(&self) -> anyhow::Result<String> {
         let step = self
@@ -338,13 +350,27 @@ fn inference_response(
     }
 
     let output = if status.is_success() {
-        serde_json::from_value::<GeminiInteractionResponse>(response)
-            .context("Failed to parse Gemini Interactions response")
-            .and_then(|interaction| {
-                serde_json::from_str(&interaction.output_text()?)
-                    .context("Gemini model output is not valid structured JSON")
-            })
+        match parse_interaction(&response) {
+            Ok(interaction) => match interaction.output_text() {
+                Ok(text) => match serde_json::from_str(&text) {
+                    Ok(value) => Ok(value),
+                    Err(error) => {
+                        metadata.raw_output = Some(text);
+                        Err(error).context("Gemini model output is not valid structured JSON")
+                    }
+                },
+                Err(error) => {
+                    metadata.raw_output = Some(response.to_string());
+                    Err(error)
+                }
+            },
+            Err(error) => {
+                metadata.raw_output = Some(response.to_string());
+                Err(error).context("Failed to parse Gemini Interactions response")
+            }
+        }
     } else {
+        metadata.raw_output = Some(response.to_string());
         Err(anyhow::anyhow!(
             "Gemini Interactions API returned {status}: {response}"
         ))
@@ -542,7 +568,7 @@ mod tests {
 
     #[test]
     fn output_text_uses_final_model_step_after_tools() {
-        let response: GeminiInteractionResponse = serde_json::from_value(json!({
+        let value = json!({
             "status": "completed",
             "steps": [
                 {"type": "google_search_call", "arguments": {"queries": ["Ada Lovelace"]}},
@@ -552,8 +578,8 @@ mod tests {
                     {"type": "text", "text": "\"Ada\"}"}
                 ]}
             ]
-        }))
-        .unwrap();
+        });
+        let response = parse_interaction(&value).unwrap();
 
         assert_eq!(response.output_text().unwrap(), "{\"summary\":\"Ada\"}");
     }
@@ -589,6 +615,7 @@ mod tests {
         );
 
         assert_eq!(response.output.unwrap(), json!({"summary": "Ada"}));
+        assert!(response.metadata.raw_output.is_none());
         assert_eq!(response.metadata.tokens_in, Some(12));
         assert_eq!(response.metadata.tokens_in_cached, Some(3));
         assert_eq!(response.metadata.tokens_out, Some(7));
@@ -617,12 +644,81 @@ mod tests {
     }
 
     #[test]
+    fn invalid_model_json_is_retained_as_raw_output() {
+        let raw = "{\"summary\":";
+        let outcome = inference_response(
+            json!({
+                "status": "completed",
+                "steps": [{"type": "model_output", "content": [
+                    {"type": "text", "text": raw}
+                ]}]
+            }),
+            reqwest::StatusCode::OK,
+            "vertex",
+            "model-a",
+            1,
+            json!({}),
+        );
+
+        assert!(outcome.output.is_err());
+        assert_eq!(outcome.metadata.raw_output.as_deref(), Some(raw));
+    }
+
+    #[test]
+    fn provider_error_body_is_retained_as_raw_output() {
+        let body = json!({"error": {"code": 500, "message": "boom"}});
+        let outcome = inference_response(
+            body.clone(),
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            "vertex",
+            "model-a",
+            1,
+            json!({}),
+        );
+
+        assert!(outcome.output.is_err());
+        assert_eq!(outcome.metadata.raw_output, Some(body.to_string()));
+    }
+
+    #[test]
+    fn a_response_without_model_output_retains_the_body() {
+        let body = json!({"status": "requires_action", "steps": []});
+        let outcome = inference_response(
+            body.clone(),
+            reqwest::StatusCode::OK,
+            "vertex",
+            "model-a",
+            1,
+            json!({}),
+        );
+
+        assert!(outcome.output.is_err());
+        assert_eq!(outcome.metadata.raw_output, Some(body.to_string()));
+    }
+
+    #[test]
+    fn an_invalid_response_envelope_retains_the_body() {
+        let body = json!({"status": "completed", "steps": "not-an-array"});
+        let outcome = inference_response(
+            body.clone(),
+            reqwest::StatusCode::OK,
+            "vertex",
+            "model-a",
+            1,
+            json!({}),
+        );
+
+        assert!(outcome.output.is_err());
+        assert_eq!(outcome.metadata.raw_output, Some(body.to_string()));
+    }
+
+    #[test]
     fn output_text_errors_when_interaction_requires_action() {
-        let response: GeminiInteractionResponse = serde_json::from_value(json!({
+        let value = json!({
             "status": "requires_action",
             "steps": [{"type": "function_call", "name": "lookup", "arguments": {}}]
-        }))
-        .unwrap();
+        });
+        let response = parse_interaction(&value).unwrap();
 
         assert!(response.output_text().is_err());
     }

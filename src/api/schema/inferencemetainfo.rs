@@ -20,6 +20,7 @@ pub struct InferenceMetaInfo {
     pub tokens_thought: Option<i64>,
     pub params: Value,
     pub provider_metadata: Value,
+    pub raw_output: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -40,6 +41,7 @@ impl From<crate::model::inference_meta::Model> for InferenceMetaInfo {
             tokens_thought: row.tokens_thought,
             params: row.params,
             provider_metadata: row.provider_metadata,
+            raw_output: row.raw_output,
             created_at: row.created_at,
         }
     }

@@ -677,6 +677,7 @@ mod tests {
             tokens_thought: Some(850),
             params: serde_json::json!({"prompt_version": "v2"}),
             provider_metadata: serde_json::json!({"provider_request_id": "req_123"}),
+            raw_output: None,
             created_at: chrono::Utc::now(),
         };
         let text = render_inference_meta("run-7", &[meta]);
