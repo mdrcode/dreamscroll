@@ -105,7 +105,7 @@ fn make_schema() -> serde_json::Value {
             },
             "details": {
                 "type": "string",
-                "description": "A detailed description exploring the image content, context, and significance."
+                "description": "A detailed description exploring the image content, context, and significance. No more than 4,000 characters."
             },
             "suggested_searches": {
                 "type": "array",

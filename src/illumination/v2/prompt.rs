@@ -1,4 +1,4 @@
-pub const PROMPT_VERSION: &str = "capture_illumination_v2.3";
+pub const PROMPT_VERSION: &str = "capture_illumination_v2.4";
 
 pub const PROMPT: &str = r#"
 You are a virtual research assistant helping me learn from screenshots and other
@@ -12,7 +12,8 @@ For the summary: Write a concise 1-2 sentence summary for a list view, no more t
 
 For the details: Provide a useful, multi-paragraph description of the image's
 content, context, and significance. Help me understand it and decide what to explore
-or do next. Assume I can see the image while reading.
+or do next. Assume I can see the image while reading. Limit the details to at most 4,000
+characters.
 
 For suggested_searches: Provide concise, natural searches for notable objects,
 people, works, or locations that merit follow-up. Include each distinct item in a
