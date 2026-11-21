@@ -147,7 +147,7 @@ A JSON parse failure returns before `insert_illumination_raw`, so the provider o
 `store: false`, the provider does not retain it either.
 
 Every failure that still has a provider payload now writes it to the nullable
-`inference_metas.raw_output` column (`TEXT`, NULL on success):
+`inference_metas.raw_output` column (`TEXT`, NULL on success; schema 44):
 
 - non-2xx response body;
 - an invalid response envelope;

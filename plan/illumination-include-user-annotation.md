@@ -16,14 +16,16 @@ illumination. This change feeds the note back as a hint without letting it becom
 4. The rerun appends a reading with the note in the prompt. The capture page shows the latest.
 
 No new endpoint or table. The note is already part of `CaptureInfo`, and the worker's `get_captures`
-load already fetches it. (The `store` / `thinking_summaries` task fields are debug-only and separate
-from this feature.)
+load already fetches it. The annotation path itself adds no schema; the branch's failure
+observability adds nullable `inference_metas.raw_output` (schema 44) for provider payloads that
+cannot be parsed. (The `store` / `thinking_summaries` task fields are debug-only and separate from
+this feature.)
 
 ## Decisions
 
 **Trailing input part, not prompt text.** `v2::illuminate` sends
 `[PROMPT, image, note]`. The base prompt and image stay a stable prefix for provider caching, and
-the note is the last thing the model reads. The schema is unchanged.
+the note is the last thing the model reads. The annotation path changes no schema.
 
 **Evidence, not instructions.** `v2::annotation_hint` wraps the note:
 

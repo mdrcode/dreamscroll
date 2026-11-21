@@ -5,7 +5,9 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-pub const REQUIRED_SCHEMA_VERSION: i32 = 43;
+/// Schema 44 adds nullable `inference_metas.raw_output`; the registry adds it. Failed provider
+/// payloads survive here when the typed result cannot be persisted.
+pub const REQUIRED_SCHEMA_VERSION: i32 = 44;
 
 /// Schema 23 reshapes claims into an edge — entity plus identity — and keys collisions by identity.
 ///

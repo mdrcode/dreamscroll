@@ -81,7 +81,7 @@ manifests structurally.
 | Service shape | 32 env vars, 3 secret refs, 1 vCPU / 512 MiB, concurrency 80, port 8080, `timeoutSeconds 300`, startup probe `tcpSocket 8080` with `periodSeconds 240` |
 | Max instances | 4, declared by both `run.googleapis.com/maxScale` (service) and `autoscaling.knative.dev/maxScale` (template). Deliberate cost ceiling set 2026-10-27 through the manifest (was 20). |
 | Public access | annotation `run.googleapis.com/invoker-iam-disabled: 'true'` (no `allUsers` binding) |
-| Schema marker | `dreamscroll_schema_version`; the current binary requires `43`, production is at `43` since 2026-11-18 (it had been frozen at `8` on the 2026-10-30 image) |
+| Schema marker | `dreamscroll_schema_version`; the current binary requires `44`, production is at `43` since 2026-11-18. Schema 44 adds nullable `inference_metas.raw_output` for failed provider payloads and must be applied with `--apply --db` before this release's web apply. |
 
 Because the instance has a public IP and the binary connects over the
 `/cloudsql/...` socket, the job needs only `--set-cloudsql-instances`; no VPC
