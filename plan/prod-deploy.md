@@ -63,15 +63,15 @@ manifests structurally.
 | Cloud Build step running the binary | Needs Cloud SQL wiring inside ephemeral builders, cannot be re-run from the console, and pays build minutes per run. |
 | Local `cloud-sql-proxy` + `cargo run` | Acceptable for a one-off dry run only; not a repeatable release mechanism. |
 
-## Verified production environment (read-only, re-verified 2026-10-27)
+## Verified production environment (read-only, re-verified 2026-11-20)
 
 | Fact | Value |
 | --- | --- |
 | Project / region | `mdrcode` / `us-central1` |
 | Service | `dreamscroll-webui-api`, `https://dreamscroll-webui-api-xdrchnynaq-uc.a.run.app` (also `…-783246871160.us-central1.run.app`) |
-| Current image | `…/dreamscroll-web@sha256:78545ed56910e7ac428fa82bf6f894103e4f9ef76dbef5976174a3ba6d8a86a4` (tag `534389b9…`), revision `00118-hbw` (2026-11-19; entity + capture page rework, SSE indicator removed) |
+| Current image | `…/dreamscroll-web@sha256:eddebb98dcb8b6f11d312386b9ce15035d0b95a5e4a23b47d274bacf90bf907a` (tag `33afe05…`), revision `00119-5zn` (2026-11-20; illumination annotation, re-illuminate, raw provider failure output) |
 | Custom domain | `dreamscroll.ai` (serves the same service) |
-| Cloud Run Jobs | `dreamscroll-db-sync` exists; successful executions `7cnbm` (post-rename), `f42cv` (post-drop), `lk4j5` (schema 43), `6phhs` (`status`), `7dxkp` (`sync_schema --dry-run`) |
+| Cloud Run Jobs | `dreamscroll-db-sync` exists; successful executions `7cnbm` (post-rename), `f42cv` (post-drop), `lk4j5` (schema 43), `6phhs` (`status`), `7dxkp` (`sync_schema --dry-run`), `nqckp` (schema 44) |
 | Cloud SQL | `mdrcode:us-central1:dreamscroll-prod-db4`, PostgreSQL 18, tier `db-f1-micro`, **public IP** (`ipv4Enabled: true`), `GOOGLE_MANAGED_INTERNAL_CA` |
 | DB access path | unix socket: `POSTGRES_CONNECTION_PARAMS=host=/cloudsql/mdrcode:us-central1:dreamscroll-prod-db4`, `POSTGRES_HOST_PORT=localhost` |
 | DB name / users | `dreamscroll-prod`; `dreamscroll-web` (built-in), `mike.repass@gmail.com` (IAM), `postgres` |
@@ -81,7 +81,7 @@ manifests structurally.
 | Service shape | 32 env vars, 3 secret refs, 1 vCPU / 512 MiB, concurrency 80, port 8080, `timeoutSeconds 300`, startup probe `tcpSocket 8080` with `periodSeconds 240` |
 | Max instances | 4, declared by both `run.googleapis.com/maxScale` (service) and `autoscaling.knative.dev/maxScale` (template). Deliberate cost ceiling set 2026-10-27 through the manifest (was 20). |
 | Public access | annotation `run.googleapis.com/invoker-iam-disabled: 'true'` (no `allUsers` binding) |
-| Schema marker | `dreamscroll_schema_version`; the current binary requires `44`, production is at `43` since 2026-11-18. Schema 44 adds nullable `inference_metas.raw_output` for failed provider payloads and must be applied with `--apply --db` before this release's web apply. |
+| Schema marker | `dreamscroll_schema_version`; the current binary requires `44`, production is at `44` since 2026-11-20. Schema 44 adds nullable `inference_metas.raw_output` for failed provider payloads. |
 
 Because the instance has a public IP and the binary connects over the
 `/cloudsql/...` socket, the job needs only `--set-cloudsql-instances`; no VPC
@@ -183,6 +183,13 @@ queue concurrency temporarily 1). A first pass of 20 slices identified 3,746 ent
 the older tail; a full-scope sweep (`--limit 5000`, no `--newest`) then identified another 584.
 Final: **4,297 of 5,158 identified**, **3,742 Wikidata identities**, **861 provisional** (the
 unfindable tail). Queue restored to 2, throwaway job deleted.
+
+**2026-11-20 — illumination annotation release.** Fast-forwarded `main` to commit `33afe05` and
+built image `sha256:eddebb98…`. Schema 44 (nullable `inference_metas.raw_output`) was applied by
+execution `nqckp` before the web apply, then revision `00119-5zn` took 100% of traffic and logged
+`Database schema is compatible`. `prod-apply.sh --check` reports no drift. `dreamscroll.ai/`
+returns the unauthenticated redirect and `/login` returns 200. The release adds owner-note-aware
+re-illumination and retains failed provider output; it does not rebuild the graph.
 
 ## Configuration as code
 

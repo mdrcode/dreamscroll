@@ -1,8 +1,8 @@
 # Illumination: include the owner's annotation
 
-**Status:** implemented and locally evaluated 2026-11-20 on `illumination-annotation`.
-Prompt `capture_illumination_v2.1` → `v2.4`; the four-capture eval ran on `v2.2`, `v2.3` tightens
-the owner-note wording, and `v2.4` adds the 4,000-character soft cap on `details`.
+**Status:** shipped 2026-11-20. Prompt `capture_illumination_v2.1` → `v2.4`; the four-capture eval
+ran on `v2.2`, `v2.3` tightens the owner-note wording, and `v2.4` adds the 4,000-character soft cap
+on `details`. Schema 44 (`inference_metas.raw_output`) shipped in the same release.
 
 A wrong reading has no correction path today. The model sees the image, decides what it is, and a
 rerun sees exactly the same input. The user can annotate a capture, but that note never reaches
