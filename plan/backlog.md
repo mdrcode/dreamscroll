@@ -54,13 +54,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ### Knowledge cutover (2026-11-18)
 
-- [x] **Drain the historical identities.** Done 2026-11-18/19. In-region slices (one writer, paced
-  at 1.5 s then 0.8 s, queue concurrency temporarily 1) eventually identified **4,297 of 5,158
-  entities**, with **3,742 Wikidata identities**; **861 remain provisional** (the unfindable tail
-  under the current evidence). The first pass stopped early because it used `--newest --limit 1200`,
-  which re-selected the newest 1,200 awaiting entities and starved the older ~800; a full-scope
-  sweep (`--limit 5000`, no `--newest`) found another 584. The tail is the natural target for
-  agentic curation (`plan/knowledge-agent-curation.md`) rather than more resolution.
 - [ ] **Rotate identity resolution per provider by attempt time.** `identity resolve --newest
   --limit N` re-selects the newest N awaiting entities, so unfindable ones keep the window and the
   older tail is never asked (2026-11-18: ~800 entities were starved; a full-scope sweep added 584
@@ -80,11 +73,12 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 - [ ] **Revisit the illumination model on 2027-01-01.** Flash 3.8's introductory rate ($0.75 input /
   $3.75 output per 1M) ends 2026-12-31 and becomes $1.50 / $7.50 — identical to Hydrogen. Measured
-  on the corpus at the shipped prompt (`capture_illumination_v2`, ungrounded):
+  on the corpus at the then-shipped prompt (`capture_illumination_v2`, ungrounded; the prompt is
+  now v2.4, whose 4,000-character `details` cap does not change this cost shape):
 
   | cell | $/1,000 now | $/1,000 from 2027 | empty lists | entities/capture | p50 |
   | --- | ---: | ---: | ---: | ---: | ---: |
-  | Flash default (shipped) | **$7.18** | $14.36 | 2 of 106 | 3.63 | 10.9 s |
+  | Flash default (then-shipped) | **$7.18** | $14.36 | 2 of 106 | 3.63 | 10.9 s |
   | Hydrogen low | $13.71 | **$13.71** | 8 of 104 | 3.38 | 9.2 s |
   | Hydrogen medium | $19.07 | $19.07 | 10 of 104 | 4.14 | 12.6 s |
 
@@ -109,24 +103,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `inference_metas`.
 
 ### Knowledge identity resolver
-- [x] **Bound the search hint at the observation write.** Done 2026-11-19. `insert_illumination_v2`
-  stores `bounded_hint(search_query)` — whitespace collapsed, at most 256 characters, cut at a word
-  boundary; the raw model output stays in `illumination_raws`. 256 is measured (the longest
-  legitimate hint of 2,937 is 97 characters; the only longer one is a 43 KB degeneration). Rows
-  written before this change keep their value until re-illuminated, so the one legacy 43 KB entity
-  still produces a long query and cache key; everything new is bounded. A survey of every
-  illumination field found no other candidate — `details` reaches 2,006 by design, descriptions and
-  summaries ≤265, arrays ≤10 items / 258 chars — and none of them is a query or a cache key.
-- [x] **Unify the heuristic tokenizer.** The linker tokenises with `text::content_tokens`, the
-  resolver's own definition, instead of splitting on whitespace. Measured over the full rebuild:
-  two link decisions move, both correct merges (`Nintendo` × 2, `The Criterion Collection` × 2), no
-  wrong merges, no losses.
-- [x] **`content_tokens` cannot see short tokens.** Two-character runs that carry a digit (`M4`,
-  `5G`) are now words; general two-letter runs stay dropped. Measured: `M4 carbine` resolves to
-  Q214688, 7 confidences move, nothing lost.
-- [x] **`identity inspect` truncates each answer's list to four candidates.** The decided candidate is now
-  always shown and the rest are counted (`… 5 more`), in text and JSON.
-
 - [ ] **Provider-neutral entity types.** It is capture vocabulary — the illuminator names a type
   in free text — and it currently acts as a *veto* in three places: `classes::incompatible` (rejecting
   candidates by `P31`), the link decision (declining an attachment), and `merge`.
@@ -167,41 +143,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   (111 of 179 collision pairs); add `concept`, `organism`, `referent_form`, and `wikidata_class`
   (unblocks 15 of the 17 `unknown` rows and the dahlia/cultivar corpus).
 
-- [x] **Refuse a merge between incompatible types — accepted tradeoff.** Merge trusts identity
-  equality; the current type vocabulary is not provider-neutral enough for a trustworthy guard.
-  See `plan/pragmatism.md`. Revisit if a wrong cross-type merge survives a rebuild or the
-  provider-neutral type model lands.
-- [x] **Make `link_illumination` transactional.** Shipped 2026-11-16 as one transaction per
-  illumination, and both blockers the item named turned out smaller than stated.
-
-  The executor took the connection rather than the graph: the primitives (`insert_new`, `attach`,
-  `project`) were already generic over `ConnectionTrait`, so `graph::link` gained a
-  connection-taking `apply`, and only the transaction had to move. `Evidence` never had to borrow
-  the connection — `move_identities` already took one, so `add_identity` now does too and the seven
-  sites that build an `Evidence` are untouched. The graph stayed illumination-blind:
-  `KnowledgeGraph::link` still takes a batch of observations, and `helper::link_illumination` is the
-  per-reading wrapper that holds the `ModelEx` and the `is_loaded` guard. The decider runs before the
-  transaction opens: its reads are committed state, its decisions are unchanged by the writes, and it
-  is the slow part. Composition is a caller's unit, not a rule — the heuristic decides each
-  observation against the corpus as it stood before the batch (see `linker/heuristic/linker.rs`), so
-  a wider batch only widens the transaction.
-
-  Two things lost their last caller and are gone: `KnowledgeGraph::add_identity` and
-  `helper::write_observation_identities`. `KnowledgeGraph::create` went too, superseded by the
-  executor's own `insert_new`. The property is locked by
-  `graph::link::unit::a_refused_decision_rolls_the_whole_reading_back`, which fails the second
-  decision of a batch on a tombstone and asserts the first decision's entity and both attaches are
-  gone — the retry therefore finds the whole reading pending.
-- [x] **Make `origin_observation_id` required.** Schema 42 sets the column `NOT NULL`; the model
-  field is `i32`. The null branch is gone from projection. A detached origin still selects another
-  current member, because membership can change after creation; stubs that are never inserted use
-  `0` as an explicit no-observation sentinel.
-- [x] **Make the tree `rustfmt`-clean, and keep it that way.** `cargo fmt` was applied across the
-  tree; `cargo fmt --check` passes, and `AGENTS.md` now requires formatting before commit.
-- [x] **Remove the unconditional handle attach.** The linker now uses the blocker and scorer for
-  every observation; a handle is carried as an identity but does not bypass ranking. Measured on the
-  local rebuild: **35 / 39** cases still attached through scoring; **4** split into new entities and
-  all four appear in `proximity scan`. The dead `GraphSelector::holder` query was removed.
 - [ ] Change the formatting pattern of the "commands" for both dreamscroll_api
   to use consistent - or _. Currently we use a mix.
 - [ ] Expose the archived feed navigationally and paginate it. `/archived` works
@@ -267,46 +208,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   Moot if the Interactions API has no file-reference input; then the lever is
   shrinking uploads instead. See MEDIA_TRANSCODE in `plan/upload-formats.md`.
 
-- [x] **Make the scoring agree with itself.** An audit of `src/knowledge` (2026-11-04) found four
-  places where a function contradicts its own rule. Item 2 is fixed; item 1 is moot since the ladder.
-
-  1. ~~**Two fits for one candidate.**~~ **Moot** (2026-11-13): `policy.rs::parse_search` and the
-     admitted-subset weights are gone. `aggregate::rank` builds one `Weights` over the field, so one
-     candidate is scored against one corpus.
-  2. ~~**The margin guards the wrong competitor.**~~ **Fixed** (2026-11-12): `Ranking::rank` sorts
-     by `fit` and lets the blend break ties only, so `decide`'s `runner_up` is the closest competitor
-     *by the measure it margins*. Locked by
-     `policy::tests::the_runner_up_is_measured_in_the_same_order_as_the_winner`.
-  3. ~~**Two orderings for "most substantiated".**~~ **Fixed by construction** (2026-11-04): the SQL
-     `ORDER BY` is gone, `holders_of_identity` sorts with `Worth::order`, and `merge_open` asks the same
-     function — one comparator, no NULL rule to keep in sync.
-
-  1 is ranker policy and belongs with the resolver, not the linker. Full statement, options and the
-  rebuild recipe: [wikidata-cleanup-20261112.md](archive/wikidata-cleanup-20261112.md). Note that the scoring
-  split (`scorer.rs` verbs, `identification/measure.rs` policy) makes it cheaper to state:
-  `parse_search` builds `Weights` itself instead of asking the policy, which is the visible oddity
-  rather than a hidden one.
-
-- [x] **Destructive DB tests are racy under parallel execution.** Reproduced 2026-11-16, and the two
-  snapshot failures were one test poisoning a pooled schema:
-
-  `cargo test --lib knowledge::snapshot::reset -- --test-threads=1` failed 2 of 6 with exactly the
-  recorded symptom (`relation "knowledge_entity_membership__<ts>" does not exist`). Cause:
-  `reset_keeps_only_the_newest_ten_snapshot_suffixes` left its ten synthetic
-  `knowledge_entities__20990101T…` tables behind, and `TestDb` recycles schemas. `prune_snapshots`
-  keeps the newest `RETAIN_SNAPSHOTS` (10) suffixes **per schema**, so those future-dated leftovers
-  filled the whole window and the next reset in that slot dropped every real snapshot — including the
-  one the test running next had just taken. Verified in the leftover schema: ten `2099` tables, no
-  membership table, nothing else.
-
-  Fixed in test code only: a `clear_snapshots` helper drops every `<family>__<suffix>` table the
-  schema inherited, and the four snapshot tests call it before asserting. The retention test's
-  assertion tightened from `pruned_snapshots >= 2` to `== 2`, since the schema now starts empty.
-
-  Still unproven: `schema_sync_drops_manual_indexes_only_in_current_schema` was in the same reported
-  set, but it has not been reproduced — 4 runs of the module and 2 full suites were green, and it
-  drops both the extra schema and its index. No fix applied, deliberately.
-
 - [ ] **Normalisation at the query boundary — watch, do not build.** Entity names reach Wikidata as
   `trim()`ed surfaces and nothing else. That is correct: the label question is an exact `rdfs:label`
   match (folding case or collapsing inner spaces would *cause* misses), the Wikipedia title API
@@ -346,11 +247,13 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   stays, and `alt_types` is where "this person's item also covers their account" should be recorded.
   Do not special-case the link decider for one handle — that is the hack this item exists to avoid.
 
-- [ ] **Make illumination retries append rather than replace.** `insert_illumination` upserts by
-  `task_run_id`, then deletes and re-inserts its observations, so a retry of one run discards the
-  previous attempt before `link` ever sees it — the graph's "every reading survives" rule silently
-  loses the reading. A re-illumination from a *new* run is unaffected. This is the supersede change
-  and the only part of the illumination-history work that touches ingest.
+- [ ] **Make illumination retries append rather than replace.** `insert_illumination_v2` upserts by
+  `task_run_id`, then deletes and re-inserts its observations; `insert_illumination_raw` replaces the
+  raw row the same way. A retry of one run therefore discards the previous attempt. If
+  `knowledge_link` already ran, the graph can keep entities/evidence derived from observations that
+  no longer exist; if it had not run, the attempt is still lost from history. A re-illumination from
+  a *new* run is unaffected. This is the supersede change and the only part of the illumination-history
+  work that touches ingest. Tracked as a tolerated tradeoff in `plan/pragmatism.md`.
 
 ## Deferred — already scoped
 
@@ -393,12 +296,12 @@ Carried forward from `plan/archive/devlog.md`; each needs a design pass before i
   the first labelled data in the system: every pinned reading says which run was right, which is the
   only way to answer whether re-illumination helps.
 - **Bifurcate the app loop** into `LearnMoreAbout`, `MoreLikeThis`, and `GoBeyond`.
-- **Entity pages, and permanent redirects from tombstones.** One page per knowledge entity, and a
-  merged entity answers `301` to its canonical one: `merged_into_id` is a permanent forwarding
-  pointer, kept append-only so unmerging stays a single pointer restore. Following stops at a fixed
-  hop cap and errors — exhaustion means a cycle, which nothing else guards. `301` not `302`, because
-  the identity moved for good: a browser that cached the redirect will keep following it after an
-  unmerge.
+- **Permanent redirects from tombstones.** A merged entity answers `301` to its canonical one:
+  `merged_into_id` is a permanent forwarding pointer, kept append-only so unmerging stays a single
+  pointer restore. Following stops at a fixed hop cap and errors — exhaustion means a cycle, which
+  nothing else guards. `301` not `302`, because the identity moved for good: a browser that cached
+  the redirect will keep following it after an unmerge. Entity pages themselves shipped 2026-11-19;
+  see [`plan/entity-page.md`](entity-page.md).
 - **Mind Map** view over the knowledge graph.
 - **Derived media resolutions.** `thumbnail_url` points at the original asset, not a
   separately generated thumbnail; large screenshots are served at full size.
