@@ -849,6 +849,7 @@ function setupSearchClearButton() {
 
         // Only the feed reloads in place; detail/entity search navigates.
         if (document.body && document.body.dataset.pageKind === 'feed') {
+            document.body.dataset.feedContentMode = 'timeline';
             reloadFeedFrame();
         }
     });
@@ -894,6 +895,10 @@ function setupSearchEndpointRouting() {
         if (state.query.startsWith('/')) {
             e.preventDefault();
             return;
+        }
+
+        if (document.body && document.body.dataset.pageKind === 'feed') {
+            document.body.dataset.feedContentMode = state.query ? 'search' : 'timeline';
         }
 
         e.detail.path = '/feed';
@@ -1024,13 +1029,23 @@ function setupUploadInteractions() {
         return document.body ? document.body.dataset.feedContentMode : '';
     }
 
+    function currentSearchQuery() {
+        const searchInput = document.getElementById('header-search-input');
+        return searchInput ? searchInput.value.trim() : '';
+    }
+
+    // Only the unfiltered timeline can absorb a new card without changing context. Search updates
+    // the feed in place without rewriting body[data-feed-content-mode], so the query is the source
+    // of truth there.
     function shouldRefreshAfterUpload() {
-        return getFeedContentMode() === 'timeline';
+        const pageKind = document.body ? document.body.dataset.pageKind : '';
+        return pageKind === 'feed'
+            && getFeedContentMode() === 'timeline'
+            && currentSearchQuery().length === 0;
     }
 
     function shouldShowUploadNotice() {
-        const mode = getFeedContentMode();
-        return mode === 'search' || mode === 'detail';
+        return !shouldRefreshAfterUpload();
     }
 
     function showUploadNotice(uploadResult, errorMessage) {
